@@ -11,14 +11,14 @@ Usage:
 
 from __future__ import annotations
 
-import numpy as np
 import mujoco
+import numpy as np
 
-from mjorbit.constants import R_EARTH, GM_EARTH
+from mjorbit.constants import GM_EARTH, R_EARTH
 from mjorbit.cpu import compile_cpu, step_cpu
-from mjorbit.cpu.core.config import CPUScenarioCfg, OrbitCfg, MuJoCoCfg
-from mjorbit.cpu.orbit.elements import keplerian_to_cartesian
+from mjorbit.cpu.core.config import CPUScenarioCfg, MuJoCoCfg, OrbitCfg
 from mjorbit.cpu.mjcf.builders import SPACECRAFT_ARM_XML
+from mjorbit.cpu.orbit.elements import keplerian_to_cartesian
 
 
 def main() -> None:
@@ -44,7 +44,9 @@ def main() -> None:
     print("CPU Arm Reach — Articulated Spacecraft Example")
     print("=" * 60)
     print(f"Model: {mjm.nbody} bodies, {mjm.njnt} joints, {mjm.nu} actuators")
-    print(f"Bodies: {[mujoco.mj_id2name(mjm, mujoco.mjtObj.mjOBJ_BODY, i) for i in range(mjm.nbody)]}")
+    print(
+        f"Bodies: {[mujoco.mj_id2name(mjm, mujoco.mjtObj.mjOBJ_BODY, i) for i in range(mjm.nbody)]}"
+    )
     print()
 
     # ----------------------------------------------------------------
@@ -70,13 +72,17 @@ def main() -> None:
     )
     com_drift = np.linalg.norm(com_1 - com_0)
     print(f"  System COM drift: {com_drift:.6e} m")
-    print(f"  All states finite: {np.all(np.isfinite(mjd.qpos)) and np.all(np.isfinite(mjd.qvel))}")
+    print(
+        f"  All states finite: {np.all(np.isfinite(mjd.qpos)) and np.all(np.isfinite(mjd.qvel))}"
+    )
 
     # ----------------------------------------------------------------
     # Part 2: Joint slew — command arm to target configuration
     # ----------------------------------------------------------------
     print()
-    print("--- Part 2: Arm Slew (10 s, position control to shoulder=1.0, elbow=-0.8 rad) ---")
+    print(
+        "--- Part 2: Arm Slew (10 s, position control to shoulder=1.0, elbow=-0.8 rad) ---"
+    )
 
     target_shoulder = 1.0  # rad
     target_elbow = -0.8  # rad
@@ -94,7 +100,10 @@ def main() -> None:
 
     ee_id = scenario.body_id("ee")
     ee_final = mjd.xipos[ee_id].copy()
-    print(f"  End-effector final pos (LVLH): [{ee_final[0]:.4f}, {ee_final[1]:.4f}, {ee_final[2]:.4f}] m")
+    print(
+        "  End-effector final pos (LVLH): "
+        f"[{ee_final[0]:.4f}, {ee_final[1]:.4f}, {ee_final[2]:.4f}] m"
+    )
 
     # Check joint angles reached target
     # The spacecraft_arm model has: freejoint (7 qpos), shoulder (1), elbow (1)
@@ -106,7 +115,9 @@ def main() -> None:
     shoulder_err = abs(shoulder_q - target_shoulder)
     elbow_err = abs(elbow_q - target_elbow)
     print(f"  Joint errors: shoulder={shoulder_err:.4e}, elbow={elbow_err:.4e}")
-    print("  (Note: free-floating base absorbs reaction — joints won't converge to target)")
+    print("  (Free-floating base adds a longer transient; pure MuJoCo with a fixed base")
+    print("   reaches the target, so this example is checking coupled motion rather than")
+    print("   exact 10 s settling.)")
 
     # ----------------------------------------------------------------
     # Part 3: Conservation check — internal motion shouldn't change orbit
@@ -119,8 +130,14 @@ def main() -> None:
     # Expected drift from orbit propagation (15 s at ~7.7 km/s)
     v_circ = np.linalg.norm(V_eci)
     expected_distance = v_circ * 15.0  # km
-    print(f"  Chief position change: {dR:.2f} km (expected ~{expected_distance:.0f} km from propagation)")
-    print(f"  Chief speed: {np.linalg.norm(orbit_after.V_eci):.6f} km/s (initial: {np.linalg.norm(V_eci):.6f} km/s)")
+    print(
+        f"  Chief position change: {dR:.2f} km "
+        f"(expected ~{expected_distance:.0f} km from propagation)"
+    )
+    print(
+        f"  Chief speed: {np.linalg.norm(orbit_after.V_eci):.6f} km/s "
+        f"(initial: {np.linalg.norm(V_eci):.6f} km/s)"
+    )
 
     # Orbital energy should be roughly conserved (no external forces)
     r1 = np.linalg.norm(orbit_after.R_eci)
@@ -142,7 +159,10 @@ def main() -> None:
         step_cpu(scenario, ctrl=ctrl)
 
     all_finite = np.all(np.isfinite(mjd.qpos)) and np.all(np.isfinite(mjd.qvel))
-    print(f"  All states finite after {(n_steps_1 + n_steps_2 + n_steps_4) * dt:.0f} s: {all_finite}")
+    print(
+        f"  All states finite after {(n_steps_1 + n_steps_2 + n_steps_4) * dt:.0f} s: "
+        f"{all_finite}"
+    )
     print(f"  Total time simulated: {scenario.orbit.t:.1f} s")
 
     print()

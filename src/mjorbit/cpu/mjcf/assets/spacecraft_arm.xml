@@ -1,4 +1,5 @@
 <mujoco model="spacecraft_arm">
+  <compiler angle="radian"/>
   <!-- Spacecraft with a 2-link robotic arm for Phase 9 examples.
        Gravity is disabled at runtime by compile_cpu.
        The orbit layer provides all inertial forces via xfrc_applied.

@@ -11,6 +11,12 @@ dependencies = [
     "numpy>=1.26,<2",
 ]
 
+[project.optional-dependencies]
+viewer = [
+    "viser>=0.2.0",
+    "trimesh>=4.0",
+]
+
 [tool.uv]
 python-preference = "only-managed"
 
