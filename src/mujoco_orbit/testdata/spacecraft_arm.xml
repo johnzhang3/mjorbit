@@ -1,0 +1,43 @@
+<mujoco model="spacecraft_arm">
+  <compiler angle="radian"/>
+  <!-- Spacecraft with a 2-link robotic arm for Phase 9 examples.
+       Gravity is disabled at runtime by compile.
+       The orbit layer provides all inertial forces via xfrc_applied.
+       Units: meters, kg (MuJoCo SI). -->
+  <option timestep="0.01" gravity="0 0 0"/>
+
+  <default>
+    <joint damping="0.5" armature="0.01"/>
+    <geom rgba="0.6 0.6 0.6 1"/>
+  </default>
+
+  <worldbody>
+    <!-- Spacecraft bus — free-floating base -->
+    <body name="spacecraft" pos="0 0 0">
+      <freejoint name="base"/>
+      <geom type="box" size="0.5 0.3 0.3" mass="200" rgba="0.3 0.5 0.9 1"/>
+
+      <!-- Shoulder joint -->
+      <body name="link1" pos="0.5 0 0">
+        <joint name="shoulder" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+        <geom type="capsule" fromto="0 0 0 0.8 0 0" size="0.04" mass="5"/>
+
+        <!-- Elbow joint -->
+        <body name="link2" pos="0.8 0 0">
+          <joint name="elbow" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+          <geom type="capsule" fromto="0 0 0 0.6 0 0" size="0.03" mass="3"/>
+
+          <!-- End effector -->
+          <body name="ee" pos="0.6 0 0">
+            <geom type="sphere" size="0.05" mass="1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <position joint="shoulder" kp="10" ctrlrange="-3.14 3.14"/>
+    <position joint="elbow" kp="10" ctrlrange="-3.14 3.14"/>
+  </actuator>
+</mujoco>

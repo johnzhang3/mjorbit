@@ -1,12 +1,12 @@
-# mjorbit
+# mujoco_orbit
 
-CPU-first reference simulator for coupled orbital dynamics and MuJoCo multibody dynamics.
+Default NumPy + MuJoCo simulator for coupled orbital dynamics and MuJoCo multibody dynamics.
 
 ## Project layout
 
-- `src/mjorbit/` — main package (hatchling src layout)
-- `src/mjorbit/cpu/` — CPU reference simulator (NumPy + standard MuJoCo)
-- `tests/cpu/` — unit and integration tests for the CPU path
+- `src/mujoco_orbit/` — main package (hatchling src layout)
+- `src/mujoco_orbit/` — default simulator (NumPy + standard MuJoCo)
+- `tests/mujoco_orbit/` — unit and integration tests for the default path
 - `examples/` — runnable example scripts
 
 ## Development
@@ -30,7 +30,7 @@ MuJoCo uses SI (m, s, kg) internally. Conversions happen at the MuJoCo boundary.
 
 ## Key design rules
 
-- CPU path is single-world correctness baseline, not a performance simulator.
+- The default path is the single-world correctness baseline, not a performance simulator.
 - Per-body gravity/J2 forces (not a single rigid-body gradient torque formula).
 - Explicit flat-plate surface metadata for drag/SRP (not inferred from MuJoCo geoms).
 - Reaction wheels, magnetorquers, thrusters are external actuator state — not MuJoCo joints.

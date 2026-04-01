@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "mjorbit"
+name = "mujoco-orbit"
 version = "0.1.0"
 requires-python = ">=3.11,<3.13"
 dependencies = [
@@ -28,7 +28,11 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mjorbit"]
+packages = ["src/mujoco_orbit", "src/viewer"]
+include = ["src/mujoco_orbit/testdata/*.xml"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/mujoco_orbit/testdata/*.xml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
