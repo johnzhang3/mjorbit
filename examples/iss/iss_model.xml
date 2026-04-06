@@ -1,0 +1,53 @@
+<mujoco model="iss_rigid_body">
+  <compiler angle="radian"/>
+  <!-- International Space Station — single rigid body model.
+       Mass: ~420,000 kg
+       Principal MOI: Ixx=128e6, Iyy=107e6, Izz=201e6 kg·m²
+
+       Body frame convention (LVLH-aligned at rest):
+         X = along-track (velocity direction)  — roll axis
+         Y = cross-track (orbit-normal)        — pitch axis
+         Z = nadir-pointing (local vertical)   — yaw axis
+
+       The geometry is purely visual — drag/SRP surfaces are defined
+       externally via SurfaceCfg. Inertia is set explicitly.
+
+       Gravity is disabled at runtime by compile (opt.gravity = 0).
+       The orbit layer provides all inertial forces via xfrc_applied.
+       Units: meters, kg (MuJoCo SI). -->
+  <option timestep="0.002" gravity="0 0 0"/>
+
+  <worldbody>
+    <body name="iss" pos="0 0 0">
+      <freejoint name="base"/>
+
+      <!-- Exact mass and inertia (overrides geom-derived values) -->
+      <inertial pos="0 0 0" mass="420000"
+                diaginertia="128000000 107000000 201000000"/>
+
+      <!-- Visual geometry: pressurized modules (along X) -->
+      <geom name="modules" type="box" size="36.5 2.1 2.1"
+            rgba="0.8 0.8 0.8 1" mass="0"/>
+
+      <!-- Visual geometry: truss (along Y, cross-track) -->
+      <geom name="truss" type="box" size="2.3 54.25 2.3"
+            rgba="0.6 0.6 0.6 1" mass="0"/>
+
+      <!-- Visual: port solar arrays (−Y side) -->
+      <geom name="sa_port" type="box" size="6.0 17.0 0.05"
+            pos="0 -37.25 0" rgba="0.2 0.2 0.5 0.7" mass="0"/>
+
+      <!-- Visual: starboard solar arrays (+Y side) -->
+      <geom name="sa_starboard" type="box" size="6.0 17.0 0.05"
+            pos="0 37.25 0" rgba="0.2 0.2 0.5 0.7" mass="0"/>
+
+      <!-- Visual: radiators (port) -->
+      <geom name="rad_port" type="box" size="1.7 11.5 0.03"
+            pos="0 -20.0 3.0" rgba="0.9 0.9 0.9 0.6" mass="0"/>
+
+      <!-- Visual: radiators (starboard) -->
+      <geom name="rad_starboard" type="box" size="1.7 11.5 0.03"
+            pos="0 20.0 3.0" rgba="0.9 0.9 0.9 0.6" mass="0"/>
+    </body>
+  </worldbody>
+</mujoco>
