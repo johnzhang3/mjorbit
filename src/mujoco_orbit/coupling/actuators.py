@@ -39,10 +39,27 @@ def apply_actuator_wrenches(scenario: Scenario, dt: float) -> None:
 
 
 def _apply_reaction_wheels(scenario: Scenario, dt: float) -> None:
-    """Integrate wheel speeds and apply reaction torques to host bodies."""
+    """Apply gyroscopic coupling torque from stored reaction wheel momentum.
+
+    MuJoCo integrates the rigid-body Euler equations:
+        J·ω̇ + ω × J·ω = τ_ext
+
+    For a gyrostat with rotor momentum h in the body frame, the correct
+    equation of motion is:
+        J·ω̇ + ω × (J·ω + h) = τ_ext
+
+    The extra term  -ω × h  must be applied as an external torque so that
+    MuJoCo's integrator produces the correct gyrostat dynamics.
+
+    Torque commands (wheel acceleration) are handled separately by
+    ``command_rw_torques``.
+    """
     cfg_rws = scenario.cfg.reaction_wheels
     if not cfg_rws:
         return
+
+    act = scenario.actuator_state
+    mjd = scenario.mjd
 
     for i, rw_cfg in enumerate(cfg_rws):
         bid = mujoco.mj_name2id(
@@ -51,28 +68,22 @@ def _apply_reaction_wheels(scenario: Scenario, dt: float) -> None:
         if bid < 0:
             continue
 
-        # Commanded torque on wheel (from external command interface)
-        # For now, commanded torque is stored as: act.rw_speed is integrated externally.
-        # The control loop sets a desired torque → we compute wheel accel.
-        # We use rw_speed as state and expect the user to set a commanded torque.
-        # Convention: positive rw_cmd = torque on wheel in +axis direction
+        # Wheel angular momentum in body frame: h_i = I_w * Ω_w * axis
+        axis_body = rw_cfg.axis_body / np.linalg.norm(rw_cfg.axis_body)
+        h_body = act.rw_inertia[i] * act.rw_speed[i] * axis_body  # kg·m²/s
 
-        # Compute wheel angular acceleration from commanded torque
-        # The commanded torque is encoded in rw_speed changes by the control loop.
-        # For Phase 7, we provide a helper that takes a torque command.
-        # But for the wrench assembly, we just need the current speed and any
-        # commanded torque. We store the "last commanded torque" in the speed update.
-        #
-        # Simplification: the control loop calls `command_rw_torque` which updates
-        # speed and returns the reaction torque. Here we just read the stored speed.
-        # Actually, we need the torque command for reaction. Let me restructure:
-        # The control flow is:
-        #   1. User sets rw_torque_cmd[i] (external)
-        #   2. We clamp, saturate, integrate speed, apply reaction torque
-        # We need a torque command buffer. Let me use a convention:
-        # act.rw_speed contains the current speed. The commanded torque comes from
-        # a separate buffer. For now, I'll add it inline.
-        pass  # Handled by command_rw_torques below
+        # Free-joint angular velocity is in body frame
+        w_body = mjd.qvel[3:6]
+
+        # Gyroscopic coupling torque: τ = -ω × h  (body frame)
+        tau_body = -np.cross(w_body, h_body)
+
+        # Rotate to world frame for xfrc_applied
+        # Use xmat (body frame), NOT ximat (inertia frame)
+        R_body = mjd.xmat[bid].reshape(3, 3)
+        tau_world = R_body @ tau_body
+
+        scenario._wrench_buffer[bid, 3:] += tau_world
 
 
 def command_rw_torques(
@@ -133,7 +144,7 @@ def command_rw_torques(
         tau_body = reaction_tau * axis_body
 
         # Rotate to world frame
-        R_body = mjd.ximat[bid].reshape(3, 3)
+        R_body = mjd.xmat[bid].reshape(3, 3)
         tau_world = R_body @ tau_body
 
         scenario._wrench_buffer[bid, 3:] += tau_world
@@ -169,7 +180,7 @@ def _apply_magnetorquers(scenario: Scenario) -> None:
         axis_body = mtq_cfg.axis_body / np.linalg.norm(mtq_cfg.axis_body)
         dipole_body = m_cmd * axis_body  # A·m^2 in body frame
 
-        R_body = mjd.ximat[bid].reshape(3, 3)
+        R_body = mjd.xmat[bid].reshape(3, 3)
         B_body = R_body.T @ B_world
 
         tau_body = np.cross(dipole_body, B_body)
@@ -200,7 +211,7 @@ def _apply_thrusters(scenario: Scenario) -> None:
         direction_body = thr_cfg.direction_body / np.linalg.norm(thr_cfg.direction_body)
         F_body = f_cmd * direction_body  # N in body frame
 
-        R_body = mjd.ximat[bid].reshape(3, 3)
+        R_body = mjd.xmat[bid].reshape(3, 3)
         F_world = R_body @ F_body  # N in world frame
 
         # xfrc_applied torques are about the body COM, not the body-frame origin.

@@ -12,6 +12,7 @@ import numpy as np
 from mujoco_orbit.core.scenario import Scenario
 from mujoco_orbit.coupling.actuators import (
     _apply_magnetorquers,
+    _apply_reaction_wheels,
     _apply_thrusters,
     command_rw_torques,
 )
@@ -56,6 +57,7 @@ def step(
     assemble_and_apply_wrenches(scenario)
 
     # 2. Apply external actuator wrenches
+    _apply_reaction_wheels(scenario, mj_dt)
     if rw_torques is not None:
         command_rw_torques(scenario, rw_torques, mj_dt)
     _apply_magnetorquers(scenario)

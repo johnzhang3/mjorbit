@@ -82,7 +82,7 @@ class Scenario:
 
     def body_com_rotmat(self, body_id: int) -> np.ndarray:
         """Body COM orientation as 3x3 rotation matrix (world-from-body)."""
-        return self.mjd.ximat[body_id].reshape(3, 3).copy()
+        return self.mjd.xmat[body_id].reshape(3, 3).copy()
 
     def body_com_vel(self, body_id: int) -> np.ndarray:
         """Body COM linear velocity in world frame, m/s."""

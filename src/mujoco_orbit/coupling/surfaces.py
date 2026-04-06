@@ -46,7 +46,7 @@ def apply_surface_wrenches(scenario: Scenario) -> None:
         bid = surf.body_id
 
         # Body world-from-body rotation
-        R_body = mjd.ximat[bid].reshape(3, 3)
+        R_body = mjd.xmat[bid].reshape(3, 3)
 
         # Surface point in world frame (meters, relative to body COM)
         r_cop_world = R_body @ surf.center_of_pressure_body  # m

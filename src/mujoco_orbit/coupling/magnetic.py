@@ -34,7 +34,7 @@ def apply_magnetic_wrenches(scenario: Scenario) -> None:
         bid = mag.body_id
 
         # World-from-body rotation
-        R_body = mjd.ximat[bid].reshape(3, 3)
+        R_body = mjd.xmat[bid].reshape(3, 3)
 
         # Body-from-world rotation
         R_inv = R_body.T
