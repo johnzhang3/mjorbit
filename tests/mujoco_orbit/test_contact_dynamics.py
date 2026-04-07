@@ -381,7 +381,11 @@ class TestPostCollisionOrbits:
             cw_b = _cw(pos_b0[0], pos_b0[1], pos_b0[2],
                         vel_b0[0], vel_b0[1], vel_b0[2], n, t_prop)
 
-            # Each body should match its CW trajectory
+            # The simulator uses exact (nonlinear) differential gravity, not
+            # the CW linearization. At meter-scale offsets from a 6778 km orbit
+            # the linearization error is small, so CW is a good reference — but
+            # not exact. Tolerances reflect the linearization gap, not numerical
+            # error.
             np.testing.assert_allclose(
                 pos_a_final, cw_a, rtol=0.03, atol=0.01,
                 err_msg="Body A post-collision trajectory doesn't match CW",

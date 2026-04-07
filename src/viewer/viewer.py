@@ -21,7 +21,7 @@ Units are **metres** (MuJoCo SI).
 from __future__ import annotations
 
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import viser
@@ -31,6 +31,15 @@ from mujoco_orbit.core.step import mjo_step
 
 from .bodies import MuJoCoScene
 from .earth import BodyTrail, add_earth
+
+# Default trail colour cycle (RGBA)
+_TRAIL_COLORS: list[tuple[int, int, int]] = [
+    (255, 200, 50),   # gold
+    (50, 200, 255),   # cyan
+    (255, 100, 100),  # salmon
+    (100, 255, 100),  # lime
+    (200, 150, 255),  # lavender
+]
 
 
 class MjOrbitViewer:
@@ -48,8 +57,14 @@ class MjOrbitViewer:
         Draw LVLH reference axes at the origin.
     track_body : str or None
         If given, record and draw this body's trajectory trail.
+        Deprecated in favour of *track_bodies*.
+    track_bodies : list of str, optional
+        Body names whose trajectories are drawn as coloured trails.
     trail_max_points : int
-        Maximum trail history length.
+        Maximum trail history length per body.
+    camera_distance : float or None
+        Initial camera distance from the origin (metres).  If *None*,
+        defaults to 10 m for detail view.
     """
 
     def __init__(
@@ -61,24 +76,34 @@ class MjOrbitViewer:
         show_earth: bool = True,
         show_axes: bool = True,
         track_body: Optional[str] = None,
+        track_bodies: Optional[Sequence[str]] = None,
         trail_max_points: int = 2000,
+        camera_distance: Optional[float] = None,
     ) -> None:
         self.model = model
         self.data = data
 
         self._port = port
-        self._track_body_id: Optional[int] = None
+        self._show_earth = show_earth
 
         # ---- viser server ---------------------------------------------------
         self.server = viser.ViserServer(host=host, port=port)
         self.server.scene.set_up_direction("+z")
+
+        # ---- Camera ----------------------------------------------------------
+        R_orbit_m = float(np.linalg.norm(self.data.orbit.R_eci)) * 1000.0
+        cam_dist = camera_distance if camera_distance is not None else 10.0
+        self.server.initial_camera.position = (0.0, -cam_dist, cam_dist * 0.5)
+        self.server.initial_camera.look_at = (0.0, 0.0, 0.0)
+        if show_earth:
+            # Far plane must reach Earth surface: orbit radius + Earth radius
+            self.server.initial_camera.far = R_orbit_m * 2.5
 
         # ---- MuJoCo body geometry -------------------------------------------
         self.mj_scene = MuJoCoScene(self.server, self.model.mj_model)
 
         # ---- Earth -----------------------------------------------------------
         if show_earth:
-            R_orbit_m = float(np.linalg.norm(self.data.orbit.R_eci)) * 1000.0
             # In RSW, +x is radial outward -> Earth centre is at -x
             add_earth(self.server, position=(-R_orbit_m, 0.0, 0.0))
 
@@ -86,13 +111,25 @@ class MjOrbitViewer:
         if show_axes:
             self._add_lvlh_axes()
 
-        # ---- Body trail ------------------------------------------------------
-        self.trail: Optional[BodyTrail] = None
-        if track_body is not None:
-            self._track_body_id = self.model.body_id(track_body)
-            self.trail = BodyTrail(
-                self.server, track_body, max_points=trail_max_points,
+        # ---- Body trails -----------------------------------------------------
+        # Unify track_body (legacy) and track_bodies into a single list
+        body_names: list[str] = []
+        if track_bodies is not None:
+            body_names.extend(track_bodies)
+        elif track_body is not None:
+            body_names.append(track_body)
+
+        self._track_ids: list[int] = []
+        self.trails: list[BodyTrail] = []
+        for i, name in enumerate(body_names):
+            self._track_ids.append(self.model.body_id(name))
+            color = _TRAIL_COLORS[i % len(_TRAIL_COLORS)]
+            self.trails.append(
+                BodyTrail(self.server, name, max_points=trail_max_points, color=color)
             )
+
+        # Backward-compat alias
+        self.trail: Optional[BodyTrail] = self.trails[0] if self.trails else None
 
         # ---- GUI controls ----------------------------------------------------
         self._speed = 1.0
@@ -195,14 +232,13 @@ class MjOrbitViewer:
                         budget -= dt
                         steps += 1
 
-                        # Sample trail
+                        # Sample trails
                         if (
-                            self.trail is not None
-                            and self._track_body_id is not None
+                            self.trails
                             and sim_t - last_trail_t >= trail_interval
                         ):
-                            pos = self.data.xipos[self._track_body_id]
-                            self.trail.append(pos)
+                            for tid, trail in zip(self._track_ids, self.trails):
+                                trail.append(self.data.xipos[tid].copy())
                             last_trail_t = sim_t
 
                         # Cap steps per render frame to stay responsive
@@ -212,8 +248,8 @@ class MjOrbitViewer:
 
                 # ---- update visuals ------------------------------------------
                 self.mj_scene.update(self.data.mj_data)
-                if self.trail is not None:
-                    self.trail.render()
+                for trail in self.trails:
+                    trail.render()
                 self._time_md.content = f"**t** = {sim_t:.2f} s"
 
                 time.sleep(1.0 / 60.0)
