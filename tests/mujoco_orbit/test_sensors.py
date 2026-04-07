@@ -41,6 +41,28 @@ def _quat_to_rotmat(q: np.ndarray) -> np.ndarray:
     )
 
 
+def _rotation_matrix_from_rotvec(rotvec: np.ndarray) -> np.ndarray:
+    theta = np.linalg.norm(rotvec)
+    if theta < 1e-12:
+        return np.eye(3) + np.array(
+            [
+                [0.0, -rotvec[2], rotvec[1]],
+                [rotvec[2], 0.0, -rotvec[0]],
+                [-rotvec[1], rotvec[0], 0.0],
+            ]
+        )
+
+    axis = rotvec / theta
+    K = np.array(
+        [
+            [0.0, -axis[2], axis[1]],
+            [axis[2], 0.0, -axis[0]],
+            [-axis[1], axis[0], 0.0],
+        ]
+    )
+    return np.eye(3) + np.sin(theta) * K + (1.0 - np.cos(theta)) * (K @ K)
+
+
 def _set_attitude(
     model,
     data,
@@ -117,6 +139,7 @@ class TestSensorDiscovery:
         model, data = _make_model_data()
 
         assert set(model.sensors.by_name) == {
+            "acc_body",
             "gyro_body",
             "mag_body",
             "mag_rotated",
@@ -215,6 +238,85 @@ class TestSensorMeasurements:
 
         np.testing.assert_allclose(meas1, meas2)
         np.testing.assert_allclose(meas1 - truth, data.sensors.bias("gyro"))
+
+    def test_accelerometer_and_magnetometer_bias_are_constant_per_data_instance(
+        self, tmp_path: pathlib.Path
+    ):
+        xml = """\
+<mujoco model="imu_biases">
+  <size nuser_sensor="4"/>
+  <option timestep="0.01" gravity="0 0 0"/>
+  <worldbody>
+    <body name="spacecraft">
+      <freejoint/>
+      <geom type="box" size="0.5 0.5 0.5" mass="100"/>
+      <site name="imu" pos="0 0 0"/>
+    </body>
+  </worldbody>
+  <sensor>
+    <accelerometer name="acc" site="imu" noise="0" user="1e-3"/>
+    <magnetometer name="mag" site="imu" noise="0" user="2e-7"/>
+  </sensor>
+</mujoco>
+"""
+        xml_path = tmp_path / "imu_biases.xml"
+        xml_path.write_text(xml)
+
+        model, data = _make_model_data(str(xml_path), rng_seed=123)
+        _set_attitude(model, data, np.array([1.0, 0.0, 0.0, 0.0]), np.array([0.0, 0.0, 0.0]))
+
+        for name in ["acc", "mag"]:
+            truth = data.sensors.measure(name, noisy=False)
+            meas1 = data.sensors.measure(name, noisy=True, rng=np.random.default_rng(1))
+            meas2 = data.sensors.measure(name, noisy=True, rng=np.random.default_rng(2))
+
+            np.testing.assert_allclose(meas1, meas2)
+            np.testing.assert_allclose(meas1 - truth, data.sensors.bias(name))
+
+    def test_axis_sensor_bias_is_applied_as_fixed_misalignment(self, tmp_path: pathlib.Path):
+        xml = """\
+<mujoco model="vector_biases">
+  <size nuser_sensor="4"/>
+  <option timestep="0.01" gravity="0 0 0"/>
+  <worldbody>
+    <body name="spacecraft">
+      <freejoint/>
+      <geom type="box" size="0.5 0.5 0.5" mass="100"/>
+      <site name="tracker" pos="0.2 0 0"/>
+    </body>
+  </worldbody>
+  <sensor>
+    <user
+      name="orbit_star_body"
+      objtype="site"
+      objname="tracker"
+      datatype="axis"
+      needstage="pos"
+      dim="3"
+      noise="0"
+      user="0.3 0.8 -0.4 1e-3"
+    />
+  </sensor>
+</mujoco>
+"""
+        xml_path = tmp_path / "vector_biases.xml"
+        xml_path.write_text(xml)
+
+        model, data = _make_model_data(str(xml_path), rng_seed=123)
+        _set_attitude(model, data, _quat_from_axis_angle(np.array([0.3, 0.2, -0.5]), 0.4))
+
+        truth = data.sensors.measure("orbit_star_body", noisy=False)
+        meas1 = data.sensors.measure("orbit_star_body", noisy=True, rng=np.random.default_rng(1))
+        meas2 = data.sensors.measure("orbit_star_body", noisy=True, rng=np.random.default_rng(2))
+        bias = data.sensors.bias("orbit_star_body")
+
+        expected = _rotation_matrix_from_rotvec(bias) @ truth
+        expected /= np.linalg.norm(expected)
+
+        np.testing.assert_allclose(meas1, meas2)
+        np.testing.assert_allclose(meas1, expected)
+        assert not np.allclose(meas1, truth)
+        assert bias.shape == (3,)
 
     def test_truth_vectors_match_expected_transforms(self):
         model, data = _make_model_data()

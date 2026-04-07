@@ -16,6 +16,7 @@
 
   <sensor>
     <gyro name="gyro_body" site="imu" noise="5e-4" user="2e-5 0 0 0"/>
+    <accelerometer name="acc_body" site="imu" noise="2e-3"/>
     <magnetometer name="mag_body" site="imu" noise="1e-7"/>
     <magnetometer name="mag_rotated" site="mag_rotated" noise="1e-7"/>
 

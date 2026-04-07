@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from mujoco_orbit.core.runtime import MjoData, MjoModel
 
 _GYRO_SENSOR_TYPE = int(mujoco.mjtSensor.mjSENS_GYRO)
+_ACCELEROMETER_SENSOR_TYPE = int(mujoco.mjtSensor.mjSENS_ACCELEROMETER)
+_MAGNETOMETER_SENSOR_TYPE = int(mujoco.mjtSensor.mjSENS_MAGNETOMETER)
 _USER_SENSOR_TYPE = int(mujoco.mjtSensor.mjSENS_USER)
 
 _AXIS_DATATYPE = int(mujoco.mjtDataType.mjDATATYPE_AXIS)
@@ -33,6 +35,11 @@ _ORBIT_SENSOR_PREFIXES = {
 _DATA_SENSOR_NAMESPACES: dict[int, weakref.ReferenceType["SensorDataNamespace"]] = {}
 _PREVIOUS_SENSOR_CALLBACK: Callable[[mujoco.MjModel, mujoco.MjData, int], None] | None = None
 _SENSOR_DISPATCH_INSTALLED = False
+_ADDITIVE_BIAS_SENSOR_TYPES = {
+    _ACCELEROMETER_SENSOR_TYPE,
+    _GYRO_SENSOR_TYPE,
+    _MAGNETOMETER_SENSOR_TYPE,
+}
 
 
 @dataclass(frozen=True)
@@ -54,6 +61,8 @@ class SensorDescriptor:
     orbit_kind: str | None = None
     reference_eci: np.ndarray | None = None
     gyro_bias_sigma: float = 0.0
+    additive_bias_sigma: np.ndarray | None = None
+    angular_bias_sigma: np.ndarray | None = None
 
     @property
     def data_slice(self) -> slice:
@@ -82,7 +91,16 @@ class SensorDataNamespace:
     model: MjoModel
     data: MjoData
     rng: np.random.Generator
-    gyro_biases: dict[str, np.ndarray] = field(default_factory=dict)
+    biases: dict[str, np.ndarray] = field(default_factory=dict)
+
+    @property
+    def gyro_biases(self) -> dict[str, np.ndarray]:
+        """Backward-compatible view of additive gyro biases only."""
+        return {
+            name: bias.copy()
+            for name, bias in self.biases.items()
+            if self.descriptor(name).sensor_type == _GYRO_SENSOR_TYPE
+        }
 
     def descriptor(self, name: str) -> SensorDescriptor:
         descriptor = self.model.sensors.by_name.get(name)
@@ -91,8 +109,18 @@ class SensorDataNamespace:
         return descriptor
 
     def bias(self, name: str) -> np.ndarray:
-        """Return the persistent gyro bias for ``name`` if one exists."""
-        return self.gyro_biases.get(name, np.zeros(3)).copy()
+        """Return the persistent bias state for ``name`` if one exists.
+
+        Real-valued sensors use additive bias in measurement units.
+        Axis and quaternion sensors use a fixed small-angle rotation vector in radians.
+        """
+        descriptor = self.descriptor(name)
+        bias = self.biases.get(name)
+        if bias is not None:
+            return bias.copy()
+        if descriptor.datatype in (_AXIS_DATATYPE, _QUATERNION_DATATYPE):
+            return np.zeros(3)
+        return np.zeros(descriptor.dim)
 
     def measure(
         self,
@@ -108,7 +136,7 @@ class SensorDataNamespace:
             return truth
 
         generator = self.rng if rng is None else rng
-        bias = self.gyro_biases.get(descriptor.name)
+        bias = self.biases.get(descriptor.name)
         return _apply_sensor_noise(generator, descriptor, truth, bias=bias)
 
     def measure_all(
@@ -141,8 +169,25 @@ def compile_sensor_catalog(model: mujoco.MjModel) -> ModelSensorCatalog:
         user = model.sensor_user[sensor_id].copy()
         gyro_bias_sigma = 0.0
         sensor_type = int(model.sensor_type[sensor_id])
-        if sensor_type == _GYRO_SENSOR_TYPE and user.size > 0:
-            gyro_bias_sigma = max(float(user[0]), 0.0)
+        additive_bias_sigma: np.ndarray | None = None
+        angular_bias_sigma: np.ndarray | None = None
+        if sensor_type in _ADDITIVE_BIAS_SENSOR_TYPES:
+            additive_bias_sigma = _parse_bias_sigma(user, int(model.sensor_dim[sensor_id]))
+            if sensor_type == _GYRO_SENSOR_TYPE and additive_bias_sigma is not None:
+                gyro_bias_sigma = float(np.max(additive_bias_sigma))
+
+        if orbit_kind == "star":
+            if user.size < 3:
+                raise ValueError(
+                    f"Sensor '{name}' requires a star vector in sensor user[0:3]"
+                )
+            reference_eci = _normalized(
+                user[:3],
+                f"Sensor '{name}' star vector",
+            )
+            angular_bias_sigma = _parse_bias_sigma(user, 3, offset=3)
+        elif int(model.sensor_datatype[sensor_id]) in (_AXIS_DATATYPE, _QUATERNION_DATATYPE):
+            angular_bias_sigma = _parse_bias_sigma(user, 3)
 
         descriptor = SensorDescriptor(
             sensor_id=sensor_id,
@@ -160,24 +205,12 @@ def compile_sensor_catalog(model: mujoco.MjModel) -> ModelSensorCatalog:
             orbit_kind=orbit_kind,
             reference_eci=reference_eci,
             gyro_bias_sigma=gyro_bias_sigma,
+            additive_bias_sigma=additive_bias_sigma,
+            angular_bias_sigma=angular_bias_sigma,
         )
 
         if descriptor.orbit_kind is not None:
             _validate_orbit_sensor_descriptor(descriptor)
-            if descriptor.orbit_kind == "star":
-                if descriptor.user.size < 3:
-                    raise ValueError(
-                        f"Sensor '{descriptor.name}' requires a star vector in sensor user[0:3]"
-                    )
-                descriptor = SensorDescriptor(
-                    **{
-                        **descriptor.__dict__,
-                        "reference_eci": _normalized(
-                            descriptor.user[:3],
-                            f"Sensor '{descriptor.name}' star vector",
-                        ),
-                    }
-                )
             custom_descriptors.append(descriptor)
 
         descriptors.append(descriptor)
@@ -197,15 +230,23 @@ def create_sensor_data_namespace(
 ) -> SensorDataNamespace:
     """Create the per-run sensor helper object."""
     rng = np.random.default_rng(rng_seed)
-    gyro_biases: dict[str, np.ndarray] = {}
+    biases: dict[str, np.ndarray] = {}
     for descriptor in model.sensors.descriptors:
-        if descriptor.sensor_type != _GYRO_SENSOR_TYPE:
+        if descriptor.additive_bias_sigma is not None:
+            biases[descriptor.name] = rng.normal(
+                0.0,
+                descriptor.additive_bias_sigma,
+                size=descriptor.additive_bias_sigma.shape,
+            )
             continue
-        if descriptor.gyro_bias_sigma <= 0.0:
-            continue
-        gyro_biases[descriptor.name] = rng.normal(0.0, descriptor.gyro_bias_sigma, size=3)
+        if descriptor.angular_bias_sigma is not None:
+            biases[descriptor.name] = rng.normal(
+                0.0,
+                descriptor.angular_bias_sigma,
+                size=descriptor.angular_bias_sigma.shape,
+            )
 
-    return SensorDataNamespace(model=model, data=data, rng=rng, gyro_biases=gyro_biases)
+    return SensorDataNamespace(model=model, data=data, rng=rng, biases=biases)
 
 
 def register_sensor_data_namespace(namespace: SensorDataNamespace) -> None:
@@ -307,8 +348,8 @@ def _apply_sensor_noise(
 ) -> np.ndarray:
     measurement = truth.copy()
 
-    if descriptor.sensor_type == _GYRO_SENSOR_TYPE and bias is not None:
-        measurement = measurement + bias
+    if bias is not None:
+        measurement = _apply_sensor_bias(descriptor, measurement, bias)
 
     if descriptor.noise <= 0.0:
         return _apply_cutoff(descriptor, measurement)
@@ -326,6 +367,38 @@ def _apply_sensor_noise(
         measurement = measurement + rng.normal(0.0, descriptor.noise, size=descriptor.dim)
 
     return _apply_cutoff(descriptor, measurement)
+
+
+def _apply_sensor_bias(
+    descriptor: SensorDescriptor,
+    measurement: np.ndarray,
+    bias: np.ndarray,
+) -> np.ndarray:
+    if descriptor.datatype in (_REAL_DATATYPE, _POSITIVE_DATATYPE):
+        return measurement + bias[: descriptor.dim]
+    if descriptor.datatype == _AXIS_DATATYPE:
+        return _rotate_axis(measurement, bias[:3])
+    if descriptor.datatype == _QUATERNION_DATATYPE:
+        return _rotate_quaternion(measurement, bias[:3])
+    return measurement + bias[: descriptor.dim]
+
+
+def _parse_bias_sigma(user: np.ndarray, dim: int, *, offset: int = 0) -> np.ndarray | None:
+    payload = np.asarray(user[offset:], dtype=float)
+    if payload.size == 0:
+        return None
+
+    if payload.size >= dim and np.any(np.abs(payload[1:dim]) > 0.0):
+        sigma = np.maximum(payload[:dim], 0.0)
+    else:
+        sigma0 = max(float(payload[0]), 0.0)
+        if sigma0 <= 0.0:
+            return None
+        sigma = np.full(dim, sigma0)
+
+    if np.all(sigma <= 0.0):
+        return None
+    return sigma
 
 
 def _apply_cutoff(descriptor: SensorDescriptor, measurement: np.ndarray) -> np.ndarray:
