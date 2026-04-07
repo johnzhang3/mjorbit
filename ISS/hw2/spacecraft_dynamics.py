@@ -24,24 +24,23 @@ import pathlib
 import time as pytime
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-
-from mujoco_orbit import mjo_forward, mjo_step
-
 from common import (
-    J_NOMINAL,
-    SOLAR_NORMAL,
-    OMEGA_RPM,
-    OMEGA_RAD_S,
     INERTIA_RATIO_MIN,
-    perturb_inertia,
-    compute_rotor_momentum,
-    quat_to_rotmat,
+    J_NOMINAL,
+    OMEGA_RAD_S,
+    SOLAR_NORMAL,
     build_model_data,
+    compute_rotor_momentum,
+    perturb_inertia,
+    quat_to_rotmat,
     set_sun_pointing_attitude,
 )
+
+from mujoco_orbit import mjo_forward, mjo_step
 
 np.random.seed(42)
 
@@ -73,7 +72,7 @@ def main() -> None:
     omega_desired = OMEGA_RAD_S * SOLAR_NORMAL
     h, lam, I_trans_max, _ = compute_rotor_momentum(J, omega_desired, INERTIA_RATIO_MIN)
 
-    print(f"Perturbed inertia (diagonal of eigendecomp, kg*m^2):")
+    print("Perturbed inertia (diagonal of eigendecomp, kg*m^2):")
     D_pert = np.linalg.eigvalsh(J)
     for i, val in enumerate(D_pert):
         print(f"  I_{i+1} = {val:.6e}")
@@ -84,7 +83,6 @@ def main() -> None:
     # --- Build scenario ---
     dt = 0.002
     model, data, rw_speeds = build_model_data(J, h, dt=dt)
-    bid = model.body_id("iss")
 
     for i, speed in enumerate(rw_speeds):
         print(f"  RW-{['X','Y','Z'][i]}: speed = {speed:.2f} rad/s "
@@ -110,7 +108,10 @@ def main() -> None:
     n_nutation_periods = 10
     t_total = n_nutation_periods * T_nutation
     print(f"Nutation period ~ {T_nutation:.2f} s")
-    print(f"Simulating {n_nutation_periods} nutation periods = {t_total:.1f} s ({t_total/60:.1f} min)")
+    print(
+        f"Simulating {n_nutation_periods} nutation periods = {t_total:.1f} s "
+        f"({t_total / 60:.1f} min)"
+    )
 
     # --- Run simulation ---
     n_steps = int(t_total / dt)
@@ -169,11 +170,14 @@ def main() -> None:
         ax1.plot(t_plot, quat_hist[:n_rec, k], label=q_labels[k], color=q_colors[k], linewidth=0.8)
     for n in range(n_nutation_periods + 1):
         ax1.axvline(n * T_nutation, color="gray", linestyle="--", alpha=0.3, linewidth=0.5)
-    ax1.set_xlabel("Time (s)"); ax1.set_ylabel("Quaternion component")
+    ax1.set_xlabel("Time (s)")
+    ax1.set_ylabel("Quaternion component")
     ax1.set_title(f"Attitude Quaternion — Coupled Gyrostat + Orbit Simulation\n"
                   f"Perturbed ISS, 10 RPM about +Z, 1% IC perturbation, T_nut ~ {T_nutation:.1f} s",
                   fontsize=11)
-    ax1.legend(fontsize=9); ax1.grid(True, alpha=0.3); ax1.set_ylim(-1.1, 1.1)
+    ax1.legend(fontsize=9)
+    ax1.grid(True, alpha=0.3)
+    ax1.set_ylim(-1.1, 1.1)
     plt.tight_layout()
     fig1.savefig(plot_dir / "spacecraft_dynamics_quaternion.png", dpi=200, bbox_inches="tight")
 
@@ -182,11 +186,13 @@ def main() -> None:
     ax2.plot(t_plot, pointing_err[:n_rec], color="#d62728", linewidth=0.8)
     for n in range(n_nutation_periods + 1):
         ax2.axvline(n * T_nutation, color="gray", linestyle="--", alpha=0.3, linewidth=0.5)
-    ax2.set_xlabel("Time (s)"); ax2.set_ylabel("Pointing error (deg)")
+    ax2.set_xlabel("Time (s)")
+    ax2.set_ylabel("Pointing error (deg)")
     ax2.set_title(f"Solar Panel Normal Pointing Error\n"
                   f"Angle between body +Z and sun direction (+X ECI), T_nut ~ {T_nutation:.1f} s",
                   fontsize=11)
-    ax2.grid(True, alpha=0.3); plt.tight_layout()
+    ax2.grid(True, alpha=0.3)
+    plt.tight_layout()
     fig2.savefig(plot_dir / "spacecraft_dynamics_pointing.png", dpi=200, bbox_inches="tight")
 
     # Figure 3: Angular velocity
@@ -197,10 +203,13 @@ def main() -> None:
         ax3.plot(t_plot, omega_body[:n_rec, k], label=w_labels[k], color=w_colors[k], linewidth=0.8)
     for n in range(n_nutation_periods + 1):
         ax3.axvline(n * T_nutation, color="gray", linestyle="--", alpha=0.3, linewidth=0.5)
-    ax3.set_xlabel("Time (s)"); ax3.set_ylabel("omega (rad/s)")
+    ax3.set_xlabel("Time (s)")
+    ax3.set_ylabel("omega (rad/s)")
     ax3.set_title("Angular Velocity (Body Frame) — Coupled Simulation\n"
                   "Nutation period markers shown as dashed lines", fontsize=11)
-    ax3.legend(fontsize=9); ax3.grid(True, alpha=0.3); plt.tight_layout()
+    ax3.legend(fontsize=9)
+    ax3.grid(True, alpha=0.3)
+    plt.tight_layout()
     fig3.savefig(plot_dir / "spacecraft_dynamics_omega.png", dpi=200, bbox_inches="tight")
 
     plt.close("all")

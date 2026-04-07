@@ -25,35 +25,33 @@ import pathlib
 import time as pytime
 
 import matplotlib
+
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import cvxpy as cp
+import matplotlib.pyplot as plt
 import mujoco
 import numpy as np
-
-from mujoco_orbit import mjo_forward, mjo_step
-
-from common import (
-    J_NOMINAL,
-    SOLAR_NORMAL,
-    OMEGA_RAD_S,
-    perturb_inertia,
-    compute_rotor_momentum,
-    quat_to_rotmat,
-    build_model_data,
-    set_sun_pointing_attitude,
-)
 from attitude_sensors import (
+    HORIZON_SENSOR_RAD,
     STAR_CROSS_RAD,
     SUN_SENSOR_RAD,
-    HORIZON_SENSOR_RAD,
-    MAG_SIGMA,
+    magnetometer_direction_variance,
+    measure_horizon_sensor,
+    measure_magnetometer,
     measure_star_tracker,
     measure_sun_sensor,
-    measure_magnetometer,
-    measure_horizon_sensor,
-    magnetometer_direction_variance,
 )
+from common import (
+    J_NOMINAL,
+    OMEGA_RAD_S,
+    SOLAR_NORMAL,
+    build_model_data,
+    compute_rotor_momentum,
+    perturb_inertia,
+    set_sun_pointing_attitude,
+)
+
+from mujoco_orbit import mjo_forward, mjo_step
 
 np.random.seed(42)
 
@@ -309,11 +307,19 @@ def main() -> None:
     sigma2_nadir = HORIZON_SENSOR_RAD**2
     sigma2_mag = magnetometer_direction_variance(B_mag)
 
-    print(f"\nObservation weights (1/sigma^2):")
-    print(f"  Star tracker:  {1/sigma2_star:.3e} (sigma = {np.rad2deg(STAR_CROSS_RAD)*3600:.1f} arcsec)")
+    print("\nObservation weights (1/sigma^2):")
+    print(
+        "  Star tracker:  "
+        f"{1 / sigma2_star:.3e} "
+        f"(sigma = {np.rad2deg(STAR_CROSS_RAD) * 3600:.1f} arcsec)"
+    )
     print(f"  Sun sensor:    {1/sigma2_sun:.3e} (sigma = {SUN_SENSOR_DEG:.3f} deg)")
     print(f"  Horizon:       {1/sigma2_nadir:.3e} (sigma = {HORIZON_SENSOR_DEG:.2f} deg)")
-    print(f"  Magnetometer:  {1/sigma2_mag:.3e} (sigma = {np.rad2deg(np.sqrt(sigma2_mag)):.3f} deg)")
+    print(
+        "  Magnetometer:  "
+        f"{1 / sigma2_mag:.3e} "
+        f"(sigma = {np.rad2deg(np.sqrt(sigma2_mag)):.3f} deg)"
+    )
 
     # ---- Monte Carlo ----
     N_MC = 5000
@@ -384,10 +390,26 @@ def main() -> None:
 
     print(f"\n{'Metric':<30} {'q-method':>15} {'SDP':>15}")
     print("-" * 60)
-    print(f"{'Mean error (arcsec)':<30} {np.mean(errors_q_arcsec):>15.2f} {np.mean(errors_sdp_arcsec):>15.2f}")
-    print(f"{'Median error (arcsec)':<30} {np.median(errors_q_arcsec):>15.2f} {np.median(errors_sdp_arcsec):>15.2f}")
-    print(f"{'RMS error (arcsec)':<30} {np.sqrt(np.mean(errors_q_arcsec**2)):>15.2f} {np.sqrt(np.mean(errors_sdp_arcsec**2)):>15.2f}")
-    print(f"{'Max error (arcsec)':<30} {np.max(errors_q_arcsec):>15.2f} {np.max(errors_sdp_arcsec):>15.2f}")
+    print(
+        f"{'Mean error (arcsec)':<30} "
+        f"{np.mean(errors_q_arcsec):>15.2f} "
+        f"{np.mean(errors_sdp_arcsec):>15.2f}"
+    )
+    print(
+        f"{'Median error (arcsec)':<30} "
+        f"{np.median(errors_q_arcsec):>15.2f} "
+        f"{np.median(errors_sdp_arcsec):>15.2f}"
+    )
+    print(
+        f"{'RMS error (arcsec)':<30} "
+        f"{np.sqrt(np.mean(errors_q_arcsec**2)):>15.2f} "
+        f"{np.sqrt(np.mean(errors_sdp_arcsec**2)):>15.2f}"
+    )
+    print(
+        f"{'Max error (arcsec)':<30} "
+        f"{np.max(errors_q_arcsec):>15.2f} "
+        f"{np.max(errors_sdp_arcsec):>15.2f}"
+    )
     print(f"{'Total time (s)':<30} {time_q:>15.4f} {time_sdp:>15.4f}")
     print(f"{'Time per solve (ms)':<30} {time_q/N_MC*1000:>15.4f} {time_sdp/N_MC*1000:>15.4f}")
     print(f"{'Speedup (SDP/q-method)':<30} {time_sdp/time_q:>15.1f}x {'':>15}")

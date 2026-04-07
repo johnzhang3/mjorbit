@@ -18,6 +18,7 @@ import pathlib
 import time as pytime
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
@@ -117,7 +118,7 @@ def main() -> None:
     print(f"Duration:   {n_orbits} orbits = {t_total:.1f} s ({t_total/60:.1f} min)")
     print(f"Timestep:   {dt} s ({n_steps:,} steps)")
     print(f"Initial ω:  10 RPM about Z = {OMEGA_REF:.4f} rad/s")
-    print(f"Env forces: drag=OFF, SRP=OFF, magnetic=OFF, J2=ON")
+    print("Env forces: drag=OFF, SRP=OFF, magnetic=OFF, J2=ON")
     print("=" * 60)
 
     wall_t0 = pytime.perf_counter()
@@ -141,7 +142,7 @@ def main() -> None:
     dT_rel = (T_rot[:n_rec] - T0) / T0
     dE_rel = (orbit_energy[:n_rec] - E0) / abs(E0)
 
-    print(f"\nInitial values:")
+    print("\nInitial values:")
     print(f"  |L|   = {L0:.6e} kg·m²/s")
     print(f"  T_rot = {T0:.6e} J")
     print(f"  E_orb = {E0:.6e} km²/s²")

@@ -28,21 +28,21 @@ from __future__ import annotations
 import pathlib
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-
-from mujoco_orbit import mjo_forward, mjo_step
-
 from common import (
     J_NOMINAL,
-    SOLAR_NORMAL,
     OMEGA_RAD_S,
-    perturb_inertia,
-    compute_rotor_momentum,
+    SOLAR_NORMAL,
     build_model_data,
+    compute_rotor_momentum,
+    perturb_inertia,
     set_sun_pointing_attitude,
 )
+
+from mujoco_orbit import mjo_forward, mjo_step
 
 np.random.seed(42)
 
@@ -314,21 +314,21 @@ def main() -> None:
 
     # ---- Print sensor specifications ----
     print("\n--- Sensor Specifications ---")
-    print(f"1. Rate Gyroscope (Honeywell GG1320AN-class):")
+    print("1. Rate Gyroscope (Honeywell GG1320AN-class):")
     print(f"   ARW       = {GYRO_ARW_DEG_SQRT_HR} deg/sqrt(hr) = {GYRO_ARW:.3e} rad/sqrt(s)")
     print(f"   Bias inst = {GYRO_BIAS_DEG_HR} deg/hr = {GYRO_BIAS_SIGMA:.3e} rad/s")
-    print(f"\n2. Star Tracker (Sodern SED36-class):")
+    print("\n2. Star Tracker (Sodern SED36-class):")
     print(f"   Cross-boresight = {STAR_CROSS_ARCSEC} arcsec = {STAR_CROSS_RAD:.3e} rad")
     print(f"   Roll            = {STAR_ROLL_ARCSEC} arcsec = {STAR_ROLL_RAD:.3e} rad")
-    print(f"\n3. Fine Sun Sensor (Adcole-class):")
+    print("\n3. Fine Sun Sensor (Adcole-class):")
     print(f"   Accuracy = {SUN_SENSOR_DEG} deg = {SUN_SENSOR_RAD:.3e} rad")
-    print(f"\n4. Three-Axis Magnetometer (HMC2003-class):")
+    print("\n4. Three-Axis Magnetometer (HMC2003-class):")
     print(f"   Noise density = {MAG_NOISE_DENSITY*1e9:.0f} nT/sqrt(Hz)")
     print(f"   At {MAG_BANDWIDTH_HZ} Hz BW: sigma = {MAG_SIGMA*1e9:.1f} nT = {MAG_SIGMA:.3e} T")
     B_typical = 35e-6
     print(f"   Direction accuracy (at |B|={B_typical*1e6:.0f} uT): "
           f"{np.rad2deg(MAG_SIGMA / B_typical):.3f} deg")
-    print(f"\n5. Earth Horizon Sensor (Barnes 13-230-class):")
+    print("\n5. Earth Horizon Sensor (Barnes 13-230-class):")
     print(f"   Accuracy = {HORIZON_SENSOR_DEG} deg = {HORIZON_SENSOR_RAD:.3e} rad")
 
     # ---- Print covariance matrices ----
@@ -341,8 +341,11 @@ def main() -> None:
           f"{np.rad2deg(np.sqrt(R_gyro[0,0]))*3600:.4f} deg/hr")
 
     R_star_body = star_tracker_covariance_body()
-    print(f"\nStar tracker R (body frame):")
-    print(f"  diag = [{R_star_body[0,0]:.3e}, {R_star_body[1,1]:.3e}, {R_star_body[2,2]:.3e}] rad^2")
+    print("\nStar tracker R (body frame):")
+    print(
+        f"  diag = [{R_star_body[0,0]:.3e}, {R_star_body[1,1]:.3e}, "
+        f"{R_star_body[2,2]:.3e}] rad^2"
+    )
 
     R_mag = magnetometer_covariance()
     print(f"\nMagnetometer R: sigma = {np.sqrt(R_mag[0,0])*1e9:.1f} nT per axis")
@@ -354,17 +357,14 @@ def main() -> None:
     omega_desired = OMEGA_RAD_S * SOLAR_NORMAL
     h, lam, I_trans_max, _ = compute_rotor_momentum(J, omega_desired, 1.2)
 
-    # The extra_xml must close the body/worldbody and add sensor block
-    # We need to handle the XML structure properly — build_scenario's make_iss_xml
-    # inserts extra_xml before closing </body>, so we add sites + close + sensors
-    extra_xml = _SENSOR_XML
-    # build_scenario closes </body></worldbody></mujoco> after extra_xml,
-    # but we need to override that. Instead, build scenario normally and
-    # just use the body rotation matrix for truth.
     dt = 0.002
-    model, data, rw_speeds = build_model_data(J, h, dt=dt,
+    model, data, rw_speeds = build_model_data(
+        J,
+        h,
+        dt=dt,
         extra_xml="      <site name=\"imu\" pos=\"0 0 0\"/>",
-        use_magnetic=True)
+        use_magnetic=True,
+    )
     bid = model.body_id("iss")
 
     # Set initial attitude: body +Z -> sun
@@ -395,7 +395,7 @@ def main() -> None:
     R_wb = data.xmat[bid].reshape(3, 3).copy()
     C_IL = data.frame.C_IL
 
-    print(f"\nTruth state at measurement epoch:")
+    print("\nTruth state at measurement epoch:")
     omega_true = data.qvel[3:6].copy()
     print(f"  omega (body frame)  = [{omega_true[0]:+.6f}, {omega_true[1]:+.6f}, "
           f"{omega_true[2]:+.6f}] rad/s")
@@ -425,11 +425,13 @@ def main() -> None:
 
         b_meas, _ = measure_star_tracker(R_wb, C_IL, star_eci, rng)
         R_eci_body = C_IL @ R_wb
-        b_true = R_eci_body.T @ star_eci; b_true /= np.linalg.norm(b_true)
+        b_true = R_eci_body.T @ star_eci
+        b_true /= np.linalg.norm(b_true)
         star_angle_errors[i] = np.arccos(np.clip(np.dot(b_meas, b_true), -1, 1))
 
         s_meas, _ = measure_sun_sensor(R_wb, C_IL, sun_eci, rng)
-        s_true = R_eci_body.T @ sun_eci; s_true /= np.linalg.norm(s_true)
+        s_true = R_eci_body.T @ sun_eci
+        s_true /= np.linalg.norm(s_true)
         sun_angle_errors[i] = np.arccos(np.clip(np.dot(s_meas, s_true), -1, 1))
 
         B_meas, _ = measure_magnetometer(R_wb, C_IL, B_eci, rng)
@@ -437,39 +439,46 @@ def main() -> None:
         mag_errors[i] = B_meas - B_true
 
         n_meas, _ = measure_horizon_sensor(R_wb, C_IL, nadir_eci, rng)
-        n_true = R_eci_body.T @ nadir_eci; n_true /= np.linalg.norm(n_true)
+        n_true = R_eci_body.T @ nadir_eci
+        n_true /= np.linalg.norm(n_true)
         horizon_angle_errors[i] = np.arccos(np.clip(np.dot(n_meas, n_true), -1, 1))
 
     # ---- Print statistics ----
     print("\n--- Error Statistics (empirical vs design) ---")
     gyro_std = np.std(gyro_errors, axis=0)
     gyro_design = GYRO_ARW / np.sqrt(dt_sample)
-    print(f"\nGyro white noise (rad/s):")
+    print("\nGyro white noise (rad/s):")
     for ax, label in enumerate(["x", "y", "z"]):
         print(f"  {label}: empirical sigma = {gyro_std[ax]:.4e}, "
               f"design = {gyro_design:.4e}, ratio = {gyro_std[ax]/gyro_design:.4f}")
 
     star_rms = np.sqrt(np.mean(star_angle_errors**2))
     star_design_rms = STAR_CROSS_RAD * np.sqrt(2)
-    print(f"\nStar tracker angular error (arcsec):")
+    print("\nStar tracker angular error (arcsec):")
     print(f"  empirical RMS = {np.rad2deg(star_rms)*3600:.2f}, "
           f"design RMS = {np.rad2deg(star_design_rms)*3600:.2f}")
 
     sun_rms = np.sqrt(np.mean(sun_angle_errors**2))
     sun_design_rms = SUN_SENSOR_RAD * np.sqrt(2)
-    print(f"\nSun sensor angular error (deg):")
-    print(f"  empirical RMS = {np.rad2deg(sun_rms):.5f}, design RMS = {np.rad2deg(sun_design_rms):.5f}")
+    print("\nSun sensor angular error (deg):")
+    print(
+        f"  empirical RMS = {np.rad2deg(sun_rms):.5f}, "
+        f"design RMS = {np.rad2deg(sun_design_rms):.5f}"
+    )
 
     mag_std = np.std(mag_errors, axis=0)
-    print(f"\nMagnetometer noise (nT):")
+    print("\nMagnetometer noise (nT):")
     for ax, label in enumerate(["x", "y", "z"]):
         print(f"  {label}: empirical sigma = {mag_std[ax]*1e9:.2f}, "
               f"design = {MAG_SIGMA*1e9:.2f}, ratio = {mag_std[ax]/MAG_SIGMA:.4f}")
 
     hor_rms = np.sqrt(np.mean(horizon_angle_errors**2))
     hor_design_rms = HORIZON_SENSOR_RAD * np.sqrt(2)
-    print(f"\nHorizon sensor angular error (deg):")
-    print(f"  empirical RMS = {np.rad2deg(hor_rms):.5f}, design RMS = {np.rad2deg(hor_design_rms):.5f}")
+    print("\nHorizon sensor angular error (deg):")
+    print(
+        f"  empirical RMS = {np.rad2deg(hor_rms):.5f}, "
+        f"design RMS = {np.rad2deg(hor_design_rms):.5f}"
+    )
 
     # ==================================================================
     # PLOTS
@@ -482,56 +491,130 @@ def main() -> None:
     # 1. Gyro noise histogram
     ax = axes[0, 0]
     for k, label in enumerate(["x", "y", "z"]):
-        ax.hist(gyro_errors[:, k] * 1e6, bins=60, alpha=0.5, density=True,
-                label=f"$\\omega_{label}$")
-    x_plot = np.linspace(-4*gyro_design*1e6, 4*gyro_design*1e6, 200)
-    ax.plot(x_plot, 1/(gyro_design*1e6*np.sqrt(2*np.pi))
-            * np.exp(-0.5*(x_plot/(gyro_design*1e6))**2),
-            'k--', lw=1.5, label=f"Design $\\sigma$={gyro_design*1e6:.2f} $\\mu$rad/s")
-    ax.set_xlabel("Rate error ($\\mu$rad/s)"); ax.set_ylabel("Density")
-    ax.set_title("Gyroscope White Noise"); ax.legend(fontsize=7); ax.grid(True, alpha=0.3)
+        ax.hist(
+            gyro_errors[:, k] * 1e6,
+            bins=60,
+            alpha=0.5,
+            density=True,
+            label=f"$\\omega_{label}$",
+        )
+    x_plot = np.linspace(-4 * gyro_design * 1e6, 4 * gyro_design * 1e6, 200)
+    ax.plot(
+        x_plot,
+        1 / (gyro_design * 1e6 * np.sqrt(2 * np.pi))
+        * np.exp(-0.5 * (x_plot / (gyro_design * 1e6)) ** 2),
+        "k--",
+        lw=1.5,
+        label=f"Design $\\sigma$={gyro_design * 1e6:.2f} $\\mu$rad/s",
+    )
+    ax.set_xlabel("Rate error ($\\mu$rad/s)")
+    ax.set_ylabel("Density")
+    ax.set_title("Gyroscope White Noise")
+    ax.legend(fontsize=7)
+    ax.grid(True, alpha=0.3)
 
     # 2. Star tracker angular error
     ax = axes[0, 1]
-    ax.hist(np.rad2deg(star_angle_errors) * 3600, bins=60, density=True, alpha=0.7, color="C1", label="Empirical")
-    theta_plot = np.linspace(0, np.rad2deg(STAR_CROSS_RAD*5)*3600, 200)
+    ax.hist(
+        np.rad2deg(star_angle_errors) * 3600,
+        bins=60,
+        density=True,
+        alpha=0.7,
+        color="C1",
+        label="Empirical",
+    )
+    theta_plot = np.linspace(0, np.rad2deg(STAR_CROSS_RAD * 5) * 3600, 200)
     sigma_as = np.rad2deg(STAR_CROSS_RAD) * 3600
     rayleigh_pdf = (theta_plot / sigma_as**2) * np.exp(-theta_plot**2 / (2*sigma_as**2))
-    ax.plot(theta_plot, rayleigh_pdf, 'k--', lw=1.5, label=f"Rayleigh($\\sigma$={sigma_as:.1f}\")")
-    ax.set_xlabel("Angular error (arcsec)"); ax.set_ylabel("Density")
-    ax.set_title(f"Star Tracker Error ($\\sigma_{{cross}}$={STAR_CROSS_ARCSEC}\")"); ax.legend(fontsize=7); ax.grid(True, alpha=0.3)
+    ax.plot(
+        theta_plot,
+        rayleigh_pdf,
+        "k--",
+        lw=1.5,
+        label=f"Rayleigh($\\sigma$={sigma_as:.1f}\")",
+    )
+    ax.set_xlabel("Angular error (arcsec)")
+    ax.set_ylabel("Density")
+    ax.set_title(f"Star Tracker Error ($\\sigma_{{cross}}$={STAR_CROSS_ARCSEC}\")")
+    ax.legend(fontsize=7)
+    ax.grid(True, alpha=0.3)
 
     # 3. Sun sensor angular error
     ax = axes[0, 2]
-    ax.hist(np.rad2deg(sun_angle_errors), bins=60, density=True, alpha=0.7, color="C2", label="Empirical")
+    ax.hist(
+        np.rad2deg(sun_angle_errors),
+        bins=60,
+        density=True,
+        alpha=0.7,
+        color="C2",
+        label="Empirical",
+    )
     theta_plot = np.linspace(0, SUN_SENSOR_DEG * 5, 200)
-    rayleigh_pdf = (theta_plot / SUN_SENSOR_DEG**2) * np.exp(-theta_plot**2 / (2*SUN_SENSOR_DEG**2))
-    ax.plot(theta_plot, rayleigh_pdf, 'k--', lw=1.5, label=f"Rayleigh($\\sigma$={SUN_SENSOR_DEG:.3f}$^\\circ$)")
-    ax.set_xlabel("Angular error (deg)"); ax.set_ylabel("Density")
-    ax.set_title("Fine Sun Sensor Error"); ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+    rayleigh_pdf = (theta_plot / SUN_SENSOR_DEG**2) * np.exp(
+        -theta_plot**2 / (2 * SUN_SENSOR_DEG**2)
+    )
+    ax.plot(
+        theta_plot,
+        rayleigh_pdf,
+        "k--",
+        lw=1.5,
+        label=f"Rayleigh($\\sigma$={SUN_SENSOR_DEG:.3f}$^\\circ$)",
+    )
+    ax.set_xlabel("Angular error (deg)")
+    ax.set_ylabel("Density")
+    ax.set_title("Fine Sun Sensor Error")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
 
     # 4. Magnetometer noise
     ax = axes[1, 0]
     for k, label in enumerate(["$B_x$", "$B_y$", "$B_z$"]):
         ax.hist(mag_errors[:, k] * 1e9, bins=60, alpha=0.5, density=True, label=label)
-    x_plot = np.linspace(-4*MAG_SIGMA*1e9, 4*MAG_SIGMA*1e9, 200)
-    ax.plot(x_plot, 1/(MAG_SIGMA*1e9*np.sqrt(2*np.pi))
-            * np.exp(-0.5*(x_plot/(MAG_SIGMA*1e9))**2),
-            'k--', lw=1.5, label=f"Design $\\sigma$={MAG_SIGMA*1e9:.1f} nT")
-    ax.set_xlabel("Field error (nT)"); ax.set_ylabel("Density")
-    ax.set_title("Magnetometer Noise"); ax.legend(fontsize=7); ax.grid(True, alpha=0.3)
+    x_plot = np.linspace(-4 * MAG_SIGMA * 1e9, 4 * MAG_SIGMA * 1e9, 200)
+    ax.plot(
+        x_plot,
+        1 / (MAG_SIGMA * 1e9 * np.sqrt(2 * np.pi))
+        * np.exp(-0.5 * (x_plot / (MAG_SIGMA * 1e9)) ** 2),
+        "k--",
+        lw=1.5,
+        label=f"Design $\\sigma$={MAG_SIGMA * 1e9:.1f} nT",
+    )
+    ax.set_xlabel("Field error (nT)")
+    ax.set_ylabel("Density")
+    ax.set_title("Magnetometer Noise")
+    ax.legend(fontsize=7)
+    ax.grid(True, alpha=0.3)
 
     # 5. Horizon sensor angular error
     ax = axes[1, 1]
-    ax.hist(np.rad2deg(horizon_angle_errors), bins=60, density=True, alpha=0.7, color="C4", label="Empirical")
+    ax.hist(
+        np.rad2deg(horizon_angle_errors),
+        bins=60,
+        density=True,
+        alpha=0.7,
+        color="C4",
+        label="Empirical",
+    )
     theta_plot = np.linspace(0, HORIZON_SENSOR_DEG * 5, 200)
-    rayleigh_pdf = (theta_plot / HORIZON_SENSOR_DEG**2) * np.exp(-theta_plot**2 / (2*HORIZON_SENSOR_DEG**2))
-    ax.plot(theta_plot, rayleigh_pdf, 'k--', lw=1.5, label=f"Rayleigh($\\sigma$={HORIZON_SENSOR_DEG:.2f}$^\\circ$)")
-    ax.set_xlabel("Angular error (deg)"); ax.set_ylabel("Density")
-    ax.set_title("Earth Horizon Sensor Error"); ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+    rayleigh_pdf = (theta_plot / HORIZON_SENSOR_DEG**2) * np.exp(
+        -theta_plot**2 / (2 * HORIZON_SENSOR_DEG**2)
+    )
+    ax.plot(
+        theta_plot,
+        rayleigh_pdf,
+        "k--",
+        lw=1.5,
+        label=f"Rayleigh($\\sigma$={HORIZON_SENSOR_DEG:.2f}$^\\circ$)",
+    )
+    ax.set_xlabel("Angular error (deg)")
+    ax.set_ylabel("Density")
+    ax.set_title("Earth Horizon Sensor Error")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
 
     # 6. Summary table
-    ax = axes[1, 2]; ax.axis("off")
+    ax = axes[1, 2]
+    ax.axis("off")
     table_data = [
         ["Sensor", "Design $\\sigma$", "Empirical $\\sigma$", "Ratio"],
         ["Gyro (x)", f"{gyro_design*1e6:.2f} $\\mu$rad/s",
@@ -545,11 +628,22 @@ def main() -> None:
         ["Horizon sensor", f"{HORIZON_SENSOR_DEG:.2f} deg",
          f"{np.rad2deg(hor_rms/np.sqrt(2)):.4f} deg", f"{hor_rms/hor_design_rms:.3f}"],
     ]
-    table = ax.table(cellText=table_data[1:], colLabels=table_data[0], loc="center", cellLoc="center")
-    table.auto_set_font_size(False); table.set_fontsize(8); table.scale(1.1, 1.4)
+    table = ax.table(
+        cellText=table_data[1:],
+        colLabels=table_data[0],
+        loc="center",
+        cellLoc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(8)
+    table.scale(1.1, 1.4)
     ax.set_title("Error Statistics Summary", fontsize=10, pad=10)
 
-    fig.suptitle("ISS Attitude Sensor Noise Validation (Monte Carlo, N=10000)", fontsize=13, fontweight="bold")
+    fig.suptitle(
+        "ISS Attitude Sensor Noise Validation (Monte Carlo, N=10000)",
+        fontsize=13,
+        fontweight="bold",
+    )
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     fig.savefig(plot_dir / "attitude_sensors.png", dpi=200, bbox_inches="tight")
     print(f"\nPlot saved: {plot_dir / 'attitude_sensors.png'}")
@@ -580,11 +674,13 @@ def main() -> None:
 
         omega_t = data.qvel[3:6].copy()
         omega_m, _ = measure_gyro(omega_t, 1.0, gyro_bias_ts, rng)
-        gyro_true_hist[idx] = omega_t; gyro_meas_hist[idx] = omega_m
+        gyro_true_hist[idx] = omega_t
+        gyro_meas_hist[idx] = omega_m
 
         sun_now = data.env.sun_vector_eci
         s_m, _ = measure_sun_sensor(R_wb_now, C_IL_now, sun_now, rng)
-        s_true = R_eci_body.T @ sun_now; s_true /= np.linalg.norm(s_true)
+        s_true = R_eci_body.T @ sun_now
+        s_true /= np.linalg.norm(s_true)
         sun_error_hist[idx] = np.rad2deg(np.arccos(np.clip(np.dot(s_m, s_true), -1, 1)))
 
         B_now = data.env.mag_field_eci
@@ -597,7 +693,8 @@ def main() -> None:
         R_eci_now = data.orbit.R_eci
         nadir_now = -R_eci_now / np.linalg.norm(R_eci_now)
         n_m, _ = measure_horizon_sensor(R_wb_now, C_IL_now, nadir_now, rng)
-        n_true = R_eci_body.T @ nadir_now; n_true /= np.linalg.norm(n_true)
+        n_true = R_eci_body.T @ nadir_now
+        n_true /= np.linalg.norm(n_true)
         nadir_error_hist[idx] = np.rad2deg(np.arccos(np.clip(np.dot(n_m, n_true), -1, 1)))
 
     record_sensors(0, 0.0)
@@ -614,27 +711,57 @@ def main() -> None:
     fig2, axes2 = plt.subplots(2, 2, figsize=(14, 8))
     ax = axes2[0, 0]
     for k, label in enumerate(["x", "y", "z"]):
-        ax.plot(t_plot, gyro_true_hist[:n_rec, k], '-', lw=0.8, alpha=0.5, label=f"true $\\omega_{label}$")
+        ax.plot(
+            t_plot,
+            gyro_true_hist[:n_rec, k],
+            "-",
+            lw=0.8,
+            alpha=0.5,
+            label=f"true $\\omega_{label}$",
+        )
         ax.plot(t_plot, gyro_meas_hist[:n_rec, k], '.', ms=1, alpha=0.3)
-    ax.set_xlabel("Time (min)"); ax.set_ylabel("Angular rate (rad/s)")
-    ax.set_title("Gyroscope: True vs Measured"); ax.legend(fontsize=7, ncol=2); ax.grid(True, alpha=0.3)
+    ax.set_xlabel("Time (min)")
+    ax.set_ylabel("Angular rate (rad/s)")
+    ax.set_title("Gyroscope: True vs Measured")
+    ax.legend(fontsize=7, ncol=2)
+    ax.grid(True, alpha=0.3)
 
     ax = axes2[0, 1]
     ax.plot(t_plot, sun_error_hist[:n_rec], '.', ms=2, alpha=0.5, color="C2")
-    ax.axhline(SUN_SENSOR_DEG, color='k', ls='--', lw=1, label=f"1$\\sigma$ = {SUN_SENSOR_DEG} deg")
-    ax.set_xlabel("Time (min)"); ax.set_ylabel("Angular error (deg)")
-    ax.set_title("Fine Sun Sensor Error"); ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+    ax.axhline(
+        SUN_SENSOR_DEG,
+        color="k",
+        ls="--",
+        lw=1,
+        label=f"1$\\sigma$ = {SUN_SENSOR_DEG} deg",
+    )
+    ax.set_xlabel("Time (min)")
+    ax.set_ylabel("Angular error (deg)")
+    ax.set_title("Fine Sun Sensor Error")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
 
     ax = axes2[1, 0]
     ax.plot(t_plot, mag_error_hist[:n_rec], '.', ms=2, alpha=0.5, color="C3")
-    ax.set_xlabel("Time (min)"); ax.set_ylabel("Direction error (deg)")
-    ax.set_title("Magnetometer Direction Error"); ax.grid(True, alpha=0.3)
+    ax.set_xlabel("Time (min)")
+    ax.set_ylabel("Direction error (deg)")
+    ax.set_title("Magnetometer Direction Error")
+    ax.grid(True, alpha=0.3)
 
     ax = axes2[1, 1]
     ax.plot(t_plot, nadir_error_hist[:n_rec], '.', ms=2, alpha=0.5, color="C4")
-    ax.axhline(HORIZON_SENSOR_DEG, color='k', ls='--', lw=1, label=f"1$\\sigma$ = {HORIZON_SENSOR_DEG} deg")
-    ax.set_xlabel("Time (min)"); ax.set_ylabel("Angular error (deg)")
-    ax.set_title("Earth Horizon Sensor Error"); ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+    ax.axhline(
+        HORIZON_SENSOR_DEG,
+        color="k",
+        ls="--",
+        lw=1,
+        label=f"1$\\sigma$ = {HORIZON_SENSOR_DEG} deg",
+    )
+    ax.set_xlabel("Time (min)")
+    ax.set_ylabel("Angular error (deg)")
+    ax.set_title("Earth Horizon Sensor Error")
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
 
     fig2.suptitle("Sensor Measurements Over 5 Minutes", fontsize=13, fontweight="bold")
     plt.tight_layout(rect=[0, 0, 1, 0.95])

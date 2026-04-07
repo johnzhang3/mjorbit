@@ -217,8 +217,8 @@ def main() -> None:
 
     record(0, 0.0)
 
-    print(f"ISS Spin Stability Analysis")
-    print(f"=" * 60)
+    print("ISS Spin Stability Analysis")
+    print("=" * 60)
     print(f"Mass:       {ISS_MASS:,.0f} kg")
     print(f"Ixx (roll): {ISS_IXX:.3e} kg·m²")
     print(f"Iyy (pitch):{ISS_IYY:.3e} kg·m²")
@@ -229,7 +229,7 @@ def main() -> None:
     print(f"Duration:   {t_total:.0f} s ({t_total/60:.1f} min)")
     print(f"Timestep:   {dt} s ({n_steps} steps)")
     print(f"Surfaces:   {len(model.surfaces)} flat-plate panels")
-    print(f"=" * 60)
+    print("=" * 60)
     print()
 
     rec_idx = 1
@@ -250,7 +250,7 @@ def main() -> None:
     wy = omega_body[:n_rec, 1]
     wz = omega_body[:n_rec, 2]
 
-    print(f"\nAngular velocity (body frame) at t=0:")
+    print("\nAngular velocity (body frame) at t=0:")
     print(f"  ωx = {wx[0]:+.6f} rad/s")
     print(f"  ωy = {wy[0]:+.6f} rad/s")
     print(f"  ωz = {wz[0]:+.6f} rad/s")
@@ -267,7 +267,7 @@ def main() -> None:
     wz_std = np.std(wz)
     wz_drift = abs(wz[-1] - wz[0])
 
-    print(f"\nStability metrics:")
+    print("\nStability metrics:")
     print(f"  Max transverse rate (ωx, ωy): {max_transverse:.6e} rad/s")
     print(f"  ωz mean:  {wz_mean:.6f} rad/s")
     print(f"  ωz std:   {wz_std:.6e} rad/s")
@@ -278,13 +278,13 @@ def main() -> None:
     T_final = kinetic_rot[n_rec - 1]
     T_rel_change = abs(T_final - T0) / T0
 
-    print(f"\nRotational kinetic energy:")
+    print("\nRotational kinetic energy:")
     print(f"  T(0)     = {T0:.6e} J")
     print(f"  T(final) = {T_final:.6e} J")
     print(f"  Relative change: {T_rel_change:.6e}")
 
     # Orbit altitude
-    print(f"\nOrbit altitude:")
+    print("\nOrbit altitude:")
     print(f"  h(0)     = {orbit_alt[0]:.4f} km")
     print(f"  h(final) = {orbit_alt[n_rec-1]:.4f} km")
     print(f"  Δh       = {orbit_alt[n_rec-1] - orbit_alt[0]:.6f} km")

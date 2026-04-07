@@ -19,11 +19,11 @@ from __future__ import annotations
 import pathlib
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.integrate import solve_ivp
-
 
 # ISS principal moments of inertia
 ISS_IXX = 128e6  # kg·m² — intermediate axis (UNSTABLE)

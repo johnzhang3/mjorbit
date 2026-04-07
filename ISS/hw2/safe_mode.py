@@ -19,25 +19,25 @@ from __future__ import annotations
 import pathlib
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.integrate import solve_ivp
-
 from common import (
-    J_NOMINAL,
+    INERTIA_RATIO_MIN,
     ISS_IXX,
     ISS_IYY,
     ISS_IZZ,
-    SOLAR_NORMAL,
-    OMEGA_RPM,
+    J_NOMINAL,
     OMEGA_RAD_S,
-    INERTIA_RATIO_MIN,
-    perturb_inertia,
+    OMEGA_RPM,
+    SOLAR_NORMAL,
     compute_rotor_momentum,
+    perturb_inertia,
     quat_normalize,
     quat_rotate,
 )
+from scipy.integrate import solve_ivp
 
 np.random.seed(42)
 
@@ -46,7 +46,13 @@ np.random.seed(42)
 # Gyrostat simulation
 # ---------------------------------------------------------------------------
 
-def gyrostat_eom(t: float, state: np.ndarray, J: np.ndarray, J_inv: np.ndarray, h: np.ndarray) -> np.ndarray:
+def gyrostat_eom(
+    t: float,
+    state: np.ndarray,
+    J: np.ndarray,
+    J_inv: np.ndarray,
+    h: np.ndarray,
+) -> np.ndarray:
     """Gyrostat equations of motion (torque-free).
 
     J*omega_dot + omega x (J*omega + h) = 0
@@ -121,20 +127,23 @@ def main() -> None:
     print(f"  Izz = {ISS_IZZ:.3e}")
 
     D_pert, V_pert = np.linalg.eigh(J)
-    print(f"\nPerturbed inertia eigenvalues (kg*m^2):")
+    print("\nPerturbed inertia eigenvalues (kg*m^2):")
     for i, val in enumerate(D_pert):
         print(f"  I_{i+1} = {val:.6e}")
-    print(f"\nPerturbed principal axes (columns of V):")
+    print("\nPerturbed principal axes (columns of V):")
     for i in range(3):
         print(f"  e_{i+1} = [{V_pert[0,i]:+.6f}, {V_pert[1,i]:+.6f}, {V_pert[2,i]:+.6f}]")
-    print(f"\nFull perturbed inertia matrix (kg*m^2):")
+    print("\nFull perturbed inertia matrix (kg*m^2):")
     for row in J:
         print(f"  [{row[0]:+.6e}, {row[1]:+.6e}, {row[2]:+.6e}]")
 
     # --- Step 2: Desired angular velocity ---
     omega_desired = OMEGA_RAD_S * SOLAR_NORMAL
     print(f"\nDesired spin: {OMEGA_RPM} RPM about solar panel normal (+Z)")
-    print(f"  omega = [{omega_desired[0]:.6f}, {omega_desired[1]:.6f}, {omega_desired[2]:.6f}] rad/s")
+    print(
+        f"  omega = [{omega_desired[0]:.6f}, {omega_desired[1]:.6f}, "
+        f"{omega_desired[2]:.6f}] rad/s"
+    )
 
     J_omega = J @ omega_desired
     J_omega_hat = J_omega / np.linalg.norm(J_omega)
@@ -146,13 +155,16 @@ def main() -> None:
     h, lam, I_trans_max, I_trans = compute_rotor_momentum(J, omega_desired, INERTIA_RATIO_MIN)
 
     actual_ratio = lam / I_trans_max
-    print(f"\nRotor momentum (dynamic balance + superspin):")
+    print("\nRotor momentum (dynamic balance + superspin):")
     print(f"  h = [{h[0]:+.6e}, {h[1]:+.6e}, {h[2]:+.6e}] kg*m^2/s")
     print(f"  |h| = {np.linalg.norm(h):.6e} kg*m^2/s")
     print(f"  Effective spin-axis inertia (lam):     {lam:.6e} kg*m^2")
     print(f"  Max transverse effective inertia:       {I_trans_max:.6e} kg*m^2")
     print(f"  Transverse eigenvalues:                 [{I_trans[0]:.6e}, {I_trans[1]:.6e}]")
-    print(f"  Inertia ratio (lam / I_trans_max):      {actual_ratio:.4f}  (required >= {INERTIA_RATIO_MIN})")
+    print(
+        "  Inertia ratio (lam / I_trans_max):      "
+        f"{actual_ratio:.4f}  (required >= {INERTIA_RATIO_MIN})"
+    )
 
     residual = np.cross(omega_desired, J @ omega_desired + h)
     print(f"  Dynamic balance check |omega x (J*omega + h)| = {np.linalg.norm(residual):.2e}")
@@ -168,14 +180,14 @@ def main() -> None:
 
     q0 = np.array([1.0, 0.0, 0.0, 0.0])
 
-    print(f"\n--- Case A: Unperturbed IC (exact equilibrium) ---")
+    print("\n--- Case A: Unperturbed IC (exact equilibrium) ---")
     result_exact = run_simulation(J, h, omega_desired.copy(), q0.copy(), t_total, "Exact IC")
 
     perturb_frac = 0.01
     omega_pert = omega_desired.copy()
     omega_pert[0] += perturb_frac * OMEGA_RAD_S
     omega_pert[1] += perturb_frac * OMEGA_RAD_S
-    print(f"--- Case B: Perturbed IC (1% transverse kick) ---")
+    print("--- Case B: Perturbed IC (1% transverse kick) ---")
     print(f"  omega_0 = [{omega_pert[0]:.6f}, {omega_pert[1]:.6f}, {omega_pert[2]:.6f}] rad/s")
     result_pert1 = run_simulation(J, h, omega_pert.copy(), q0.copy(), t_total, "1% perturbation")
 
@@ -183,12 +195,19 @@ def main() -> None:
     omega_pert5 = omega_desired.copy()
     omega_pert5[0] += perturb_frac_5 * OMEGA_RAD_S
     omega_pert5[1] += perturb_frac_5 * OMEGA_RAD_S
-    print(f"--- Case C: Perturbed IC (5% transverse kick) ---")
+    print("--- Case C: Perturbed IC (5% transverse kick) ---")
     print(f"  omega_0 = [{omega_pert5[0]:.6f}, {omega_pert5[1]:.6f}, {omega_pert5[2]:.6f}] rad/s")
     result_pert5 = run_simulation(J, h, omega_pert5.copy(), q0.copy(), t_total, "5% perturbation")
 
-    print(f"--- Case D: No rotor (h=0) with 1% perturbation ---")
-    result_no_rotor = run_simulation(J, np.zeros(3), omega_pert.copy(), q0.copy(), t_total, "No rotor, 1% pert")
+    print("--- Case D: No rotor (h=0) with 1% perturbation ---")
+    result_no_rotor = run_simulation(
+        J,
+        np.zeros(3),
+        omega_pert.copy(),
+        q0.copy(),
+        t_total,
+        "No rotor, 1% pert",
+    )
 
     # --- Plotting ---
     plot_dir = pathlib.Path(__file__).parent / "plots"
@@ -205,14 +224,17 @@ def main() -> None:
     colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
 
     for ax, result in zip(axes1.flat, [result_exact, result_pert1, result_pert5, result_no_rotor]):
-        t = result["times"]; w = result["omega"]
+        t = result["times"]
+        w = result["omega"]
         for k in range(3):
             ax.plot(t, w[:, k], label=comp_labels[k], color=colors[k], linewidth=0.6)
         ax.set_title(result["label"], fontsize=10)
         ax.set_ylabel("omega (rad/s)")
-        ax.legend(fontsize=7, loc="upper right"); ax.grid(True, alpha=0.3)
+        ax.legend(fontsize=7, loc="upper right")
+        ax.grid(True, alpha=0.3)
 
-    axes1[1, 0].set_xlabel("Time (s)"); axes1[1, 1].set_xlabel("Time (s)")
+    axes1[1, 0].set_xlabel("Time (s)")
+    axes1[1, 1].set_xlabel("Time (s)")
     plt.tight_layout()
     fig1.savefig(plot_dir / "safe_mode_omega.png", dpi=200, bbox_inches="tight")
 
@@ -223,12 +245,16 @@ def main() -> None:
 
     for ax, result in zip(axes2.flat, [result_exact, result_pert1, result_pert5, result_no_rotor]):
         t = result["times"]
-        errors = np.array([compute_pointing_error(result["quat"][i], sun_eci) for i in range(len(t))])
+        errors = np.array(
+            [compute_pointing_error(result["quat"][i], sun_eci) for i in range(len(t))]
+        )
         ax.plot(t, errors, color="#d62728", linewidth=0.6)
         ax.set_title(result["label"], fontsize=10)
-        ax.set_ylabel("Pointing error (deg)"); ax.grid(True, alpha=0.3)
+        ax.set_ylabel("Pointing error (deg)")
+        ax.grid(True, alpha=0.3)
 
-    axes2[1, 0].set_xlabel("Time (s)"); axes2[1, 1].set_xlabel("Time (s)")
+    axes2[1, 0].set_xlabel("Time (s)")
+    axes2[1, 1].set_xlabel("Time (s)")
     plt.tight_layout()
     fig2.savefig(plot_dir / "safe_mode_pointing.png", dpi=200, bbox_inches="tight")
 
@@ -240,14 +266,18 @@ def main() -> None:
     q_colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
 
     for ax, result in zip(axes3.flat, [result_exact, result_pert1, result_pert5, result_no_rotor]):
-        t = result["times"]; q = result["quat"]
+        t = result["times"]
+        q = result["quat"]
         for k in range(4):
             ax.plot(t, q[:, k], label=q_labels[k], color=q_colors[k], linewidth=0.6)
         ax.set_title(result["label"], fontsize=10)
         ax.set_ylabel("Quaternion component")
-        ax.legend(fontsize=7, loc="upper right"); ax.grid(True, alpha=0.3); ax.set_ylim(-1.1, 1.1)
+        ax.legend(fontsize=7, loc="upper right")
+        ax.grid(True, alpha=0.3)
+        ax.set_ylim(-1.1, 1.1)
 
-    axes3[1, 0].set_xlabel("Time (s)"); axes3[1, 1].set_xlabel("Time (s)")
+    axes3[1, 0].set_xlabel("Time (s)")
+    axes3[1, 1].set_xlabel("Time (s)")
     plt.tight_layout()
     fig3.savefig(plot_dir / "safe_mode_quaternion.png", dpi=200, bbox_inches="tight")
 
@@ -256,10 +286,13 @@ def main() -> None:
     ax4.set_title("Transverse Angular Velocity Magnitude\n"
                   "sqrt(wx^2 + wy^2) — should remain bounded for stable gyrostat", fontsize=11)
     for result in [result_exact, result_pert1, result_pert5, result_no_rotor]:
-        t = result["times"]; w = result["omega"]
+        t = result["times"]
+        w = result["omega"]
         ax4.plot(t, np.sqrt(w[:, 0]**2 + w[:, 1]**2), label=result["label"], linewidth=0.8)
-    ax4.set_xlabel("Time (s)"); ax4.set_ylabel("|omega_transverse| (rad/s)")
-    ax4.legend(fontsize=9); ax4.grid(True, alpha=0.3)
+    ax4.set_xlabel("Time (s)")
+    ax4.set_ylabel("|omega_transverse| (rad/s)")
+    ax4.legend(fontsize=9)
+    ax4.grid(True, alpha=0.3)
     plt.tight_layout()
     fig4.savefig(plot_dir / "safe_mode_transverse.png", dpi=200, bbox_inches="tight")
 
