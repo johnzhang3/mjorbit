@@ -7,6 +7,7 @@ import pathlib
 TESTDATA_DIR = pathlib.Path(__file__).parent
 
 FREE_BODY_XML = str(TESTDATA_DIR / "free_body.xml")
+FREE_BODY_SENSORS_XML = str(TESTDATA_DIR / "free_body_sensors.xml")
 SPACECRAFT_ARM_XML = str(TESTDATA_DIR / "spacecraft_arm.xml")
 
-__all__ = ["FREE_BODY_XML", "SPACECRAFT_ARM_XML", "TESTDATA_DIR"]
+__all__ = ["FREE_BODY_SENSORS_XML", "FREE_BODY_XML", "SPACECRAFT_ARM_XML", "TESTDATA_DIR"]

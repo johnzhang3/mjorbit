@@ -13,11 +13,19 @@ from mujoco_orbit.core.scenario import MagneticMetadata, Scenario, SurfaceMetada
 from mujoco_orbit.orbit.environment import update_environment_cache
 from mujoco_orbit.orbit.lvlh import update_frame_cache
 from mujoco_orbit.orbit.state import OrbitState
+from mujoco_orbit.sensors import compile_sensor_suite, update_sensor_environment
 
 
 def compile(cfg: ScenarioCfg) -> Scenario:
     """Load model and build a Scenario ready for stepping."""
-    mjm = mujoco.MjModel.from_xml_path(cfg.mujoco.xml_path)
+    sensor_callback = mujoco.get_mjcb_sensor()
+    if sensor_callback is not None:
+        mujoco.set_mjcb_sensor(None)
+    try:
+        mjm = mujoco.MjModel.from_xml_path(cfg.mujoco.xml_path)
+    finally:
+        if sensor_callback is not None:
+            mujoco.set_mjcb_sensor(sensor_callback)
 
     # Override timestep if specified
     if cfg.mujoco.dt is not None:
@@ -25,9 +33,6 @@ def compile(cfg: ScenarioCfg) -> Scenario:
 
     # Disable built-in gravity — orbital environment provides all gravity
     mjm.opt.gravity[:] = 0.0
-
-    mjd = mujoco.MjData(mjm)
-    mujoco.mj_forward(mjm, mjd)
 
     # Build orbit state
     orbit = OrbitState(
@@ -39,6 +44,8 @@ def compile(cfg: ScenarioCfg) -> Scenario:
     # Build frame and environment caches
     frame_cache = update_frame_cache(orbit, use_j2=cfg.use_j2)
     env_cache = update_environment_cache(orbit, frame_cache)
+
+    mjd = mujoco.MjData(mjm)
 
     # Resolve surface metadata
     surfaces: list[SurfaceMetadata] = []
@@ -76,7 +83,7 @@ def compile(cfg: ScenarioCfg) -> Scenario:
     n_thr = len(cfg.thrusters)
     actuator_state = ActuatorState.zeros(n_rw, rw_inertia, n_mtq, n_thr)
 
-    return Scenario(
+    scenario = Scenario(
         mjm=mjm,
         mjd=mjd,
         orbit=orbit,
@@ -87,3 +94,8 @@ def compile(cfg: ScenarioCfg) -> Scenario:
         actuator_state=actuator_state,
         cfg=cfg,
     )
+
+    update_sensor_environment(scenario)
+    scenario.sensor_suite = compile_sensor_suite(scenario)
+    mujoco.mj_forward(mjm, mjd)
+    return scenario

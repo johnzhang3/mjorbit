@@ -21,6 +21,7 @@ from mujoco_orbit.coupling.feedback import compute_net_external_wrench, compute_
 from mujoco_orbit.orbit.environment import update_environment_cache
 from mujoco_orbit.orbit.lvlh import update_frame_cache
 from mujoco_orbit.orbit.propagator import propagate_rk4
+from mujoco_orbit.sensors import update_sensor_environment
 
 
 def step(
@@ -80,6 +81,7 @@ def step(
         scenario.orbit, use_j2=scenario.cfg.use_j2
     )
     scenario.env_cache = update_environment_cache(scenario.orbit, scenario.frame_cache)
+    update_sensor_environment(scenario)
 
     # 6. Write MuJoCo controls
     if ctrl is not None:
