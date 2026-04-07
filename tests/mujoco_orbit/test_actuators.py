@@ -422,6 +422,6 @@ class TestThruster:
         sc.clear_wrench_buffer()
         _apply_thrusters(sc)
 
-        expected_force = sc.mjd.ximat[2].reshape(3, 3) @ np.array([0.0, 0.0, 5.0])
+        expected_force = sc.mjd.xmat[2].reshape(3, 3) @ np.array([0.0, 0.0, 5.0])
         np.testing.assert_allclose(sc._wrench_buffer[2, :3], expected_force, atol=1e-12)
         np.testing.assert_allclose(sc._wrench_buffer[2, 3:], 0.0, atol=1e-12)
