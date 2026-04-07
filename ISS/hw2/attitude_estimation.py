@@ -16,7 +16,7 @@ Sensor observations used for each trial:
   - Magnetometer:    1 magnetic field direction
 
 Usage:
-    uv run python examples/iss/hw2/attitude_estimation.py
+    uv run python ISS/hw2/attitude_estimation.py
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ import cvxpy as cp
 import mujoco
 import numpy as np
 
-from mujoco_orbit import step
+from mujoco_orbit import mjo_forward, mjo_step
 
 from common import (
     J_NOMINAL,
@@ -40,7 +40,7 @@ from common import (
     perturb_inertia,
     compute_rotor_momentum,
     quat_to_rotmat,
-    build_scenario,
+    build_model_data,
     set_sun_pointing_attitude,
 )
 from attitude_sensors import (
@@ -261,24 +261,24 @@ def main() -> None:
     h, lam, I_trans_max, _ = compute_rotor_momentum(J, omega_desired, 1.2)
 
     dt = 0.002
-    scenario, _ = build_scenario(J, h, dt=dt, use_magnetic=True)
-    bid = scenario.body_id("iss")
+    model, data, _ = build_model_data(J, h, dt=dt, use_magnetic=True)
+    bid = model.body_id("iss")
 
-    sun_eci = scenario.env_cache.sun_vector_eci.copy()
-    set_sun_pointing_attitude(scenario, sun_eci)
-    scenario.mjd.qvel[3:6] = omega_desired
-    mujoco.mj_forward(scenario.mjm, scenario.mjd)
+    sun_eci = data.env.sun_vector_eci.copy()
+    set_sun_pointing_attitude(model, data, sun_eci)
+    data.qvel[3:6] = omega_desired
+    mjo_forward(model, data)
 
     # Run briefly to settle
     for _ in range(100):
-        step(scenario)
-    mujoco.mj_forward(scenario.mjm, scenario.mjd)
+        mjo_step(model, data)
+    mjo_forward(model, data)
 
     # ---- Reference vectors (inertial/ECI) ----
-    R_eci_sc = scenario.orbit.R_eci
+    R_eci_sc = data.orbit.R_eci
     nadir_eci = -R_eci_sc / np.linalg.norm(R_eci_sc)
-    B_eci = scenario.env_cache.mag_field_eci
-    sun_eci = scenario.env_cache.sun_vector_eci
+    B_eci = data.env.mag_field_eci
+    sun_eci = data.env.sun_vector_eci
     B_mag = np.linalg.norm(B_eci)
 
     # Two catalog stars
@@ -291,8 +291,8 @@ def main() -> None:
             np.sin(dec)]))
 
     # True body rotation
-    R_wb = scenario.body_com_rotmat(bid)
-    C_IL = scenario.frame_cache.C_IL
+    R_wb = data.xmat[bid].reshape(3, 3).copy()
+    C_IL = data.frame.C_IL
     R_eci_body = C_IL @ R_wb  # ECI-from-body
     q_true = np.zeros(4)
     mujoco.mju_mat2Quat(q_true, R_eci_body.flatten())

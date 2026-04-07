@@ -20,7 +20,7 @@ The script validates error statistics via Monte Carlo (N=10000 samples) and
 plots histograms comparing empirical distributions to the design covariances.
 
 Usage:
-    uv run python examples/iss/hw2/attitude_sensors.py
+    uv run python ISS/hw2/attitude_sensors.py
 """
 
 from __future__ import annotations
@@ -30,10 +30,9 @@ import pathlib
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import mujoco
 import numpy as np
 
-from mujoco_orbit import step
+from mujoco_orbit import mjo_forward, mjo_step
 
 from common import (
     J_NOMINAL,
@@ -41,7 +40,7 @@ from common import (
     OMEGA_RAD_S,
     perturb_inertia,
     compute_rotor_momentum,
-    build_scenario,
+    build_model_data,
     set_sun_pointing_attitude,
 )
 
@@ -363,28 +362,28 @@ def main() -> None:
     # but we need to override that. Instead, build scenario normally and
     # just use the body rotation matrix for truth.
     dt = 0.002
-    scenario, rw_speeds = build_scenario(J, h, dt=dt,
+    model, data, rw_speeds = build_model_data(J, h, dt=dt,
         extra_xml="      <site name=\"imu\" pos=\"0 0 0\"/>",
         use_magnetic=True)
-    bid = scenario.body_id("iss")
+    bid = model.body_id("iss")
 
     # Set initial attitude: body +Z -> sun
-    sun_eci = scenario.env_cache.sun_vector_eci.copy()
-    set_sun_pointing_attitude(scenario, sun_eci)
-    scenario.mjd.qvel[3:6] = omega_desired
-    mujoco.mj_forward(scenario.mjm, scenario.mjd)
+    sun_eci = data.env.sun_vector_eci.copy()
+    set_sun_pointing_attitude(model, data, sun_eci)
+    data.qvel[3:6] = omega_desired
+    mjo_forward(model, data)
 
     # Let simulation settle
     print("\nRunning 100 steps to settle dynamics...")
     for _ in range(100):
-        step(scenario)
-    mujoco.mj_forward(scenario.mjm, scenario.mjd)
+        mjo_step(model, data)
+    mjo_forward(model, data)
 
     # ---- Reference vectors ----
-    R_eci_sc = scenario.orbit.R_eci
+    R_eci_sc = data.orbit.R_eci
     nadir_eci = -R_eci_sc / np.linalg.norm(R_eci_sc)
-    B_eci = scenario.env_cache.mag_field_eci
-    sun_eci = scenario.env_cache.sun_vector_eci
+    B_eci = data.env.mag_field_eci
+    sun_eci = data.env.sun_vector_eci
 
     # Catalog star (Canopus: RA=96 deg, Dec=-53 deg)
     ra_star, dec_star = np.deg2rad(96.0), np.deg2rad(-53.0)
@@ -393,11 +392,11 @@ def main() -> None:
         np.cos(dec_star) * np.sin(ra_star),
         np.sin(dec_star)])
 
-    R_wb = scenario.body_com_rotmat(bid)
-    C_IL = scenario.frame_cache.C_IL
+    R_wb = data.xmat[bid].reshape(3, 3).copy()
+    C_IL = data.frame.C_IL
 
     print(f"\nTruth state at measurement epoch:")
-    omega_true = scenario.mjd.qvel[3:6].copy()
+    omega_true = data.qvel[3:6].copy()
     print(f"  omega (body frame)  = [{omega_true[0]:+.6f}, {omega_true[1]:+.6f}, "
           f"{omega_true[2]:+.6f}] rad/s")
     print(f"  |B_eci|             = {np.linalg.norm(B_eci)*1e6:.2f} uT")
@@ -575,27 +574,27 @@ def main() -> None:
 
     def record_sensors(idx, t):
         times[idx] = t
-        C_IL_now = scenario.frame_cache.C_IL
-        R_wb_now = scenario.body_com_rotmat(bid)
+        C_IL_now = data.frame.C_IL
+        R_wb_now = data.xmat[bid].reshape(3, 3).copy()
         R_eci_body = C_IL_now @ R_wb_now
 
-        omega_t = scenario.mjd.qvel[3:6].copy()
+        omega_t = data.qvel[3:6].copy()
         omega_m, _ = measure_gyro(omega_t, 1.0, gyro_bias_ts, rng)
         gyro_true_hist[idx] = omega_t; gyro_meas_hist[idx] = omega_m
 
-        sun_now = scenario.env_cache.sun_vector_eci
+        sun_now = data.env.sun_vector_eci
         s_m, _ = measure_sun_sensor(R_wb_now, C_IL_now, sun_now, rng)
         s_true = R_eci_body.T @ sun_now; s_true /= np.linalg.norm(s_true)
         sun_error_hist[idx] = np.rad2deg(np.arccos(np.clip(np.dot(s_m, s_true), -1, 1)))
 
-        B_now = scenario.env_cache.mag_field_eci
+        B_now = data.env.mag_field_eci
         B_m, _ = measure_magnetometer(R_wb_now, C_IL_now, B_now, rng)
         B_true = R_eci_body.T @ B_now
         b_hat_true = B_true / np.linalg.norm(B_true)
         b_hat_meas = B_m / np.linalg.norm(B_m)
         mag_error_hist[idx] = np.rad2deg(np.arccos(np.clip(np.dot(b_hat_meas, b_hat_true), -1, 1)))
 
-        R_eci_now = scenario.orbit.R_eci
+        R_eci_now = data.orbit.R_eci
         nadir_now = -R_eci_now / np.linalg.norm(R_eci_now)
         n_m, _ = measure_horizon_sensor(R_wb_now, C_IL_now, nadir_now, rng)
         n_true = R_eci_body.T @ nadir_now; n_true /= np.linalg.norm(n_true)
@@ -604,7 +603,7 @@ def main() -> None:
     record_sensors(0, 0.0)
     rec_idx = 1
     for i in range(n_demo_steps):
-        step(scenario)
+        mjo_step(model, data)
         if (i + 1) % record_interval == 0 and rec_idx < n_records:
             record_sensors(rec_idx, (i + 1) * dt)
             rec_idx += 1

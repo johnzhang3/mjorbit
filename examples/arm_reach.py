@@ -14,9 +14,8 @@ from __future__ import annotations
 import mujoco
 import numpy as np
 
-from mujoco_orbit import compile, step
+from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_step
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.core.config import MuJoCoCfg, OrbitCfg, ScenarioCfg
 from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 from mujoco_orbit.testdata import SPACECRAFT_ARM_XML
 
@@ -29,16 +28,16 @@ def main() -> None:
         a=a_km, e=0.0, inc=np.deg2rad(51.6), raan=0.0, argp=0.0, nu=0.0,
     )
 
-    cfg = ScenarioCfg(
-        orbit=OrbitCfg(R_eci=R_eci, V_eci=V_eci),
-        mujoco=MuJoCoCfg(xml_path=SPACECRAFT_ARM_XML, dt=0.002),
+    model = MjoModel.from_xml_path(
+        SPACECRAFT_ARM_XML,
+        mj_timestep=0.002,
         use_j2=False,
         use_drag=False,
         use_srp=False,
         use_magnetic=False,
     )
-    scenario = compile(cfg)
-    mjm, mjd = scenario.mjm, scenario.mjd
+    data = MjoData(model, orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
+    mjm, mjd = model, data
 
     print("=" * 60)
     print("Arm Reach — Articulated Spacecraft Example")
@@ -53,7 +52,7 @@ def main() -> None:
     # Part 1: Free drift — no control, arm in initial configuration
     # ----------------------------------------------------------------
     print("--- Part 1: Free Drift (5 s, no control) ---")
-    orbit_0 = scenario.orbit.copy()
+    orbit_0 = data.orbit.copy()
     com_0 = np.average(
         [mjd.xipos[i] for i in range(1, mjm.nbody)],
         weights=[mjm.body_mass[i] for i in range(1, mjm.nbody)],
@@ -63,7 +62,7 @@ def main() -> None:
     dt = mjm.opt.timestep
     n_steps_1 = int(5.0 / dt)
     for _ in range(n_steps_1):
-        step(scenario)
+        mjo_step(model, data)
 
     com_1 = np.average(
         [mjd.xipos[i] for i in range(1, mjm.nbody)],
@@ -89,16 +88,17 @@ def main() -> None:
 
     n_steps_2 = int(10.0 / dt)
     ctrl = np.array([target_shoulder, target_elbow])
+    np.copyto(data.ctrl, ctrl)
 
     ee_positions = []
     for i in range(n_steps_2):
-        step(scenario, ctrl=ctrl)
+        mjo_step(model, data)
         if i % 500 == 0:
-            ee_id = scenario.body_id("ee")
+            ee_id = model.body_id("ee")
             ee_pos = mjd.xipos[ee_id].copy()
             ee_positions.append(ee_pos)
 
-    ee_id = scenario.body_id("ee")
+    ee_id = model.body_id("ee")
     ee_final = mjd.xipos[ee_id].copy()
     print(
         "  End-effector final pos (LVLH): "
@@ -125,7 +125,7 @@ def main() -> None:
     print()
     print("--- Part 3: Orbit Conservation Check ---")
 
-    orbit_after = scenario.orbit
+    orbit_after = data.orbit
     dR = np.linalg.norm(orbit_after.R_eci - orbit_0.R_eci)
     # Expected drift from orbit propagation (15 s at ~7.7 km/s)
     v_circ = np.linalg.norm(V_eci)
@@ -156,14 +156,14 @@ def main() -> None:
     print("--- Part 4: Long-Horizon Stability (30 s more) ---")
     n_steps_4 = int(30.0 / dt)
     for _ in range(n_steps_4):
-        step(scenario, ctrl=ctrl)
+        mjo_step(model, data)
 
     all_finite = np.all(np.isfinite(mjd.qpos)) and np.all(np.isfinite(mjd.qvel))
     print(
         f"  All states finite after {(n_steps_1 + n_steps_2 + n_steps_4) * dt:.0f} s: "
         f"{all_finite}"
     )
-    print(f"  Total time simulated: {scenario.orbit.t:.1f} s")
+    print(f"  Total time simulated: {data.orbit.t:.1f} s")
 
     print()
     if all_finite and dE_rel < 1e-6:

@@ -12,7 +12,7 @@ import mujoco
 import numpy as np
 
 if TYPE_CHECKING:
-    from mujoco_orbit.core.scenario import Scenario
+    from mujoco_orbit.core.runtime import MjoData, MjoModel
 
 _GYRO_SENSOR_TYPE = int(mujoco.mjtSensor.mjSENS_GYRO)
 _USER_SENSOR_TYPE = int(mujoco.mjtSensor.mjSENS_USER)
@@ -30,14 +30,12 @@ _ORBIT_SENSOR_PREFIXES = {
     "orbit_star_": "star",
 }
 
-_MODEL_SENSOR_SUITES: weakref.WeakKeyDictionary[mujoco.MjModel, "SensorSuite"] = (
-    weakref.WeakKeyDictionary()
-)
+_DATA_SENSOR_NAMESPACES: dict[int, weakref.ReferenceType["SensorDataNamespace"]] = {}
 _PREVIOUS_SENSOR_CALLBACK: Callable[[mujoco.MjModel, mujoco.MjData, int], None] | None = None
 _SENSOR_DISPATCH_INSTALLED = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class SensorDescriptor:
     """Resolved metadata for one MuJoCo sensor."""
 
@@ -56,7 +54,6 @@ class SensorDescriptor:
     orbit_kind: str | None = None
     reference_eci: np.ndarray | None = None
     gyro_bias_sigma: float = 0.0
-    gyro_bias: np.ndarray = field(default_factory=lambda: np.zeros(3))
 
     @property
     def data_slice(self) -> slice:
@@ -69,128 +66,188 @@ class SensorDescriptor:
         return self.orbit_kind is not None
 
 
-@dataclass
-class SensorSuite:
-    """Per-scenario sensor metadata and persistent noise state."""
+@dataclass(frozen=True)
+class ModelSensorCatalog:
+    """Static sensor metadata stored on ``MjoModel``."""
 
-    scenario: Scenario
     descriptors: list[SensorDescriptor]
     by_name: dict[str, SensorDescriptor]
     custom_descriptors: list[SensorDescriptor]
-    rng: np.random.Generator = field(default_factory=np.random.default_rng)
 
 
-def compile_sensor_suite(scenario: Scenario) -> SensorSuite:
-    """Resolve MuJoCo sensors and register custom orbital sensors if needed."""
-    suite_rng = np.random.default_rng()
+@dataclass
+class SensorDataNamespace:
+    """Per-data sensor helpers and runtime stochastic state."""
+
+    model: MjoModel
+    data: MjoData
+    rng: np.random.Generator
+    gyro_biases: dict[str, np.ndarray] = field(default_factory=dict)
+
+    def descriptor(self, name: str) -> SensorDescriptor:
+        descriptor = self.model.sensors.by_name.get(name)
+        if descriptor is None:
+            raise ValueError(f"Sensor '{name}' not found in model")
+        return descriptor
+
+    def bias(self, name: str) -> np.ndarray:
+        """Return the persistent gyro bias for ``name`` if one exists."""
+        return self.gyro_biases.get(name, np.zeros(3)).copy()
+
+    def measure(
+        self,
+        name: str,
+        *,
+        noisy: bool = True,
+        rng: np.random.Generator | None = None,
+    ) -> np.ndarray:
+        """Return one sensor measurement by name."""
+        descriptor = self.descriptor(name)
+        truth = self.data.sensordata[descriptor.data_slice].copy()
+        if not noisy:
+            return truth
+
+        generator = self.rng if rng is None else rng
+        bias = self.gyro_biases.get(descriptor.name)
+        return _apply_sensor_noise(generator, descriptor, truth, bias=bias)
+
+    def measure_all(
+        self,
+        *,
+        noisy: bool = True,
+        rng: np.random.Generator | None = None,
+    ) -> dict[str, np.ndarray]:
+        """Return all current sensor measurements keyed by name."""
+        generator = self.rng if rng is None else rng
+        return {
+            descriptor.name: self.measure(descriptor.name, noisy=noisy, rng=generator)
+            for descriptor in self.model.sensors.descriptors
+        }
+
+
+def compile_sensor_catalog(model: mujoco.MjModel) -> ModelSensorCatalog:
+    """Resolve static MuJoCo sensor metadata."""
     descriptors: list[SensorDescriptor] = []
     custom_descriptors: list[SensorDescriptor] = []
 
-    for sensor_id in range(scenario.mjm.nsensor):
-        name = mujoco.mj_id2name(scenario.mjm, mujoco.mjtObj.mjOBJ_SENSOR, sensor_id)
+    for sensor_id in range(model.nsensor):
+        name = mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_SENSOR, sensor_id)
         if name is None:
             raise ValueError(f"Sensor id {sensor_id} is missing a name")
+
+        orbit_kind = _orbit_sensor_kind(name)
+        reference_eci: np.ndarray | None = None
+
+        user = model.sensor_user[sensor_id].copy()
+        gyro_bias_sigma = 0.0
+        sensor_type = int(model.sensor_type[sensor_id])
+        if sensor_type == _GYRO_SENSOR_TYPE and user.size > 0:
+            gyro_bias_sigma = max(float(user[0]), 0.0)
 
         descriptor = SensorDescriptor(
             sensor_id=sensor_id,
             name=name,
-            sensor_type=int(scenario.mjm.sensor_type[sensor_id]),
-            datatype=int(scenario.mjm.sensor_datatype[sensor_id]),
-            objtype=int(scenario.mjm.sensor_objtype[sensor_id]),
-            objid=int(scenario.mjm.sensor_objid[sensor_id]),
-            adr=int(scenario.mjm.sensor_adr[sensor_id]),
-            dim=int(scenario.mjm.sensor_dim[sensor_id]),
-            noise=float(scenario.mjm.sensor_noise[sensor_id]),
-            cutoff=float(scenario.mjm.sensor_cutoff[sensor_id]),
-            needstage=int(scenario.mjm.sensor_needstage[sensor_id]),
-            user=scenario.mjm.sensor_user[sensor_id].copy(),
+            sensor_type=sensor_type,
+            datatype=int(model.sensor_datatype[sensor_id]),
+            objtype=int(model.sensor_objtype[sensor_id]),
+            objid=int(model.sensor_objid[sensor_id]),
+            adr=int(model.sensor_adr[sensor_id]),
+            dim=int(model.sensor_dim[sensor_id]),
+            noise=float(model.sensor_noise[sensor_id]),
+            cutoff=float(model.sensor_cutoff[sensor_id]),
+            needstage=int(model.sensor_needstage[sensor_id]),
+            user=user,
+            orbit_kind=orbit_kind,
+            reference_eci=reference_eci,
+            gyro_bias_sigma=gyro_bias_sigma,
         )
 
-        if descriptor.sensor_type == _GYRO_SENSOR_TYPE and descriptor.user.size > 0:
-            descriptor.gyro_bias_sigma = max(float(descriptor.user[0]), 0.0)
-            if descriptor.gyro_bias_sigma > 0.0:
-                descriptor.gyro_bias = suite_rng.normal(0.0, descriptor.gyro_bias_sigma, size=3)
-
-        orbit_kind = _orbit_sensor_kind(descriptor.name)
-        if orbit_kind is not None:
+        if descriptor.orbit_kind is not None:
             _validate_orbit_sensor_descriptor(descriptor)
-            descriptor.orbit_kind = orbit_kind
-            if orbit_kind == "star":
+            if descriptor.orbit_kind == "star":
                 if descriptor.user.size < 3:
                     raise ValueError(
                         f"Sensor '{descriptor.name}' requires a star vector in sensor user[0:3]"
                     )
-                descriptor.reference_eci = _normalized(
-                    descriptor.user[:3], f"Sensor '{descriptor.name}' star vector"
+                descriptor = SensorDescriptor(
+                    **{
+                        **descriptor.__dict__,
+                        "reference_eci": _normalized(
+                            descriptor.user[:3],
+                            f"Sensor '{descriptor.name}' star vector",
+                        ),
+                    }
                 )
             custom_descriptors.append(descriptor)
 
         descriptors.append(descriptor)
 
-    suite = SensorSuite(
-        scenario=scenario,
+    return ModelSensorCatalog(
         descriptors=descriptors,
         by_name={descriptor.name: descriptor for descriptor in descriptors},
         custom_descriptors=custom_descriptors,
-        rng=suite_rng,
     )
 
-    if custom_descriptors:
-        _register_sensor_suite(suite)
 
-    return suite
+def create_sensor_data_namespace(
+    model: MjoModel,
+    data: MjoData,
+    *,
+    rng_seed: int | None = None,
+) -> SensorDataNamespace:
+    """Create the per-run sensor helper object."""
+    rng = np.random.default_rng(rng_seed)
+    gyro_biases: dict[str, np.ndarray] = {}
+    for descriptor in model.sensors.descriptors:
+        if descriptor.sensor_type != _GYRO_SENSOR_TYPE:
+            continue
+        if descriptor.gyro_bias_sigma <= 0.0:
+            continue
+        gyro_biases[descriptor.name] = rng.normal(0.0, descriptor.gyro_bias_sigma, size=3)
+
+    return SensorDataNamespace(model=model, data=data, rng=rng, gyro_biases=gyro_biases)
 
 
-def update_sensor_environment(scenario: Scenario) -> None:
+def register_sensor_data_namespace(namespace: SensorDataNamespace) -> None:
+    """Register a data instance so custom sensor callbacks can find it."""
+    global _PREVIOUS_SENSOR_CALLBACK, _SENSOR_DISPATCH_INSTALLED
+
+    if not _SENSOR_DISPATCH_INSTALLED:
+        previous = mujoco.get_mjcb_sensor()
+        _PREVIOUS_SENSOR_CALLBACK = cast(
+            Callable[[mujoco.MjModel, mujoco.MjData, int], None] | None,
+            previous if callable(previous) else None,
+        )
+        mujoco.set_mjcb_sensor(_sensor_dispatch)
+        _SENSOR_DISPATCH_INSTALLED = True
+
+    key = id(namespace.data.mj_data)
+    _DATA_SENSOR_NAMESPACES[key] = weakref.ref(namespace)
+    weakref.finalize(namespace.data, _DATA_SENSOR_NAMESPACES.pop, key, None)
+
+
+def update_sensor_environment(model: MjoModel, data: MjoData) -> None:
     """Update MuJoCo's world-frame magnetic field from the current orbital state."""
-    scenario.mjm.opt.magnetic[:] = scenario.frame_cache.C_LI @ scenario.env_cache.mag_field_eci
+    model.mj_model.opt.magnetic[:] = data.frame.C_LI @ data.env.mag_field_eci
 
 
-def measure_sensor(
-    scenario: Scenario,
-    name: str,
-    *,
-    noisy: bool = True,
-    rng: np.random.Generator | None = None,
-) -> np.ndarray:
-    """Return one sensor reading by name.
+def _sensor_dispatch(model: mujoco.MjModel, mj_data: mujoco.MjData, stage: int) -> None:
+    if _PREVIOUS_SENSOR_CALLBACK is not None:
+        _PREVIOUS_SENSOR_CALLBACK(model, mj_data, stage)
 
-    ``noisy=False`` returns a copy of the current MuJoCo truth value from
-    ``mjd.sensordata``. ``noisy=True`` adds mujoco_orbit-managed noise without
-    mutating MuJoCo state.
-    """
-    suite = _require_sensor_suite(scenario)
-    descriptor = suite.by_name.get(name)
-    if descriptor is None:
-        raise ValueError(f"Sensor '{name}' not found in model")
+    namespace_ref = _DATA_SENSOR_NAMESPACES.get(id(mj_data))
+    namespace = None if namespace_ref is None else namespace_ref()
+    if namespace is None:
+        return
 
-    truth = scenario.mjd.sensordata[descriptor.data_slice].copy()
-    if not noisy:
-        return truth
-
-    generator = suite.rng if rng is None else rng
-    return _apply_sensor_noise(generator, descriptor, truth)
-
-
-def measure_sensors(
-    scenario: Scenario,
-    *,
-    noisy: bool = True,
-    rng: np.random.Generator | None = None,
-) -> dict[str, np.ndarray]:
-    """Return a dictionary of all current sensor readings keyed by sensor name."""
-    suite = _require_sensor_suite(scenario)
-    generator = suite.rng if rng is None else rng
-    return {
-        descriptor.name: measure_sensor(scenario, descriptor.name, noisy=noisy, rng=generator)
-        for descriptor in suite.descriptors
-    }
-
-
-def _require_sensor_suite(scenario: Scenario) -> SensorSuite:
-    if scenario.sensor_suite is None:
-        raise RuntimeError("Scenario does not have a compiled sensor suite")
-    return scenario.sensor_suite
+    for descriptor in namespace.model.sensors.custom_descriptors:
+        if descriptor.needstage != stage:
+            continue
+        mj_data.sensordata[descriptor.data_slice] = _custom_sensor_truth(
+            namespace.data,
+            descriptor,
+            mj_data,
+        )
 
 
 def _orbit_sensor_kind(name: str) -> str | None:
@@ -219,64 +276,39 @@ def _validate_orbit_sensor_descriptor(descriptor: SensorDescriptor) -> None:
         raise ValueError(f"Sensor '{descriptor.name}' must declare dim='3'")
 
 
-def _register_sensor_suite(suite: SensorSuite) -> None:
-    global _PREVIOUS_SENSOR_CALLBACK, _SENSOR_DISPATCH_INSTALLED
-
-    if not _SENSOR_DISPATCH_INSTALLED:
-        previous = mujoco.get_mjcb_sensor()
-        _PREVIOUS_SENSOR_CALLBACK = cast(
-            Callable[[mujoco.MjModel, mujoco.MjData, int], None] | None,
-            previous if callable(previous) else None,
-        )
-        mujoco.set_mjcb_sensor(_sensor_dispatch)
-        _SENSOR_DISPATCH_INSTALLED = True
-
-    _MODEL_SENSOR_SUITES[suite.scenario.mjm] = suite
-
-
-def _sensor_dispatch(model: mujoco.MjModel, data: mujoco.MjData, stage: int) -> None:
-    if _PREVIOUS_SENSOR_CALLBACK is not None:
-        _PREVIOUS_SENSOR_CALLBACK(model, data, stage)
-
-    suite = _MODEL_SENSOR_SUITES.get(model)
-    if suite is None:
-        return
-
-    for descriptor in suite.custom_descriptors:
-        if descriptor.needstage != stage:
-            continue
-        data.sensordata[descriptor.data_slice] = _custom_sensor_truth(
-            suite.scenario, descriptor, data
-        )
-
-
 def _custom_sensor_truth(
-    scenario: Scenario, descriptor: SensorDescriptor, data: mujoco.MjData
+    data: MjoData,
+    descriptor: SensorDescriptor,
+    mj_data: mujoco.MjData,
 ) -> np.ndarray:
     if descriptor.orbit_kind == "sun":
-        world_vec = scenario.frame_cache.C_LI @ scenario.env_cache.sun_vector_eci
+        world_vec = data.frame.C_LI @ data.env.sun_vector_eci
     elif descriptor.orbit_kind == "horizon":
-        nadir_eci = -scenario.orbit.R_eci / np.linalg.norm(scenario.orbit.R_eci)
-        world_vec = scenario.frame_cache.C_LI @ nadir_eci
+        nadir_eci = -data.orbit.R_eci / np.linalg.norm(data.orbit.R_eci)
+        world_vec = data.frame.C_LI @ nadir_eci
     elif descriptor.orbit_kind == "star":
         if descriptor.reference_eci is None:
             raise RuntimeError(f"Sensor '{descriptor.name}' is missing its star reference vector")
-        world_vec = scenario.frame_cache.C_LI @ descriptor.reference_eci
+        world_vec = data.frame.C_LI @ descriptor.reference_eci
     else:
         raise RuntimeError(f"Unknown custom sensor kind for '{descriptor.name}'")
 
-    site_rot = data.site_xmat[descriptor.objid].reshape(3, 3)
+    site_rot = mj_data.site_xmat[descriptor.objid].reshape(3, 3)
     site_vec = site_rot.T @ world_vec
     return _normalized(site_vec, f"Sensor '{descriptor.name}' truth vector")
 
 
 def _apply_sensor_noise(
-    rng: np.random.Generator, descriptor: SensorDescriptor, truth: np.ndarray
+    rng: np.random.Generator,
+    descriptor: SensorDescriptor,
+    truth: np.ndarray,
+    *,
+    bias: np.ndarray | None,
 ) -> np.ndarray:
     measurement = truth.copy()
 
-    if descriptor.sensor_type == _GYRO_SENSOR_TYPE and descriptor.gyro_bias_sigma > 0.0:
-        measurement = measurement + descriptor.gyro_bias
+    if descriptor.sensor_type == _GYRO_SENSOR_TYPE and bias is not None:
+        measurement = measurement + bias
 
     if descriptor.noise <= 0.0:
         return _apply_cutoff(descriptor, measurement)
@@ -345,7 +377,7 @@ def _quat_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     w2, x2, y2, z2 = q2
     return np.array(
         [
-            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * q2[0] - x1 * x2 - y1 * y2 - z1 * z2,
             w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
             w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
             w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
@@ -371,10 +403,11 @@ def _normalized(vec: np.ndarray, label: str) -> np.ndarray:
 
 
 __all__ = [
+    "ModelSensorCatalog",
+    "SensorDataNamespace",
     "SensorDescriptor",
-    "SensorSuite",
-    "compile_sensor_suite",
-    "measure_sensor",
-    "measure_sensors",
+    "compile_sensor_catalog",
+    "create_sensor_data_namespace",
+    "register_sensor_data_namespace",
     "update_sensor_environment",
 ]

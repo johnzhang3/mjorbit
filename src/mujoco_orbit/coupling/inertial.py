@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mujoco_orbit.core.scenario import Scenario
+from mujoco_orbit.core.runtime import MjoData, MjoModel
 from mujoco_orbit.orbit.gravity import total_accel
 
 # MuJoCo world frame = LVLH frame (by construction of the model)
@@ -38,19 +38,19 @@ _M_TO_KM = 1e-3
 _KM_S2_TO_M_S2 = 1e3  # km/s^2 -> m/s^2
 
 
-def apply_inertial_wrenches(scenario: Scenario) -> None:
+def apply_inertial_wrenches(model: MjoModel, data: MjoData) -> None:
     """Compute per-body apparent accelerations and accumulate forces.
 
-    Writes force contributions (N) into scenario._wrench_buffer[:, :3].
+    Writes force contributions (N) into ``data.wrench_buffer[:, :3]``.
     Torque contributions are zero for translational forcing.
     """
-    orbit = scenario.orbit
-    fc = scenario.frame_cache
-    mjm = scenario.mjm
-    mjd = scenario.mjd
+    orbit = data.orbit
+    fc = data.frame
+    mjm = model.mj_model
+    mjd = data.mj_data
 
     R_ref = orbit.R_eci  # km
-    g_ref = total_accel(R_ref, use_j2=scenario.cfg.use_j2)  # km/s^2
+    g_ref = total_accel(R_ref, use_j2=model.use_j2)  # km/s^2
 
     omega = fc.omega_lvlh  # rad/s, in LVLH
     omega_dot = fc.omega_dot_lvlh  # rad/s^2, in LVLH
@@ -71,7 +71,7 @@ def apply_inertial_wrenches(scenario: Scenario) -> None:
         r_body_eci = R_ref + fc.C_IL @ r_lvlh_km
 
         # Gravity at body position
-        g_body = total_accel(r_body_eci, use_j2=scenario.cfg.use_j2)  # km/s^2
+        g_body = total_accel(r_body_eci, use_j2=model.use_j2)  # km/s^2
 
         # Relative gravity gradient term
         dg = C_LI @ (g_body - g_ref)  # km/s^2, in LVLH
@@ -91,4 +91,4 @@ def apply_inertial_wrenches(scenario: Scenario) -> None:
         # Convert to m/s^2 and multiply by mass for force in N
         F_N = mass * a_total_km_s2 * _KM_S2_TO_M_S2
 
-        scenario._wrench_buffer[body_id, :3] += F_N
+        data.wrench_buffer[body_id, :3] += F_N

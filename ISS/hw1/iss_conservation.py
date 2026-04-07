@@ -9,7 +9,7 @@ Runs for 3 full orbits (~277 min) with the ISS spinning at 10 RPM about
 the major axis (Z).
 
 Usage:
-    uv run python examples/iss/iss_conservation.py
+    uv run python ISS/hw1/iss_conservation.py
 """
 
 from __future__ import annotations
@@ -20,12 +20,10 @@ import time as pytime
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import mujoco
 import numpy as np
 
-from mujoco_orbit import compile, step
+from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.core.config import MuJoCoCfg, OrbitCfg, ScenarioCfg
 from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 
 # ---------------------------------------------------------------------------
@@ -39,7 +37,7 @@ INERTIAS = np.array([ISS_IXX, ISS_IYY, ISS_IZZ])
 
 ALT_KM = 410.0
 INC_DEG = 51.6
-MODEL_XML = str(pathlib.Path(__file__).parent / "iss_model.xml")
+MODEL_XML = str(pathlib.Path(__file__).resolve().parents[1] / "iss_model.xml")
 
 OMEGA_REF = 10.0 * 2.0 * np.pi / 60.0  # 10 RPM in rad/s
 
@@ -56,22 +54,22 @@ def main() -> None:
     )
 
     dt = 0.01  # s
-    cfg = ScenarioCfg(
-        orbit=OrbitCfg(R_eci=R_eci, V_eci=V_eci),
-        mujoco=MuJoCoCfg(xml_path=MODEL_XML, dt=dt),
-        surfaces=[],  # no surfaces
+    model = MjoModel.from_xml_path(
+        MODEL_XML,
+        mj_timestep=dt,
+        surfaces=[],
         use_j2=True,
         use_drag=False,
         use_srp=False,
         use_magnetic=False,
     )
-    scenario = compile(cfg)
+    data = MjoData(model, orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
 
     # Initial spin: 10 RPM about Z (major axis)
-    scenario.mjd.qvel[3] = 0.0
-    scenario.mjd.qvel[4] = 0.0
-    scenario.mjd.qvel[5] = OMEGA_REF
-    mujoco.mj_forward(scenario.mjm, scenario.mjd)
+    data.qvel[3] = 0.0
+    data.qvel[4] = 0.0
+    data.qvel[5] = OMEGA_REF
+    mjo_forward(model, data)
 
     n_steps = int(t_total / dt)
     record_every = int(1.0 / dt)  # record at 1 Hz
@@ -85,19 +83,14 @@ def main() -> None:
     orbit_alt = np.zeros(n_records)
     orbit_energy = np.zeros(n_records)   # specific orbital energy
 
-    bid = scenario.body_id("iss")
+    bid = model.body_id("iss")
 
     def record(idx: int, t: float) -> None:
         times[idx] = t
 
         # Angular velocity in world (LVLH) frame
-        w_world = scenario.mjd.qvel[3:6].copy()
-
-        # Rotation matrix world-from-body
-        R_wb = scenario.mjd.ximat[bid].reshape(3, 3)
-
-        # Body-frame angular velocity
-        w_body = R_wb.T @ w_world
+        w_body = data.qvel[3:6].copy()
+        R_wb = data.xmat[bid].reshape(3, 3)
 
         # Angular momentum in body frame: L_body = I * w_body
         Lb = INERTIAS * w_body
@@ -111,8 +104,8 @@ def main() -> None:
         T_rot[idx] = 0.5 * np.dot(INERTIAS * w_body, w_body)
 
         # Orbit
-        r = np.linalg.norm(scenario.orbit.R_eci)
-        v = np.linalg.norm(scenario.orbit.V_eci)
+        r = np.linalg.norm(data.orbit.R_eci)
+        v = np.linalg.norm(data.orbit.V_eci)
         orbit_alt[idx] = r - R_EARTH
         orbit_energy[idx] = 0.5 * v**2 - GM_EARTH / r  # km²/s²
 
@@ -130,7 +123,7 @@ def main() -> None:
     wall_t0 = pytime.perf_counter()
     rec_idx = 1
     for i in range(n_steps):
-        step(scenario)
+        mjo_step(model, data)
         if (i + 1) % record_every == 0:
             record(rec_idx, (i + 1) * dt)
             rec_idx += 1

@@ -6,7 +6,7 @@ For each configured flat-plate surface:
 3. Compute drag force from projected area
 4. Compute SRP force from projected area
 5. Convert force-at-point to body wrench (force + torque)
-6. Accumulate into scenario wrench buffer
+6. Accumulate into the runtime wrench buffer
 
 Units: forces in N, torques in N·m (SI, MuJoCo convention).
 """
@@ -16,18 +16,18 @@ from __future__ import annotations
 import numpy as np
 
 from mujoco_orbit.constants import OMEGA_EARTH, P_SUN
-from mujoco_orbit.core.scenario import Scenario
+from mujoco_orbit.core.runtime import MjoData, MjoModel
 
 
-def apply_surface_wrenches(scenario: Scenario) -> None:
+def apply_surface_wrenches(model: MjoModel, data: MjoData) -> None:
     """Compute drag and SRP loads for all configured surfaces."""
-    if not scenario.surfaces:
+    if not model.surfaces:
         return
 
-    orbit = scenario.orbit
-    fc = scenario.frame_cache
-    env = scenario.env_cache
-    mjd = scenario.mjd
+    orbit = data.orbit
+    fc = data.frame
+    env = data.env
+    mjd = data.mj_data
 
     # Chief's atmosphere-relative velocity in ECI, then LVLH (km/s)
     omega_earth = np.array([0.0, 0.0, OMEGA_EARTH])
@@ -42,7 +42,7 @@ def apply_surface_wrenches(scenario: Scenario) -> None:
 
     rho = env.atm_density  # kg/m^3
 
-    for surf in scenario.surfaces:
+    for surf in model.surfaces:
         bid = surf.body_id
 
         # Body world-from-body rotation
@@ -70,7 +70,7 @@ def apply_surface_wrenches(scenario: Scenario) -> None:
         F_total = np.zeros(3)
 
         # --- Drag ---
-        if surf.use_drag and scenario.cfg.use_drag and speed > 1e-10:
+        if surf.use_drag and model.use_drag and speed > 1e-10:
             v_hat = v_rel_m_s / speed
             # Projected area: only when the panel normal points into the flow.
             cos_angle = np.dot(n_world, v_hat)
@@ -80,7 +80,7 @@ def apply_surface_wrenches(scenario: Scenario) -> None:
                 F_total += F_drag
 
         # --- SRP ---
-        if surf.use_srp and scenario.cfg.use_srp and env.eclipse > 0.0:
+        if surf.use_srp and model.use_srp and env.eclipse > 0.0:
             cos_sun = np.dot(n_world, sun_world)
             if cos_sun > 0.0:
                 projected_area = surf.area * cos_sun
@@ -88,6 +88,6 @@ def apply_surface_wrenches(scenario: Scenario) -> None:
                 F_total += F_srp
 
         # Accumulate force and torque into wrench buffer
-        scenario._wrench_buffer[bid, :3] += F_total
+        data.wrench_buffer[bid, :3] += F_total
         tau = np.cross(r_cop_world, F_total)  # N·m
-        scenario._wrench_buffer[bid, 3:] += tau
+        data.wrench_buffer[bid, 3:] += tau

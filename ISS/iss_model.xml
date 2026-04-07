@@ -10,7 +10,7 @@
          Z = nadir-pointing (local vertical)   — yaw axis
 
        The geometry is purely visual — drag/SRP surfaces are defined
-       externally via SurfaceCfg. Inertia is set explicitly.
+       externally via SurfaceSpec. Inertia is set explicitly.
 
        Gravity is disabled at runtime by compile (opt.gravity = 0).
        The orbit layer provides all inertial forces via xfrc_applied.

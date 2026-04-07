@@ -11,7 +11,7 @@ The trajectories are computed by integrating Euler's torque-free rigid body
 equations directly (no mjorbit needed — this is a purely analytical result).
 
 Usage:
-    uv run python examples/iss/iss_momentum_sphere.py
+    uv run python ISS/hw1/iss_momentum_sphere.py
 """
 
 from __future__ import annotations

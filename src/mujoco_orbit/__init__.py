@@ -1,7 +1,25 @@
-"""Default MuJoCo + NumPy simulator for coupled orbital and multibody dynamics."""
+"""MuJoCo-style coupled orbital and multibody dynamics."""
 
-from mujoco_orbit.core.compile import compile
-from mujoco_orbit.core.step import step
-from mujoco_orbit.sensors import measure_sensor, measure_sensors
+from mujoco_orbit.core.config import (
+    MagneticBodySpec,
+    MagnetorquerSpec,
+    OrbitInit,
+    ReactionWheelSpec,
+    SurfaceSpec,
+    ThrusterSpec,
+)
+from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.core.step import mjo_forward, mjo_step
 
-__all__ = ["compile", "measure_sensor", "measure_sensors", "step"]
+__all__ = [
+    "MagneticBodySpec",
+    "MagnetorquerSpec",
+    "MjoData",
+    "MjoModel",
+    "OrbitInit",
+    "ReactionWheelSpec",
+    "SurfaceSpec",
+    "ThrusterSpec",
+    "mjo_forward",
+    "mjo_step",
+]

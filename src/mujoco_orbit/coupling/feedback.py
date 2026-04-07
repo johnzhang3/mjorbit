@@ -21,36 +21,38 @@ from __future__ import annotations
 
 import numpy as np
 
-from mujoco_orbit.core.scenario import Scenario
+from mujoco_orbit.core.runtime import MjoData, MjoModel
 
 
-def compute_net_external_wrench(scenario: Scenario) -> tuple[np.ndarray, np.ndarray]:
+def compute_net_external_wrench(data: MjoData) -> tuple[np.ndarray, np.ndarray]:
     """Sum all body wrenches to get net external force and torque on the system.
 
     Returns:
         (net_force_world, net_torque_world) each shape (3,), in N and N·m.
     """
     # Sum forces and torques over all bodies
-    net_force = np.sum(scenario._wrench_buffer[:, :3], axis=0)
-    net_torque = np.sum(scenario._wrench_buffer[:, 3:], axis=0)
+    net_force = np.sum(data.wrench_buffer[:, :3], axis=0)
+    net_torque = np.sum(data.wrench_buffer[:, 3:], axis=0)
     return net_force, net_torque
 
 
 def compute_orbit_feedback_accel(
-    scenario: Scenario,
+    model: MjoModel,
+    data: MjoData,
     net_force_world: np.ndarray,
 ) -> np.ndarray:
     """Convert net external force in world (LVLH) frame to ECI acceleration for orbit feedback.
 
     Args:
-        scenario: current scenario (provides frame cache and total mass)
+        model: compiled model (provides mass)
+        data: runtime state (provides frame cache)
         net_force_world: net external force in LVLH/world frame, N
 
     Returns:
         acceleration in ECI, km/s^2
     """
     # Total system mass
-    total_mass = np.sum(scenario.mjm.body_mass[1:])  # skip world body
+    total_mass = np.sum(model.body_mass[1:])  # skip world body
     if total_mass <= 0.0:
         return np.zeros(3)
 
@@ -59,5 +61,5 @@ def compute_orbit_feedback_accel(
     a_world_km = a_world * 1e-3  # km/s^2
 
     # Rotate from LVLH to ECI
-    a_eci = scenario.frame_cache.C_IL @ a_world_km
+    a_eci = data.frame.C_IL @ a_world_km
     return a_eci

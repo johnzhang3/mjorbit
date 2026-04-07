@@ -15,7 +15,7 @@ Plots:
   - Solar panel normal pointing error (degrees)
 
 Usage:
-    uv run python examples/iss/hw2/spacecraft_dynamics.py
+    uv run python ISS/hw2/spacecraft_dynamics.py
 """
 
 from __future__ import annotations
@@ -26,10 +26,9 @@ import time as pytime
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import mujoco
 import numpy as np
 
-from mujoco_orbit import step
+from mujoco_orbit import mjo_forward, mjo_step
 
 from common import (
     J_NOMINAL,
@@ -40,7 +39,7 @@ from common import (
     perturb_inertia,
     compute_rotor_momentum,
     quat_to_rotmat,
-    build_scenario,
+    build_model_data,
     set_sun_pointing_attitude,
 )
 
@@ -84,8 +83,8 @@ def main() -> None:
 
     # --- Build scenario ---
     dt = 0.002
-    scenario, rw_speeds = build_scenario(J, h, dt=dt)
-    bid = scenario.body_id("iss")
+    model, data, rw_speeds = build_model_data(J, h, dt=dt)
+    bid = model.body_id("iss")
 
     for i, speed in enumerate(rw_speeds):
         print(f"  RW-{['X','Y','Z'][i]}: speed = {speed:.2f} rad/s "
@@ -94,15 +93,15 @@ def main() -> None:
     sun_eci = np.array([1.0, 0.0, 0.0])
 
     # --- Set initial attitude: panel normal (+Z body) -> sun (+X ECI) ---
-    set_sun_pointing_attitude(scenario, sun_eci)
+    set_sun_pointing_attitude(model, data, sun_eci)
 
     # --- Set initial angular velocity (perturbed) ---
     perturb_frac = 0.01
     omega0 = omega_desired.copy()
     omega0[0] += perturb_frac * OMEGA_RAD_S
     omega0[1] += perturb_frac * OMEGA_RAD_S
-    scenario.mjd.qvel[3:6] = omega0
-    mujoco.mj_forward(scenario.mjm, scenario.mjd)
+    data.qvel[3:6] = omega0
+    mjo_forward(model, data)
     print(f"\nPerturbed IC: omega_0 = [{omega0[0]:.6f}, {omega0[1]:.6f}, {omega0[2]:.6f}] rad/s")
 
     # --- Nutation period and sim duration ---
@@ -126,12 +125,12 @@ def main() -> None:
 
     def record(idx: int, t: float) -> None:
         times[idx] = t
-        q = scenario.mjd.qpos[3:7].copy()
+        q = data.qpos[3:7].copy()
         quat_hist[idx] = q
-        omega_body[idx] = scenario.mjd.qvel[3:6].copy()
-        C_IL = scenario.frame_cache.C_IL
+        omega_body[idx] = data.qvel[3:6].copy()
+        C_IL = data.frame.C_IL
         pointing_err[idx] = pointing_error_deg(q, C_IL, sun_eci)
-        rw_speed_hist[idx] = scenario.actuator_state.rw_speed.copy()
+        rw_speed_hist[idx] = data.actuators.rw_speed.copy()
 
     record(0, 0.0)
 
@@ -140,7 +139,7 @@ def main() -> None:
 
     rec_idx = 1
     for i in range(n_steps):
-        step(scenario)
+        mjo_step(model, data)
         if (i + 1) % record_every == 0:
             record(rec_idx, (i + 1) * dt)
             rec_idx += 1

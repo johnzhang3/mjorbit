@@ -12,7 +12,7 @@ The perturbed X-axis case should exhibit the Dzhanibekov / intermediate axis
 instability, with transverse rates growing dramatically.
 
 Usage:
-    uv run python examples/iss/iss_axis_comparison.py
+    uv run python ISS/hw1/iss_axis_comparison.py
 """
 
 from __future__ import annotations
@@ -22,12 +22,10 @@ import pathlib
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import mujoco
 import numpy as np
 
-from mujoco_orbit import compile, step
+from mujoco_orbit import MjoData, MjoModel, OrbitInit, SurfaceSpec, mjo_forward, mjo_step
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.core.config import MuJoCoCfg, OrbitCfg, ScenarioCfg, SurfaceCfg
 from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 
 # ---------------------------------------------------------------------------
@@ -41,7 +39,7 @@ INERTIAS = np.array([ISS_IXX, ISS_IYY, ISS_IZZ])
 
 ALT_KM = 410.0
 INC_DEG = 51.6
-MODEL_XML = str(pathlib.Path(__file__).parent / "iss_model.xml")
+MODEL_XML = str(pathlib.Path(__file__).resolve().parents[1] / "iss_model.xml")
 
 # Reference angular momentum: 10 RPM about Z
 OMEGA_REF = 10.0 * 2.0 * np.pi / 60.0  # rad/s
@@ -50,19 +48,19 @@ L_MAG = ISS_IZZ * OMEGA_REF  # kg·m²/s
 PERTURBATION_FRAC = 0.01  # 1% transverse kick
 
 
-def _make_surfaces() -> list[SurfaceCfg]:
+def _make_surfaces() -> list[SurfaceSpec]:
     """Reuse the ISS surface model from iss_spin_stability.py."""
-    surfaces: list[SurfaceCfg] = []
+    surfaces: list[SurfaceSpec] = []
     sa_area = 375.0
     sa_y_offsets = [-45.0, -35.0, 35.0, 45.0]
     for y_off in sa_y_offsets:
-        surfaces.append(SurfaceCfg(
+        surfaces.append(SurfaceSpec(
             body_name="iss",
             center_of_pressure_body=np.array([0.0, y_off, 0.5]),
             normal_body=np.array([0.0, 0.0, 1.0]),
             area=sa_area,
         ))
-        surfaces.append(SurfaceCfg(
+        surfaces.append(SurfaceSpec(
             body_name="iss",
             center_of_pressure_body=np.array([0.0, y_off, -0.5]),
             normal_body=np.array([0.0, 0.0, -1.0]),
@@ -70,7 +68,7 @@ def _make_surfaces() -> list[SurfaceCfg]:
         ))
     rad_area = 75.0
     for y_off in [-25.0, -15.0, 15.0, 20.0, 25.0, 30.0]:
-        surfaces.append(SurfaceCfg(
+        surfaces.append(SurfaceSpec(
             body_name="iss",
             center_of_pressure_body=np.array([0.0, y_off, 3.0]),
             normal_body=np.array([0.0, 0.0, 1.0]),
@@ -78,27 +76,27 @@ def _make_surfaces() -> list[SurfaceCfg]:
             srp_coeff=1.5,
         ))
     mod_area = 180.0
-    surfaces.append(SurfaceCfg(
+    surfaces.append(SurfaceSpec(
         body_name="iss",
         center_of_pressure_body=np.array([36.5, 0.0, 0.0]),
         normal_body=np.array([1.0, 0.0, 0.0]),
         area=mod_area,
     ))
-    surfaces.append(SurfaceCfg(
+    surfaces.append(SurfaceSpec(
         body_name="iss",
         center_of_pressure_body=np.array([-36.5, 0.0, 0.0]),
         normal_body=np.array([-1.0, 0.0, 0.0]),
         area=mod_area,
     ))
     truss_area = 250.0
-    surfaces.append(SurfaceCfg(
+    surfaces.append(SurfaceSpec(
         body_name="iss",
         center_of_pressure_body=np.array([0.0, 54.25, 0.0]),
         normal_body=np.array([0.0, 1.0, 0.0]),
         area=truss_area,
         srp_coeff=1.5,
     ))
-    surfaces.append(SurfaceCfg(
+    surfaces.append(SurfaceSpec(
         body_name="iss",
         center_of_pressure_body=np.array([0.0, -54.25, 0.0]),
         normal_body=np.array([0.0, -1.0, 0.0]),
@@ -119,17 +117,17 @@ def run_sim(
         a=a_km, e=0.0, inc=np.deg2rad(INC_DEG),
         raan=0.0, argp=0.0, nu=0.0,
     )
-    cfg = ScenarioCfg(
-        orbit=OrbitCfg(R_eci=R_eci, V_eci=V_eci),
-        mujoco=MuJoCoCfg(xml_path=MODEL_XML, dt=dt),
+    model = MjoModel.from_xml_path(
+        MODEL_XML,
+        mj_timestep=dt,
         surfaces=_make_surfaces(),
         use_j2=True, use_drag=True, use_srp=True, use_magnetic=False,
     )
-    scenario = compile(cfg)
+    data = MjoData(model, orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
 
     # Set initial angular velocity (body = world at t=0)
-    scenario.mjd.qvel[3:6] = omega0_body
-    mujoco.mj_forward(scenario.mjm, scenario.mjd)
+    data.qvel[3:6] = omega0_body
+    mjo_forward(model, data)
 
     n_steps = int(t_total / dt)
     record_every = int(0.1 / dt)
@@ -141,17 +139,14 @@ def run_sim(
 
     def record(idx: int, t: float) -> None:
         times[idx] = t
-        w_world = scenario.mjd.qvel[3:6].copy()
-        bid = scenario.body_id("iss")
-        R_wb = scenario.mjd.ximat[bid].reshape(3, 3)
-        w_b = R_wb.T @ w_world
-        omega_body[idx] = w_b
-        L_body[idx] = INERTIAS * w_b
+        w_body = data.qvel[3:6].copy()
+        omega_body[idx] = w_body
+        L_body[idx] = INERTIAS * w_body
 
     record(0, 0.0)
     rec_idx = 1
     for i in range(n_steps):
-        step(scenario)
+        mjo_step(model, data)
         if (i + 1) % record_every == 0:
             record(rec_idx, (i + 1) * dt)
             rec_idx += 1

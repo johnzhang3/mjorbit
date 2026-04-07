@@ -4,27 +4,23 @@ from __future__ import annotations
 
 import pathlib
 
-import mujoco
 import numpy as np
 import pytest
 
-from mujoco_orbit import compile, measure_sensor, measure_sensors
-from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.core.config import MuJoCoCfg, OrbitCfg, ScenarioCfg
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
+from mujoco_orbit import MjoModel, mjo_forward
 from mujoco_orbit.testdata import FREE_BODY_SENSORS_XML
 
+from ._helpers import make_model_data
 
-def _circular_leo_cfg(xml_path: str = FREE_BODY_SENSORS_XML) -> ScenarioCfg:
-    a = R_EARTH + 400.0
-    R, V = keplerian_to_cartesian(a=a, e=0.0, inc=np.deg2rad(51.6), raan=0.0, argp=0.0, nu=0.0)
-    return ScenarioCfg(
-        orbit=OrbitCfg(R_eci=R, V_eci=V),
-        mujoco=MuJoCoCfg(xml_path=xml_path, dt=0.01),
+
+def _make_model_data(xml_path: str = FREE_BODY_SENSORS_XML, *, rng_seed: int | None = None):
+    return make_model_data(
+        xml_path=xml_path,
         use_j2=False,
         use_drag=False,
         use_srp=False,
         use_magnetic=True,
+        rng_seed=rng_seed,
     )
 
 
@@ -46,13 +42,14 @@ def _quat_to_rotmat(q: np.ndarray) -> np.ndarray:
 
 
 def _set_attitude(
-    scenario,
+    model,
+    data,
     quat_world_body: np.ndarray,
     omega_body: np.ndarray = np.array([0.05, -0.02, 0.03]),
 ) -> None:
-    scenario.mjd.qpos[3:7] = quat_world_body
-    scenario.mjd.qvel[3:6] = omega_body
-    mujoco.mj_forward(scenario.mjm, scenario.mjd)
+    data.qpos[3:7] = quat_world_body
+    data.qvel[3:6] = omega_body
+    mjo_forward(model, data)
 
 
 def _q_method(
@@ -79,27 +76,26 @@ def _q_method(
     return q_bw / np.linalg.norm(q_bw)
 
 
-def _rotation_error_rad(R_est: np.ndarray, R_true: np.ndarray) -> float:
-    delta = R_est @ R_true.T
+def _rotation_error_rad(r_est: np.ndarray, r_true: np.ndarray) -> float:
+    delta = r_est @ r_true.T
     cos_angle = 0.5 * (np.trace(delta) - 1.0)
     return float(np.arccos(np.clip(cos_angle, -1.0, 1.0)))
 
 
-def _wahba_inputs(scenario, *, noisy: bool, rng: np.random.Generator | None = None):
-    suite = scenario.sensor_suite
-    assert suite is not None
+def _wahba_inputs(model, data, *, noisy: bool, rng: np.random.Generator | None = None):
+    suite = model.sensors
 
-    sun_world = scenario.frame_cache.C_LI @ scenario.env_cache.sun_vector_eci
-    nadir_eci = -scenario.orbit.R_eci / np.linalg.norm(scenario.orbit.R_eci)
-    horizon_world = scenario.frame_cache.C_LI @ nadir_eci
-    star_world = scenario.frame_cache.C_LI @ suite.by_name["orbit_star_body"].reference_eci
-    mag_world = scenario.frame_cache.C_LI @ scenario.env_cache.mag_field_eci
+    sun_world = data.frame.C_LI @ data.env.sun_vector_eci
+    nadir_eci = -data.orbit.R_eci / np.linalg.norm(data.orbit.R_eci)
+    horizon_world = data.frame.C_LI @ nadir_eci
+    star_world = data.frame.C_LI @ suite.by_name["orbit_star_body"].reference_eci
+    mag_world = data.frame.C_LI @ data.env.mag_field_eci
 
     body_vecs = [
-        measure_sensor(scenario, "orbit_star_body", noisy=noisy, rng=rng),
-        measure_sensor(scenario, "orbit_sun_body", noisy=noisy, rng=rng),
-        measure_sensor(scenario, "orbit_horizon_body", noisy=noisy, rng=rng),
-        measure_sensor(scenario, "mag_body", noisy=noisy, rng=rng),
+        data.sensors.measure("orbit_star_body", noisy=noisy, rng=rng),
+        data.sensors.measure("orbit_sun_body", noisy=noisy, rng=rng),
+        data.sensors.measure("orbit_horizon_body", noisy=noisy, rng=rng),
+        data.sensors.measure("mag_body", noisy=noisy, rng=rng),
     ]
     world_vecs = [star_world, sun_world, horizon_world, mag_world]
 
@@ -118,11 +114,9 @@ def _wahba_inputs(scenario, *, noisy: bool, rng: np.random.Generator | None = No
 
 class TestSensorDiscovery:
     def test_compile_discovers_native_and_custom_sensors(self):
-        scenario = compile(_circular_leo_cfg())
-        suite = scenario.sensor_suite
-        assert suite is not None
+        model, data = _make_model_data()
 
-        assert set(suite.by_name) == {
+        assert set(model.sensors.by_name) == {
             "gyro_body",
             "mag_body",
             "mag_rotated",
@@ -130,10 +124,10 @@ class TestSensorDiscovery:
             "orbit_horizon_body",
             "orbit_star_body",
         }
-        assert suite.by_name["orbit_sun_body"].orbit_kind == "sun"
-        assert suite.by_name["orbit_horizon_body"].orbit_kind == "horizon"
-        assert suite.by_name["orbit_star_body"].orbit_kind == "star"
-        assert suite.by_name["gyro_body"].gyro_bias.shape == (3,)
+        assert model.sensors.by_name["orbit_sun_body"].orbit_kind == "sun"
+        assert model.sensors.by_name["orbit_horizon_body"].orbit_kind == "horizon"
+        assert model.sensors.by_name["orbit_star_body"].orbit_kind == "star"
+        assert data.sensors.bias("gyro_body").shape == (3,)
 
     def test_invalid_orbit_user_sensor_raises(self, tmp_path: pathlib.Path):
         bad_xml = """\
@@ -164,29 +158,35 @@ class TestSensorDiscovery:
         xml_path.write_text(bad_xml)
 
         with pytest.raises(ValueError, match="datatype='axis'"):
-            compile(_circular_leo_cfg(str(xml_path)))
+            MjoModel.from_xml_path(
+                str(xml_path),
+                mj_timestep=0.01,
+                use_j2=False,
+                use_drag=False,
+                use_srp=False,
+                use_magnetic=True,
+            )
 
 
 class TestSensorMeasurements:
     def test_noisy_measurement_does_not_mutate_sensordata(self):
-        scenario = compile(_circular_leo_cfg())
+        model, data = _make_model_data()
         _set_attitude(
-            scenario,
+            model,
+            data,
             _quat_from_axis_angle(np.array([1.0, 2.0, -0.5]), 0.6),
             np.array([0.1, -0.2, 0.3]),
         )
 
-        truth_before = scenario.mjd.sensordata.copy()
-        noisy = measure_sensor(scenario, "gyro_body", noisy=True, rng=np.random.default_rng(7))
-        truth_after = scenario.mjd.sensordata.copy()
+        truth_before = data.sensordata.copy()
+        noisy = data.sensors.measure("gyro_body", noisy=True, rng=np.random.default_rng(7))
+        truth_after = data.sensordata.copy()
 
-        np.testing.assert_allclose(
-            measure_sensor(scenario, "gyro_body", noisy=False), [0.1, -0.2, 0.3]
-        )
+        np.testing.assert_allclose(data.sensors.measure("gyro_body", noisy=False), [0.1, -0.2, 0.3])
         np.testing.assert_allclose(truth_after, truth_before)
         assert not np.allclose(noisy, truth_before[:3])
 
-    def test_gyro_bias_is_constant_per_scenario(self, tmp_path: pathlib.Path):
+    def test_gyro_bias_is_constant_per_data_instance(self, tmp_path: pathlib.Path):
         gyro_xml = """\
 <mujoco model="gyro_only">
   <size nuser_sensor="1"/>
@@ -206,97 +206,95 @@ class TestSensorMeasurements:
         xml_path = tmp_path / "gyro_only.xml"
         xml_path.write_text(gyro_xml)
 
-        scenario = compile(_circular_leo_cfg(str(xml_path)))
-        _set_attitude(scenario, np.array([1.0, 0.0, 0.0, 0.0]), np.array([0.03, 0.04, -0.02]))
-        suite = scenario.sensor_suite
-        assert suite is not None
+        model, data = _make_model_data(str(xml_path), rng_seed=123)
+        _set_attitude(model, data, np.array([1.0, 0.0, 0.0, 0.0]), np.array([0.03, 0.04, -0.02]))
 
-        truth = measure_sensor(scenario, "gyro", noisy=False)
-        meas1 = measure_sensor(scenario, "gyro", noisy=True, rng=np.random.default_rng(1))
-        meas2 = measure_sensor(scenario, "gyro", noisy=True, rng=np.random.default_rng(2))
+        truth = data.sensors.measure("gyro", noisy=False)
+        meas1 = data.sensors.measure("gyro", noisy=True, rng=np.random.default_rng(1))
+        meas2 = data.sensors.measure("gyro", noisy=True, rng=np.random.default_rng(2))
 
         np.testing.assert_allclose(meas1, meas2)
-        np.testing.assert_allclose(meas1 - truth, suite.by_name["gyro"].gyro_bias)
+        np.testing.assert_allclose(meas1 - truth, data.sensors.bias("gyro"))
 
     def test_truth_vectors_match_expected_transforms(self):
-        scenario = compile(_circular_leo_cfg())
+        model, data = _make_model_data()
         quat_world_body = _quat_from_axis_angle(np.array([1.0, -1.0, 0.5]), 0.7)
         omega_body = np.array([0.08, -0.03, 0.02])
-        _set_attitude(scenario, quat_world_body, omega_body)
-        suite = scenario.sensor_suite
-        assert suite is not None
+        _set_attitude(model, data, quat_world_body, omega_body)
 
-        body_id = scenario.body_id("spacecraft")
-        R_world_body = scenario.body_com_rotmat(body_id)
+        body_id = model.body_id("spacecraft")
+        r_world_body = data.xmat[body_id].reshape(3, 3)
 
-        sun_world = scenario.frame_cache.C_LI @ scenario.env_cache.sun_vector_eci
-        nadir_eci = -scenario.orbit.R_eci / np.linalg.norm(scenario.orbit.R_eci)
-        horizon_world = scenario.frame_cache.C_LI @ nadir_eci
-        star_world = scenario.frame_cache.C_LI @ suite.by_name["orbit_star_body"].reference_eci
-        mag_world = scenario.frame_cache.C_LI @ scenario.env_cache.mag_field_eci
-        mag_rot_site = scenario.mjd.site_xmat[suite.by_name["mag_rotated"].objid].reshape(3, 3)
+        sun_world = data.frame.C_LI @ data.env.sun_vector_eci
+        nadir_eci = -data.orbit.R_eci / np.linalg.norm(data.orbit.R_eci)
+        horizon_world = data.frame.C_LI @ nadir_eci
+        star_world = data.frame.C_LI @ model.sensors.by_name["orbit_star_body"].reference_eci
+        mag_world = data.frame.C_LI @ data.env.mag_field_eci
+        mag_rot_site = data.site_xmat[model.sensors.by_name["mag_rotated"].objid].reshape(3, 3)
 
-        np.testing.assert_allclose(measure_sensor(scenario, "gyro_body", noisy=False), omega_body)
+        np.testing.assert_allclose(data.sensors.measure("gyro_body", noisy=False), omega_body)
         np.testing.assert_allclose(
-            measure_sensor(scenario, "orbit_sun_body", noisy=False),
-            R_world_body.T @ (sun_world / np.linalg.norm(sun_world)),
+            data.sensors.measure("orbit_sun_body", noisy=False),
+            r_world_body.T @ (sun_world / np.linalg.norm(sun_world)),
             atol=1e-12,
         )
         np.testing.assert_allclose(
-            measure_sensor(scenario, "orbit_horizon_body", noisy=False),
-            R_world_body.T @ (horizon_world / np.linalg.norm(horizon_world)),
+            data.sensors.measure("orbit_horizon_body", noisy=False),
+            r_world_body.T @ (horizon_world / np.linalg.norm(horizon_world)),
             atol=1e-12,
         )
         np.testing.assert_allclose(
-            measure_sensor(scenario, "orbit_star_body", noisy=False),
-            R_world_body.T @ (star_world / np.linalg.norm(star_world)),
+            data.sensors.measure("orbit_star_body", noisy=False),
+            r_world_body.T @ (star_world / np.linalg.norm(star_world)),
             atol=1e-12,
         )
         np.testing.assert_allclose(
-            measure_sensor(scenario, "mag_body", noisy=False),
-            R_world_body.T @ mag_world,
+            data.sensors.measure("mag_body", noisy=False),
+            r_world_body.T @ mag_world,
             atol=1e-12,
         )
         np.testing.assert_allclose(
-            measure_sensor(scenario, "mag_rotated", noisy=False),
+            data.sensors.measure("mag_rotated", noisy=False),
             mag_rot_site.T @ mag_world,
             atol=1e-12,
         )
 
-    def test_measure_sensors_returns_named_measurements(self):
-        scenario = compile(_circular_leo_cfg())
-        _set_attitude(scenario, np.array([1.0, 0.0, 0.0, 0.0]))
-        readings = measure_sensors(scenario, noisy=False)
-        assert set(readings) == set(scenario.sensor_suite.by_name)
+    def test_measure_all_returns_named_measurements(self):
+        model, data = _make_model_data()
+        _set_attitude(model, data, np.array([1.0, 0.0, 0.0, 0.0]))
+        readings = data.sensors.measure_all(noisy=False)
+        assert set(readings) == set(model.sensors.by_name)
         assert all(value.ndim == 1 for value in readings.values())
 
 
 class TestWahbaVerification:
     def test_wahba_recovers_attitude_without_noise(self):
-        scenario = compile(_circular_leo_cfg())
+        model, data = _make_model_data()
         _set_attitude(
-            scenario,
+            model,
+            data,
             _quat_from_axis_angle(np.array([0.3, 1.0, -0.7]), 0.9),
             np.array([0.02, 0.01, -0.03]),
         )
 
-        body_vecs, world_vecs, weights = _wahba_inputs(scenario, noisy=False)
-        R_wb_est = _quat_to_rotmat(_q_method(body_vecs, world_vecs, weights))
-        R_wb_true = scenario.body_com_rotmat(scenario.body_id("spacecraft"))
+        body_vecs, world_vecs, weights = _wahba_inputs(model, data, noisy=False)
+        r_wb_est = _quat_to_rotmat(_q_method(body_vecs, world_vecs, weights))
+        r_wb_true = data.xmat[model.body_id("spacecraft")].reshape(3, 3)
 
-        assert _rotation_error_rad(R_wb_est, R_wb_true) < 1e-8
+        assert _rotation_error_rad(r_wb_est, r_wb_true) < 1e-8
 
     def test_wahba_recovers_attitude_with_sensor_noise(self):
-        scenario = compile(_circular_leo_cfg())
+        model, data = _make_model_data()
         _set_attitude(
-            scenario,
+            model,
+            data,
             _quat_from_axis_angle(np.array([1.0, -0.4, 0.2]), 0.8),
             np.array([0.02, -0.04, 0.01]),
         )
 
         rng = np.random.default_rng(1234)
-        body_vecs, world_vecs, weights = _wahba_inputs(scenario, noisy=True, rng=rng)
-        R_wb_est = _quat_to_rotmat(_q_method(body_vecs, world_vecs, weights))
-        R_wb_true = scenario.body_com_rotmat(scenario.body_id("spacecraft"))
+        body_vecs, world_vecs, weights = _wahba_inputs(model, data, noisy=True, rng=rng)
+        r_wb_est = _quat_to_rotmat(_q_method(body_vecs, world_vecs, weights))
+        r_wb_true = data.xmat[model.body_id("spacecraft")].reshape(3, 3)
 
-        assert _rotation_error_rad(R_wb_est, R_wb_true) < np.deg2rad(0.5)
+        assert _rotation_error_rad(r_wb_est, r_wb_true) < np.deg2rad(0.5)

@@ -18,19 +18,17 @@ ISS Parameters (post-assembly-complete):
   Orbit:       ~410 km circular, 51.6° inclination
 
 Usage:
-    uv run python examples/iss_spin_stability.py
+    uv run python ISS/hw1/iss_spin_stability.py
 """
 
 from __future__ import annotations
 
 import pathlib
 
-import mujoco
 import numpy as np
 
-from mujoco_orbit import compile, step
+from mujoco_orbit import MjoData, MjoModel, OrbitInit, SurfaceSpec, mjo_forward, mjo_step
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.core.config import MuJoCoCfg, OrbitCfg, ScenarioCfg, SurfaceCfg
 from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 
 # ---------------------------------------------------------------------------
@@ -46,7 +44,7 @@ ALT_KM = 410.0  # km
 INC_DEG = 51.6  # deg
 
 # MuJoCo model path
-MODEL_XML = str(pathlib.Path(__file__).parent / "iss_model.xml")
+MODEL_XML = str(pathlib.Path(__file__).resolve().parents[1] / "iss_model.xml")
 
 # ---------------------------------------------------------------------------
 # Surface definitions for drag and SRP
@@ -62,9 +60,9 @@ MODEL_XML = str(pathlib.Path(__file__).parent / "iss_model.xml")
 # ---------------------------------------------------------------------------
 
 
-def _make_surfaces() -> list[SurfaceCfg]:
+def _make_surfaces() -> list[SurfaceSpec]:
     """Build flat-plate surface model for the ISS."""
-    surfaces: list[SurfaceCfg] = []
+    surfaces: list[SurfaceSpec] = []
 
     # --- Solar Arrays ---
     # 8 wings total, 4 port (−Y) and 4 starboard (+Y).
@@ -74,7 +72,7 @@ def _make_surfaces() -> list[SurfaceCfg]:
     sa_y_offsets = [-45.0, -35.0, 35.0, 45.0]  # m, approximate truss positions
     for y_off in sa_y_offsets:
         # +Z facing wing
-        surfaces.append(SurfaceCfg(
+        surfaces.append(SurfaceSpec(
             body_name="iss",
             center_of_pressure_body=np.array([0.0, y_off, 0.5]),
             normal_body=np.array([0.0, 0.0, 1.0]),
@@ -83,7 +81,7 @@ def _make_surfaces() -> list[SurfaceCfg]:
             srp_coeff=1.8,
         ))
         # −Z facing wing (backside)
-        surfaces.append(SurfaceCfg(
+        surfaces.append(SurfaceSpec(
             body_name="iss",
             center_of_pressure_body=np.array([0.0, y_off, -0.5]),
             normal_body=np.array([0.0, 0.0, -1.0]),
@@ -97,7 +95,7 @@ def _make_surfaces() -> list[SurfaceCfg]:
     rad_area = 75.0  # m² per panel
     rad_y_offsets = [-25.0, -15.0, 15.0, 20.0, 25.0, 30.0]
     for y_off in rad_y_offsets:
-        surfaces.append(SurfaceCfg(
+        surfaces.append(SurfaceSpec(
             body_name="iss",
             center_of_pressure_body=np.array([0.0, y_off, 3.0]),
             normal_body=np.array([0.0, 0.0, 1.0]),
@@ -109,7 +107,7 @@ def _make_surfaces() -> list[SurfaceCfg]:
     # --- Pressurized Modules (ram-facing) ---
     # Frontal area of module stack: ~180 m². Normals face ±X.
     mod_area = 180.0  # m²
-    surfaces.append(SurfaceCfg(
+    surfaces.append(SurfaceSpec(
         body_name="iss",
         center_of_pressure_body=np.array([36.5, 0.0, 0.0]),
         normal_body=np.array([1.0, 0.0, 0.0]),
@@ -117,7 +115,7 @@ def _make_surfaces() -> list[SurfaceCfg]:
         drag_coeff=2.2,
         srp_coeff=1.8,
     ))
-    surfaces.append(SurfaceCfg(
+    surfaces.append(SurfaceSpec(
         body_name="iss",
         center_of_pressure_body=np.array([-36.5, 0.0, 0.0]),
         normal_body=np.array([-1.0, 0.0, 0.0]),
@@ -129,7 +127,7 @@ def _make_surfaces() -> list[SurfaceCfg]:
     # --- Truss Cross-section (broadside to cross-track) ---
     # Truss projected area per side: ~250 m². Normals face ±Y.
     truss_area = 250.0
-    surfaces.append(SurfaceCfg(
+    surfaces.append(SurfaceSpec(
         body_name="iss",
         center_of_pressure_body=np.array([0.0, 54.25, 0.0]),
         normal_body=np.array([0.0, 1.0, 0.0]),
@@ -137,7 +135,7 @@ def _make_surfaces() -> list[SurfaceCfg]:
         drag_coeff=2.2,
         srp_coeff=1.5,
     ))
-    surfaces.append(SurfaceCfg(
+    surfaces.append(SurfaceSpec(
         body_name="iss",
         center_of_pressure_body=np.array([0.0, -54.25, 0.0]),
         normal_body=np.array([0.0, -1.0, 0.0]),
@@ -163,16 +161,16 @@ def main() -> None:
     )
 
     dt = 0.002  # s — small timestep for accuracy with fast spin
-    cfg = ScenarioCfg(
-        orbit=OrbitCfg(R_eci=R_eci, V_eci=V_eci),
-        mujoco=MuJoCoCfg(xml_path=MODEL_XML, dt=dt),
+    model = MjoModel.from_xml_path(
+        MODEL_XML,
+        mj_timestep=dt,
         surfaces=_make_surfaces(),
         use_j2=True,
         use_drag=True,
         use_srp=True,
-        use_magnetic=False,  # no residual dipole for this test
+        use_magnetic=False,
     )
-    scenario = compile(cfg)
+    data = MjoData(model, orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
 
     # --- Set initial angular velocity: 10 RPM about major axis (Z) ---
     omega_rpm = 10.0
@@ -182,10 +180,10 @@ def main() -> None:
     #                    qvel = [vx, vy, vz, wx, wy, wz]
     # Angular velocity is in world (LVLH) frame.
     # Body starts aligned with LVLH, so body Z = world Z.
-    scenario.mjd.qvel[3] = 0.0        # wx (roll)
-    scenario.mjd.qvel[4] = 0.0        # wy (pitch)
-    scenario.mjd.qvel[5] = omega_rad_s  # wz (yaw) — major axis spin
-    mujoco.mj_forward(scenario.mjm, scenario.mjd)
+    data.qvel[3] = 0.0
+    data.qvel[4] = 0.0
+    data.qvel[5] = omega_rad_s
+    mjo_forward(model, data)
 
     # --- Run simulation ---
     t_total = 300.0  # 5 minutes (≈ 50 spin revolutions)
@@ -202,16 +200,8 @@ def main() -> None:
     # Helper: world angular velocity → body frame
     def record(idx: int, t: float) -> None:
         times[idx] = t
-        quat_hist[idx] = scenario.mjd.qpos[3:7]  # [w, x, y, z]
-
-        # World-frame angular velocity
-        w_world = scenario.mjd.qvel[3:6].copy()
-
-        # Rotation matrix (world-from-body)
-        bid = scenario.body_id("iss")
-        R_wb = scenario.mjd.ximat[bid].reshape(3, 3)
-        # Body-frame angular velocity
-        w_body = R_wb.T @ w_world
+        quat_hist[idx] = data.qpos[3:7]
+        w_body = data.qvel[3:6].copy()
         omega_body[idx] = w_body
 
         # Rotational kinetic energy: T = 0.5 * (Ixx*wx² + Iyy*wy² + Izz*wz²)
@@ -222,7 +212,7 @@ def main() -> None:
         )
 
         # Orbit altitude
-        r_eci = np.linalg.norm(scenario.orbit.R_eci)
+        r_eci = np.linalg.norm(data.orbit.R_eci)
         orbit_alt[idx] = r_eci - R_EARTH
 
     record(0, 0.0)
@@ -238,13 +228,13 @@ def main() -> None:
     print(f"            = {omega_rad_s:.4f} rad/s")
     print(f"Duration:   {t_total:.0f} s ({t_total/60:.1f} min)")
     print(f"Timestep:   {dt} s ({n_steps} steps)")
-    print(f"Surfaces:   {len(cfg.surfaces)} flat-plate panels")
+    print(f"Surfaces:   {len(model.surfaces)} flat-plate panels")
     print(f"=" * 60)
     print()
 
     rec_idx = 1
     for i in range(n_steps):
-        step(scenario)
+        mjo_step(model, data)
         if (i + 1) % record_every == 0:
             record(rec_idx, (i + 1) * dt)
             rec_idx += 1

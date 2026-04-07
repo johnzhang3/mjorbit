@@ -11,7 +11,7 @@ Steps:
   5. Perturbed ICs to demonstrate stability
 
 Usage:
-    uv run python examples/iss/hw2/safe_mode.py
+    uv run python ISS/hw2/safe_mode.py
 """
 
 from __future__ import annotations

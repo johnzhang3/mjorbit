@@ -1,6 +1,6 @@
 """Magnetic torque coupling: tau = m × B (Phase 6).
 
-Handles fixed residual dipoles from MagneticBodyCfg.
+Handles fixed residual dipoles from ``MagneticBodySpec``.
 Magnetorquer actuator coupling is in coupling/actuators.py.
 
 Frame convention:
@@ -13,24 +13,24 @@ from __future__ import annotations
 
 import numpy as np
 
-from mujoco_orbit.core.scenario import Scenario
+from mujoco_orbit.core.runtime import MjoData, MjoModel
 
 
-def apply_magnetic_wrenches(scenario: Scenario) -> None:
+def apply_magnetic_wrenches(model: MjoModel, data: MjoData) -> None:
     """Apply torques from fixed residual magnetic dipoles (tau = m × B)."""
-    if not scenario.magnetic_bodies:
+    if not model.magnetic_bodies:
         return
-    if not scenario.cfg.use_magnetic:
+    if not model.use_magnetic:
         return
 
-    fc = scenario.frame_cache
-    env = scenario.env_cache
-    mjd = scenario.mjd
+    fc = data.frame
+    env = data.env
+    mjd = data.mj_data
 
     # B field in world (LVLH) frame
     B_world = fc.C_LI @ env.mag_field_eci
 
-    for mag in scenario.magnetic_bodies:
+    for mag in model.magnetic_bodies:
         bid = mag.body_id
 
         # World-from-body rotation
@@ -49,4 +49,4 @@ def apply_magnetic_wrenches(scenario: Scenario) -> None:
         tau_world = R_body @ tau_body
 
         # No translational force from magnetic dipole
-        scenario._wrench_buffer[bid, 3:] += tau_world
+        data.wrench_buffer[bid, 3:] += tau_world
