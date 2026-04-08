@@ -14,7 +14,8 @@ Usage:
 
 Controls (browser):
     - Scroll to zoom, drag to orbit the camera
-    - Zoom out along -x (toward red axis) to see Earth below
+    - This example renders in ECI, so the pair visibly orbits Earth
+    - Use the local-scale controls to grow/shrink the bodies relative to Earth
     - Use the speed slider to fast-forward through CW drift
 """
 
@@ -45,7 +46,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     model = MjoModel.from_xml_path(
         TWO_BODIES_XML,
-        mj_timestep=0.002,
+        mj_timestep=0.01,
         use_j2=False,
         use_drag=False,
         use_srp=False,
@@ -64,7 +65,8 @@ def main() -> None:
     mjo_forward(model, data)
 
     # ------------------------------------------------------------------
-    # Viewer — track both bodies, camera at 15 m to see collision + drift
+    # Viewer — render in ECI so the pair visibly orbits Earth.
+    # Start with a large local scale and a correspondingly larger camera distance.
     # ------------------------------------------------------------------
     viewer = MjOrbitViewer(
         model,
@@ -73,8 +75,10 @@ def main() -> None:
         show_earth=True,
         show_axes=True,
         track_bodies=["body_a", "body_b"],
-        camera_distance=15.0,
+        camera_distance=50000.0,
+        render_frame="eci",
     )
+    viewer.set_local_scene_scale(10000.0)
 
     print("=" * 55)
     print("  Two-Body Orbital Collision")
@@ -87,7 +91,8 @@ def main() -> None:
     print("  diverging CW trajectories.  Speed up with the")
     print("  slider to watch the along-track drift grow.")
     print()
-    print("  Zoom out along -x to see Earth below.")
+    print("  Render : ECI (the pair moves around Earth)")
+    print("  Scale  : viewer starts at 10000x local scale")
     print()
 
     viewer.run(duration=600.0)
