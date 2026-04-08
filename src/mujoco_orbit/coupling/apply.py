@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import numpy as np
 
-from mujoco_orbit.core.scenario import Scenario
+from mujoco_orbit.core.runtime import MjoData, MjoModel
 from mujoco_orbit.coupling.inertial import apply_inertial_wrenches
 from mujoco_orbit.coupling.magnetic import apply_magnetic_wrenches
 from mujoco_orbit.coupling.surfaces import apply_surface_wrenches
 
 
-def assemble_and_apply_wrenches(scenario: Scenario) -> None:
+def assemble_and_apply_wrenches(model: MjoModel, data: MjoData) -> None:
     """Compute and write all external body wrenches into xfrc_applied.
 
     Note: Actuator wrenches (RW, MTQ, thrusters) are applied by
@@ -26,14 +26,14 @@ def assemble_and_apply_wrenches(scenario: Scenario) -> None:
     reaction wheel integration needs dt and happens in a specific order.
     """
     # 1. Inertial / gravity forcing
-    apply_inertial_wrenches(scenario)
+    apply_inertial_wrenches(model, data)
 
     # 2. Surface loads (drag + SRP)
-    apply_surface_wrenches(scenario)
+    apply_surface_wrenches(model, data)
 
     # 3. Magnetic residual dipole torques
-    apply_magnetic_wrenches(scenario)
+    apply_magnetic_wrenches(model, data)
 
     # Copy assembled buffer to MuJoCo
     # xfrc_applied shape is (nbody, 6): [fx, fy, fz, tx, ty, tz] in world frame, SI
-    np.copyto(scenario.mjd.xfrc_applied, scenario._wrench_buffer)
+    np.copyto(data.xfrc_applied, data.wrench_buffer)

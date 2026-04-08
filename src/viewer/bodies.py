@@ -1,4 +1,4 @@
-# pyright: reportAttributeAccessIssue=false
+# pyright: reportAttributeAccessIssue=false, reportMissingImports=false
 
 """MuJoCo body rendering for viser.
 

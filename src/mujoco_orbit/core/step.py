@@ -1,17 +1,16 @@
 # pyright: reportAttributeAccessIssue=false
 
-"""step — advance Scenario by one timestep (Phase 8)."""
+"""Forward and step functions for the MuJoCo-style API."""
 
 from __future__ import annotations
-
-from typing import Optional
 
 import mujoco
 import numpy as np
 
-from mujoco_orbit.core.scenario import Scenario
+from mujoco_orbit.core.runtime import MjoData, MjoModel
 from mujoco_orbit.coupling.actuators import (
     _apply_magnetorquers,
+    _apply_reaction_wheels,
     _apply_thrusters,
     command_rw_torques,
 )
@@ -20,68 +19,59 @@ from mujoco_orbit.coupling.feedback import compute_net_external_wrench, compute_
 from mujoco_orbit.orbit.environment import update_environment_cache
 from mujoco_orbit.orbit.lvlh import update_frame_cache
 from mujoco_orbit.orbit.propagator import propagate_rk4
+from mujoco_orbit.sensors import update_sensor_environment
 
 
-def step(
-    scenario: Scenario,
-    ctrl: Optional[np.ndarray] = None,
-    rw_torques: Optional[np.ndarray] = None,
-) -> None:
-    """Advance scenario by one coupled simulation step (in-place).
+def _clear_wrench_buffer(data: MjoData) -> None:
+    data.wrench_buffer[:] = 0.0
+    data.xfrc_applied[:] = 0.0
 
-    Order of operations (Phase 8):
-    1. Assemble per-body/per-surface wrenches at current state
-    2. Apply actuator wrenches (RW, MTQ, thrusters)
-    3. Compute net external wrench for orbit feedback
-    4. Propagate chief orbit with gravity + feedback perturbation
-    5. Update frame and environment caches
-    6. Write xfrc_applied
-    7. Write MuJoCo controls if provided
-    8. Call mujoco.mj_step
 
-    Args:
-        scenario: simulation state (modified in-place)
-        ctrl: optional MuJoCo control vector
-        rw_torques: optional reaction wheel torque commands, shape (n_rw,) N·m
+def _refresh_orbit_caches(model: MjoModel, data: MjoData) -> None:
+    data.frame = update_frame_cache(data.orbit, use_j2=model.use_j2)
+    data.env = update_environment_cache(data.orbit, data.frame)
+    data.actuators.update_rw_momentum(model.rw_inertia)
+    update_sensor_environment(model, data)
 
-    Notes:
-        MuJoCo advances by ``mjm.opt.timestep`` every call. The chief orbit uses
-        ``cfg.orbit_dt`` when provided, otherwise it falls back to the MuJoCo step.
-    """
-    mj_dt = scenario.mjm.opt.timestep
-    orbit_dt = scenario.cfg.orbit_dt if scenario.cfg.orbit_dt is not None else mj_dt
 
-    # 1. Compute environment wrenches (inertial, surfaces, magnetic residual)
-    scenario.clear_wrench_buffer()
-    assemble_and_apply_wrenches(scenario)
+def mjo_forward(model: MjoModel, data: MjoData) -> None:
+    """Synchronize derived runtime state after direct mutation."""
+    _refresh_orbit_caches(model, data)
+    mujoco.mj_forward(model.mj_model, data.mj_data)
 
-    # 2. Apply external actuator wrenches
-    if rw_torques is not None:
-        command_rw_torques(scenario, rw_torques, mj_dt)
-    _apply_magnetorquers(scenario)
-    _apply_thrusters(scenario)
+    _clear_wrench_buffer(data)
+    assemble_and_apply_wrenches(model, data)
+    _apply_reaction_wheels(model, data)
+    _apply_magnetorquers(model, data)
+    _apply_thrusters(model, data)
+    np.copyto(data.xfrc_applied, data.wrench_buffer)
 
-    # Re-copy after actuator contributions
-    np.copyto(scenario.mjd.xfrc_applied, scenario._wrench_buffer)
+    mujoco.mj_forward(model.mj_model, data.mj_data)
 
-    # 3. Compute orbit feedback from net external force
-    net_force, _net_torque = compute_net_external_wrench(scenario)
-    a_feedback = compute_orbit_feedback_accel(scenario, net_force)
 
-    # 4. Propagate chief orbit
-    scenario.orbit = propagate_rk4(
-        scenario.orbit, orbit_dt, use_j2=scenario.cfg.use_j2, a_external=a_feedback
-    )
+def mjo_step(model: MjoModel, data: MjoData) -> None:
+    """Advance one fully coupled simulation step in-place."""
+    mj_dt = model.opt.timestep
+    orbit_dt = model.orbit_dt if model.orbit_dt is not None else mj_dt
 
-    # 5. Update caches
-    scenario.frame_cache = update_frame_cache(
-        scenario.orbit, use_j2=scenario.cfg.use_j2
-    )
-    scenario.env_cache = update_environment_cache(scenario.orbit, scenario.frame_cache)
+    _clear_wrench_buffer(data)
+    assemble_and_apply_wrenches(model, data)
+    _apply_reaction_wheels(model, data)
+    command_rw_torques(model, data, data.actuators.rw_torque_cmd, mj_dt)
+    _apply_magnetorquers(model, data)
+    _apply_thrusters(model, data)
+    np.copyto(data.xfrc_applied, data.wrench_buffer)
 
-    # 6. Write MuJoCo controls
-    if ctrl is not None:
-        np.copyto(scenario.mjd.ctrl, ctrl)
+    net_force, _ = compute_net_external_wrench(data)
+    a_feedback = compute_orbit_feedback_accel(model, data, net_force)
 
-    # 7. Step MuJoCo
-    mujoco.mj_step(scenario.mjm, scenario.mjd)
+    orbit_next = propagate_rk4(data.orbit, orbit_dt, use_j2=model.use_j2, a_external=a_feedback)
+    data.orbit.R_eci[:] = orbit_next.R_eci
+    data.orbit.V_eci[:] = orbit_next.V_eci
+    data.orbit.t = orbit_next.t
+
+    _refresh_orbit_caches(model, data)
+    mujoco.mj_step(model.mj_model, data.mj_data)
+
+
+__all__ = ["mjo_forward", "mjo_step"]

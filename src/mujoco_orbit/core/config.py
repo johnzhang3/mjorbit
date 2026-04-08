@@ -1,20 +1,20 @@
-"""Configuration dataclasses for the default simulator."""
+"""Public spec dataclasses for the MuJoCo-style mujoco_orbit API."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
 
 
 @dataclass
-class OrbitCfg:
+class OrbitInit:
     """Initial chief orbit state in ECI (km, km/s)."""
 
     R_eci: np.ndarray  # shape (3,) km
     V_eci: np.ndarray  # shape (3,) km/s
-    t0: float = 0.0  # s
+    t: float = 0.0  # s
 
     def __post_init__(self) -> None:
         self.R_eci = np.asarray(self.R_eci, dtype=float)
@@ -22,19 +22,11 @@ class OrbitCfg:
 
 
 @dataclass
-class MuJoCoCfg:
-    """MuJoCo model configuration."""
-
-    xml_path: str
-    dt: float = 0.01  # s  MuJoCo timestep (overrides model if set)
-
-
-@dataclass
-class SurfaceCfg:
+class SurfaceSpec:
     """Metadata for one flat-plate aerodynamic / SRP surface."""
 
     body_name: str
-    center_of_pressure_body: np.ndarray  # shape (3,) km
+    center_of_pressure_body: np.ndarray  # shape (3,) m
     normal_body: np.ndarray  # shape (3,) unit vector
     area: float  # m^2
     drag_coeff: float = 2.2
@@ -48,7 +40,7 @@ class SurfaceCfg:
 
 
 @dataclass
-class MagneticBodyCfg:
+class MagneticBodySpec:
     """Magnetic dipole source attached to a MuJoCo body."""
 
     body_name: str
@@ -59,7 +51,7 @@ class MagneticBodyCfg:
 
 
 @dataclass
-class ReactionWheelCfg:
+class ReactionWheelSpec:
     """Configuration for one reaction wheel."""
 
     body_name: str  # MuJoCo body the wheel is mounted on
@@ -73,7 +65,7 @@ class ReactionWheelCfg:
 
 
 @dataclass
-class MagnetorquerCfg:
+class MagnetorquerSpec:
     """Configuration for one magnetorquer."""
 
     body_name: str
@@ -85,7 +77,7 @@ class MagnetorquerCfg:
 
 
 @dataclass
-class ThrusterCfg:
+class ThrusterSpec:
     """Configuration for one thruster."""
 
     body_name: str
@@ -98,23 +90,11 @@ class ThrusterCfg:
         self.direction_body = np.asarray(self.direction_body, dtype=float)
 
 
-@dataclass
-class ScenarioCfg:
-    """Top-level configuration for the default simulator."""
-
-    orbit: OrbitCfg
-    mujoco: MuJoCoCfg
-    surfaces: list[SurfaceCfg] = field(default_factory=list)
-    magnetic_bodies: list[MagneticBodyCfg] = field(default_factory=list)
-    reaction_wheels: list[ReactionWheelCfg] = field(default_factory=list)
-    magnetorquers: list[MagnetorquerCfg] = field(default_factory=list)
-    thrusters: list[ThrusterCfg] = field(default_factory=list)
-
-    # Physics toggles
-    use_j2: bool = True
-    use_drag: bool = True
-    use_srp: bool = True
-    use_magnetic: bool = True
-
-    # Orbit timestep (defaults to MuJoCo dt if None)
-    orbit_dt: Optional[float] = None
+__all__ = [
+    "MagneticBodySpec",
+    "MagnetorquerSpec",
+    "OrbitInit",
+    "ReactionWheelSpec",
+    "SurfaceSpec",
+    "ThrusterSpec",
+]

@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 """Earth and body-trail rendering for viser.
 
 Earth is rendered as an icosphere positioned at the correct LVLH offset

@@ -1,0 +1,24 @@
+<mujoco model="two_bodies">
+  <!-- Two free rigid bodies for collision / proximity demos.
+       Gravity is disabled; the orbit layer provides all inertial forces.
+       Bodies start 4 m apart along the radial (x) axis. -->
+  <option timestep="0.002" gravity="0 0 0">
+    <flag contact="enable"/>
+  </option>
+
+  <default>
+    <geom condim="3" friction="1 0.005 0.0001"
+          solref="0.01 1" solimp="0.9 0.95 0.001"/>
+  </default>
+
+  <worldbody>
+    <body name="body_a" pos="-2 0 0">
+      <freejoint name="jnt_a"/>
+      <geom type="box" size="0.3 0.3 0.3" mass="100" rgba="0.9 0.2 0.2 1"/>
+    </body>
+    <body name="body_b" pos="2 0 0">
+      <freejoint name="jnt_b"/>
+      <geom type="box" size="0.3 0.3 0.3" mass="100" rgba="0.2 0.3 0.9 1"/>
+    </body>
+  </worldbody>
+</mujoco>

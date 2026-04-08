@@ -17,9 +17,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from mujoco_orbit import compile
+from mujoco_orbit import MjoData, MjoModel, OrbitInit
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.core.config import MuJoCoCfg, OrbitCfg, ScenarioCfg
 from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 from mujoco_orbit.testdata import SPACECRAFT_ARM_XML
 from viewer import MjOrbitViewer
@@ -36,21 +35,22 @@ def main() -> None:
         a=a_km, e=0.0, inc=np.deg2rad(51.6), raan=0.0, argp=0.0, nu=0.0,
     )
 
-    cfg = ScenarioCfg(
-        orbit=OrbitCfg(R_eci=R_eci, V_eci=V_eci),
-        mujoco=MuJoCoCfg(xml_path=SPACECRAFT_ARM_XML, dt=0.002),
+    model = MjoModel.from_xml_path(
+        SPACECRAFT_ARM_XML,
+        mj_timestep=0.002,
         use_j2=False,
         use_drag=False,
         use_srp=False,
         use_magnetic=False,
     )
-    scenario = compile(cfg)
+    data = MjoData(model, orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
 
     # ------------------------------------------------------------------
     # Viewer
     # ------------------------------------------------------------------
     viewer = MjOrbitViewer(
-        scenario,
+        model,
+        data,
         port=8080,
         show_earth=True,
         show_axes=True,
@@ -62,7 +62,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     target_ctrl = np.array([1.0, -0.8])
 
-    def action_fn(scenario, t):
+    def action_fn(data, t):
         if t > 5.0:
             return target_ctrl
         return None

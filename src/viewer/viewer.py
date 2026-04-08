@@ -1,3 +1,5 @@
+# pyright: reportMissingImports=false
+
 """MjOrbitViewer — interactive 3D viewer for mujoco_orbit simulations.
 
 Renders MuJoCo multibody geometry in the LVLH frame with an Earth
@@ -19,16 +21,25 @@ Units are **metres** (MuJoCo SI).
 from __future__ import annotations
 
 import time
-from typing import Callable, Optional
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 import viser
 
-from mujoco_orbit.core.scenario import Scenario
-from mujoco_orbit.core.step import step
+from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.core.step import mjo_step
 
 from .bodies import MuJoCoScene
 from .earth import BodyTrail, add_earth
+
+# Default trail colour cycle (RGBA)
+_TRAIL_COLORS: list[tuple[int, int, int]] = [
+    (255, 200, 50),   # gold
+    (50, 200, 255),   # cyan
+    (255, 100, 100),  # salmon
+    (100, 255, 100),  # lime
+    (200, 150, 255),  # lavender
+]
 
 
 class MjOrbitViewer:
@@ -36,8 +47,8 @@ class MjOrbitViewer:
 
     Parameters
     ----------
-    scenario : Scenario
-        Compiled simulation state (modified in-place during ``run``).
+    model, data : MjoModel, MjoData
+        Compiled model and runtime state.
     host, port : str, int
         Viser server bind address.
     show_earth : bool
@@ -46,34 +57,53 @@ class MjOrbitViewer:
         Draw LVLH reference axes at the origin.
     track_body : str or None
         If given, record and draw this body's trajectory trail.
+        Deprecated in favour of *track_bodies*.
+    track_bodies : list of str, optional
+        Body names whose trajectories are drawn as coloured trails.
     trail_max_points : int
-        Maximum trail history length.
+        Maximum trail history length per body.
+    camera_distance : float or None
+        Initial camera distance from the origin (metres).  If *None*,
+        defaults to 10 m for detail view.
     """
 
     def __init__(
         self,
-        scenario: Scenario,
+        model: MjoModel,
+        data: MjoData,
         host: str = "0.0.0.0",
         port: int = 8080,
         show_earth: bool = True,
         show_axes: bool = True,
         track_body: Optional[str] = None,
+        track_bodies: Optional[Sequence[str]] = None,
         trail_max_points: int = 2000,
+        camera_distance: Optional[float] = None,
     ) -> None:
-        self.scenario = scenario
+        self.model = model
+        self.data = data
+
         self._port = port
-        self._track_body_id: Optional[int] = None
+        self._show_earth = show_earth
 
         # ---- viser server ---------------------------------------------------
         self.server = viser.ViserServer(host=host, port=port)
         self.server.scene.set_up_direction("+z")
 
+        # ---- Camera ----------------------------------------------------------
+        R_orbit_m = float(np.linalg.norm(self.data.orbit.R_eci)) * 1000.0
+        cam_dist = camera_distance if camera_distance is not None else 10.0
+        self.server.initial_camera.position = (0.0, -cam_dist, cam_dist * 0.5)
+        self.server.initial_camera.look_at = (0.0, 0.0, 0.0)
+        if show_earth:
+            # Far plane must reach Earth surface: orbit radius + Earth radius
+            self.server.initial_camera.far = R_orbit_m * 2.5
+
         # ---- MuJoCo body geometry -------------------------------------------
-        self.mj_scene = MuJoCoScene(self.server, scenario.mjm)
+        self.mj_scene = MuJoCoScene(self.server, self.model.mj_model)
 
         # ---- Earth -----------------------------------------------------------
         if show_earth:
-            R_orbit_m = float(np.linalg.norm(scenario.orbit.R_eci)) * 1000.0
             # In RSW, +x is radial outward -> Earth centre is at -x
             add_earth(self.server, position=(-R_orbit_m, 0.0, 0.0))
 
@@ -81,13 +111,25 @@ class MjOrbitViewer:
         if show_axes:
             self._add_lvlh_axes()
 
-        # ---- Body trail ------------------------------------------------------
-        self.trail: Optional[BodyTrail] = None
-        if track_body is not None:
-            self._track_body_id = scenario.body_id(track_body)
-            self.trail = BodyTrail(
-                self.server, track_body, max_points=trail_max_points,
+        # ---- Body trails -----------------------------------------------------
+        # Unify track_body (legacy) and track_bodies into a single list
+        body_names: list[str] = []
+        if track_bodies is not None:
+            body_names.extend(track_bodies)
+        elif track_body is not None:
+            body_names.append(track_body)
+
+        self._track_ids: list[int] = []
+        self.trails: list[BodyTrail] = []
+        for i, name in enumerate(body_names):
+            self._track_ids.append(self.model.body_id(name))
+            color = _TRAIL_COLORS[i % len(_TRAIL_COLORS)]
+            self.trails.append(
+                BodyTrail(self.server, name, max_points=trail_max_points, color=color)
             )
+
+        # Backward-compat alias
+        self.trail: Optional[BodyTrail] = self.trails[0] if self.trails else None
 
         # ---- GUI controls ----------------------------------------------------
         self._speed = 1.0
@@ -95,7 +137,7 @@ class MjOrbitViewer:
         self._setup_gui()
 
         # Initial render
-        self.mj_scene.update(scenario.mjd)
+        self.mj_scene.update(self.data.mj_data)
 
     # ------------------------------------------------------------------
     # Scene helpers
@@ -148,7 +190,7 @@ class MjOrbitViewer:
     def run(
         self,
         duration: float = 600.0,
-        action_fn: Optional[Callable[[Scenario, float], Optional[np.ndarray]]] = None,
+        action_fn: Optional[Callable[[object, float], Optional[np.ndarray]]] = None,
     ) -> None:
         """Run the simulation + viewer loop until *duration* sim-seconds elapse.
 
@@ -157,10 +199,10 @@ class MjOrbitViewer:
         duration : float
             Maximum simulation time (seconds).
         action_fn : callable, optional
-            ``action_fn(scenario, sim_time) -> ctrl_array | None``
+            ``action_fn(target, sim_time) -> ctrl_array | None``
             Called every physics step to supply MuJoCo controls.
         """
-        dt = self.scenario.mjm.opt.timestep
+        dt = self.model.opt.timestep
         sim_t = 0.0
         last_wall = time.time()
         budget = 0.0
@@ -182,20 +224,21 @@ class MjOrbitViewer:
 
                     steps = 0
                     while budget >= dt and sim_t < duration:
-                        ctrl = action_fn(self.scenario, sim_t) if action_fn else None
-                        step(self.scenario, ctrl=ctrl)
+                        ctrl = action_fn(self.data, sim_t) if action_fn else None
+                        if ctrl is not None:
+                            np.copyto(self.data.ctrl, ctrl)
+                        mjo_step(self.model, self.data)
                         sim_t += dt
                         budget -= dt
                         steps += 1
 
-                        # Sample trail
+                        # Sample trails
                         if (
-                            self.trail is not None
-                            and self._track_body_id is not None
+                            self.trails
                             and sim_t - last_trail_t >= trail_interval
                         ):
-                            pos = self.scenario.mjd.xipos[self._track_body_id]
-                            self.trail.append(pos)
+                            for tid, trail in zip(self._track_ids, self.trails):
+                                trail.append(self.data.xipos[tid].copy())
                             last_trail_t = sim_t
 
                         # Cap steps per render frame to stay responsive
@@ -204,9 +247,9 @@ class MjOrbitViewer:
                             break
 
                 # ---- update visuals ------------------------------------------
-                self.mj_scene.update(self.scenario.mjd)
-                if self.trail is not None:
-                    self.trail.render()
+                self.mj_scene.update(self.data.mj_data)
+                for trail in self.trails:
+                    trail.render()
                 self._time_md.content = f"**t** = {sim_t:.2f} s"
 
                 time.sleep(1.0 / 60.0)

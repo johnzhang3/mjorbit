@@ -12,9 +12,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from mujoco_orbit import compile, step
+from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.core.config import MuJoCoCfg, OrbitCfg, ScenarioCfg
 from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 from mujoco_orbit.testdata import FREE_BODY_XML
 
@@ -50,29 +49,27 @@ def main() -> None:
         a=a_km, e=0.0, inc=np.deg2rad(51.6), raan=0.0, argp=0.0, nu=0.0,
     )
 
-    cfg = ScenarioCfg(
-        orbit=OrbitCfg(R_eci=R_eci, V_eci=V_eci),
-        mujoco=MuJoCoCfg(xml_path=FREE_BODY_XML, dt=0.01),
+    model = MjoModel.from_xml_path(
+        FREE_BODY_XML,
+        mj_timestep=0.01,
         use_j2=False,
         use_drag=False,
         use_srp=False,
         use_magnetic=False,
     )
-    scenario = compile(cfg)
+    data = MjoData(model, orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
 
     # Initial offset: 10 m radial, 0.05 m/s along-track velocity
     x0, y0, z0 = 10.0, 0.0, 5.0  # m
     vx0, vy0, vz0 = 0.0, 0.05, 0.0  # m/s
 
-    scenario.mjd.qpos[0] = x0
-    scenario.mjd.qpos[1] = y0
-    scenario.mjd.qpos[2] = z0
-    scenario.mjd.qvel[0] = vx0
-    scenario.mjd.qvel[1] = vy0
-    scenario.mjd.qvel[2] = vz0
-
-    import mujoco
-    mujoco.mj_forward(scenario.mjm, scenario.mjd)
+    data.qpos[0] = x0
+    data.qpos[1] = y0
+    data.qpos[2] = z0
+    data.qvel[0] = vx0
+    data.qvel[1] = vy0
+    data.qvel[2] = vz0
+    mjo_forward(model, data)
 
     dt = 0.01
     t_total = 60.0  # 1 minute
@@ -83,19 +80,19 @@ def main() -> None:
     pos_sim = np.zeros((n_steps + 1, 3))
     pos_cw = np.zeros((n_steps + 1, 3))
 
-    pos_sim[0] = scenario.mjd.qpos[:3]
+    pos_sim[0] = data.qpos[:3]
     pos_cw[0] = [x0, y0, z0]
 
     for i in range(n_steps):
-        step(scenario)
+        mjo_step(model, data)
         t = (i + 1) * dt
         times[i + 1] = t
-        pos_sim[i + 1] = scenario.mjd.qpos[:3]
+        pos_sim[i + 1] = data.qpos[:3]
         p_cw, _ = cw_analytical(x0, y0, z0, vx0, vy0, vz0, n, t)
         pos_cw[i + 1] = p_cw
 
     # Final comparison
-    pos_final = scenario.mjd.qpos[:3]
+    pos_final = data.qpos[:3]
     pos_cw_final, vel_cw_final = cw_analytical(x0, y0, z0, vx0, vy0, vz0, n, t_total)
 
     err = np.linalg.norm(pos_final - pos_cw_final)

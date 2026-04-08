@@ -1,151 +1,122 @@
-"""Phase 0 + Phase 3 tests: compile, scenario state, body helpers."""
+"""Model/data construction tests for the MuJoCo-style API."""
 
 import numpy as np
 import pytest
 
-from mujoco_orbit import compile, step
-from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.core.config import (
-    MagneticBodyCfg,
-    MagnetorquerCfg,
-    MuJoCoCfg,
-    OrbitCfg,
-    ReactionWheelCfg,
-    ScenarioCfg,
-    SurfaceCfg,
-    ThrusterCfg,
+from mujoco_orbit import (
+    MagneticBodySpec,
+    MagnetorquerSpec,
+    ReactionWheelSpec,
+    SurfaceSpec,
+    ThrusterSpec,
+    mjo_step,
 )
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
+from mujoco_orbit.constants import R_EARTH
 from mujoco_orbit.testdata import FREE_BODY_XML
 
+from ._helpers import make_model_data
 
-def _circular_leo_cfg(alt_km: float = 400.0, **overrides) -> ScenarioCfg:
-    a = R_EARTH + alt_km
-    R, V = keplerian_to_cartesian(a=a, e=0.0, inc=np.deg2rad(51.6), raan=0.0, argp=0.0, nu=0.0)
+
+def _make_model_data(**overrides):
     defaults = dict(
-        orbit=OrbitCfg(R_eci=R, V_eci=V),
-        mujoco=MuJoCoCfg(xml_path=FREE_BODY_XML, dt=0.01),
+        xml_path=FREE_BODY_XML,
         use_j2=False,
         use_drag=False,
         use_srp=False,
         use_magnetic=False,
     )
     defaults.update(overrides)
-    return ScenarioCfg(**defaults)
+    return make_model_data(**defaults)
 
-
-# =========================================================================
-# Phase 0 exit criteria
-# =========================================================================
 
 class TestPhase0:
-    def test_compile_returns_scenario(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
-        assert scenario.mjm is not None
-        assert scenario.mjd is not None
+    def test_constructs_model_and_data(self):
+        model, data = _make_model_data()
+        assert model.mj_model is not None
+        assert data.mj_data is not None
 
     def test_gravity_disabled(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
-        np.testing.assert_allclose(scenario.mjm.opt.gravity, [0, 0, 0])
+        model, _ = _make_model_data()
+        np.testing.assert_allclose(model.opt.gravity, [0, 0, 0])
 
     def test_step_once_no_nan(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
-        step(scenario)
-        assert np.all(np.isfinite(scenario.mjd.qpos))
-        assert np.all(np.isfinite(scenario.mjd.qvel))
+        model, data = _make_model_data()
+        mjo_step(model, data)
+        assert np.all(np.isfinite(data.qpos))
+        assert np.all(np.isfinite(data.qvel))
 
     def test_step_multiple_no_nan(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
+        model, data = _make_model_data()
         for _ in range(100):
-            step(scenario)
-        assert np.all(np.isfinite(scenario.mjd.qpos))
+            mjo_step(model, data)
+        assert np.all(np.isfinite(data.qpos))
 
-
-# =========================================================================
-# Phase 3: MuJoCo integration
-# =========================================================================
 
 class TestPhase3:
     def test_timestep_override(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
-        assert scenario.mjm.opt.timestep == 0.01
+        model, _ = _make_model_data(mj_timestep=0.01)
+        assert model.opt.timestep == 0.01
 
     def test_orbit_initialized(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
-        assert scenario.orbit.t == 0.0
-        assert np.linalg.norm(scenario.orbit.R_eci) > R_EARTH
+        _, data = _make_model_data()
+        assert data.orbit.t == 0.0
+        assert np.linalg.norm(data.orbit.R_eci) > R_EARTH
 
     def test_frame_cache_initialized(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
-        fc = scenario.frame_cache
-        # Should be a proper rotation
-        np.testing.assert_allclose(fc.C_LI @ fc.C_LI.T, np.eye(3), atol=1e-14)
+        _, data = _make_model_data()
+        np.testing.assert_allclose(data.frame.C_LI @ data.frame.C_LI.T, np.eye(3), atol=1e-14)
 
     def test_env_cache_initialized(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
-        ec = scenario.env_cache
-        assert abs(np.linalg.norm(ec.sun_vector_eci) - 1.0) < 1e-10
+        _, data = _make_model_data()
+        assert abs(np.linalg.norm(data.env.sun_vector_eci) - 1.0) < 1e-10
 
-    def test_body_helpers(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
-        bid = scenario.body_id("spacecraft")
+    def test_body_fields(self):
+        model, data = _make_model_data()
+        bid = model.body_id("spacecraft")
         assert bid >= 1
 
-        pos = scenario.body_com_pos(bid)
+        pos = data.xipos[bid].copy()
         assert pos.shape == (3,)
 
-        quat = scenario.body_com_quat(bid)
+        quat = data.xquat[bid].copy()
         assert quat.shape == (4,)
         assert abs(np.linalg.norm(quat) - 1.0) < 1e-10
 
-        rotmat = scenario.body_com_rotmat(bid)
+        rotmat = data.xmat[bid].reshape(3, 3).copy()
         assert rotmat.shape == (3, 3)
         np.testing.assert_allclose(rotmat @ rotmat.T, np.eye(3), atol=1e-10)
 
-        vel = scenario.body_com_vel(bid)
+        vel = data.cvel[bid, 3:].copy()
         assert vel.shape == (3,)
 
-        angvel = scenario.body_com_angvel(bid)
+        angvel = data.cvel[bid, :3].copy()
         assert angvel.shape == (3,)
 
-        mass = scenario.body_mass(bid)
-        assert mass == 100.0  # from free_body.xml
+        assert model.body_mass[bid] == 100.0
 
     def test_body_id_unknown_raises(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
+        model, _ = _make_model_data()
         with pytest.raises(ValueError):
-            scenario.body_id("nonexistent_body")
+            model.body_id("nonexistent_body")
 
     def test_wrench_buffer_shape(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
-        assert scenario._wrench_buffer.shape == (scenario.mjm.nbody, 6)
+        model, data = _make_model_data()
+        assert data.wrench_buffer.shape == (model.nbody, 6)
 
     def test_clear_wrench_buffer(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
-        scenario._wrench_buffer[1, :] = 999.0
-        scenario.mjd.xfrc_applied[1, :] = 999.0
-        scenario.clear_wrench_buffer()
-        np.testing.assert_allclose(scenario._wrench_buffer, 0.0)
-        np.testing.assert_allclose(scenario.mjd.xfrc_applied, 0.0)
+        _, data = _make_model_data()
+        data.wrench_buffer[1, :] = 999.0
+        data.xfrc_applied[1, :] = 999.0
+        data.clear_wrench_buffer()
+        np.testing.assert_allclose(data.wrench_buffer, 0.0)
+        np.testing.assert_allclose(data.xfrc_applied, 0.0)
 
 
 class TestPhase3SurfaceMetadata:
     def test_surface_resolved(self):
-        cfg = _circular_leo_cfg(
+        model, _ = _make_model_data(
             surfaces=[
-                SurfaceCfg(
+                SurfaceSpec(
                     body_name="spacecraft",
                     center_of_pressure_body=np.array([0.5, 0.0, 0.0]),
                     normal_body=np.array([1.0, 0.0, 0.0]),
@@ -153,17 +124,16 @@ class TestPhase3SurfaceMetadata:
                 )
             ]
         )
-        scenario = compile(cfg)
-        assert len(scenario.surfaces) == 1
-        s = scenario.surfaces[0]
-        assert s.body_id >= 1
-        np.testing.assert_allclose(s.normal_body, [1, 0, 0])
-        assert s.area == 2.0
+        assert len(model.surfaces) == 1
+        surface = model.surfaces[0]
+        assert surface.body_id >= 1
+        np.testing.assert_allclose(surface.normal_body, [1, 0, 0])
+        assert surface.area == 2.0
 
     def test_surface_normal_normalized(self):
-        cfg = _circular_leo_cfg(
+        model, _ = _make_model_data(
             surfaces=[
-                SurfaceCfg(
+                SurfaceSpec(
                     body_name="spacecraft",
                     center_of_pressure_body=np.zeros(3),
                     normal_body=np.array([3.0, 4.0, 0.0]),
@@ -171,95 +141,102 @@ class TestPhase3SurfaceMetadata:
                 )
             ]
         )
-        scenario = compile(cfg)
-        np.testing.assert_allclose(np.linalg.norm(scenario.surfaces[0].normal_body), 1.0)
+        np.testing.assert_allclose(np.linalg.norm(model.surfaces[0].normal_body), 1.0)
 
     def test_surface_bad_body(self):
-        cfg = _circular_leo_cfg(
-            surfaces=[
-                SurfaceCfg(
-                    body_name="nonexistent",
-                    center_of_pressure_body=np.zeros(3),
-                    normal_body=np.array([1, 0, 0]),
-                    area=1.0,
-                )
-            ]
-        )
         with pytest.raises(ValueError, match="not found"):
-            compile(cfg)
+            _make_model_data(
+                surfaces=[
+                    SurfaceSpec(
+                        body_name="nonexistent",
+                        center_of_pressure_body=np.zeros(3),
+                        normal_body=np.array([1, 0, 0]),
+                        area=1.0,
+                    )
+                ]
+            )
 
 
 class TestPhase3MagneticMetadata:
     def test_magnetic_resolved(self):
-        cfg = _circular_leo_cfg(
+        model, _ = _make_model_data(
             magnetic_bodies=[
-                MagneticBodyCfg(body_name="spacecraft", dipole_body=np.array([0, 0, 0.1]))
+                MagneticBodySpec(body_name="spacecraft", dipole_body=np.array([0, 0, 0.1]))
             ]
         )
-        scenario = compile(cfg)
-        assert len(scenario.magnetic_bodies) == 1
-        assert scenario.magnetic_bodies[0].body_id >= 1
+        assert len(model.magnetic_bodies) == 1
+        assert model.magnetic_bodies[0].body_id >= 1
 
     def test_magnetic_bad_body(self):
-        cfg = _circular_leo_cfg(
-            magnetic_bodies=[
-                MagneticBodyCfg(body_name="nonexistent", dipole_body=np.zeros(3))
-            ]
-        )
         with pytest.raises(ValueError, match="not found"):
-            compile(cfg)
+            _make_model_data(
+                magnetic_bodies=[
+                    MagneticBodySpec(body_name="nonexistent", dipole_body=np.zeros(3))
+                ]
+            )
 
 
 class TestPhase3Actuators:
     def test_no_actuators(self):
-        cfg = _circular_leo_cfg()
-        scenario = compile(cfg)
-        assert scenario.actuator_state.rw_speed.shape == (0,)
-        assert scenario.actuator_state.mtq_dipole.shape == (0,)
-        assert scenario.actuator_state.thr_force.shape == (0,)
+        _, data = _make_model_data()
+        assert data.actuators.rw_speed.shape == (0,)
+        assert data.actuators.mtq_dipole_cmd.shape == (0,)
+        assert data.actuators.thr_force_cmd.shape == (0,)
 
     def test_with_rw(self):
-        cfg = _circular_leo_cfg(
+        _, data = _make_model_data(
             reaction_wheels=[
-                ReactionWheelCfg(body_name="spacecraft", axis_body=np.array([0, 0, 1]),
-                                 inertia=0.01),
-                ReactionWheelCfg(body_name="spacecraft", axis_body=np.array([0, 1, 0]),
-                                 inertia=0.02),
+                ReactionWheelSpec(
+                    body_name="spacecraft",
+                    axis_body=np.array([0, 0, 1]),
+                    inertia=0.01,
+                ),
+                ReactionWheelSpec(
+                    body_name="spacecraft",
+                    axis_body=np.array([0, 1, 0]),
+                    inertia=0.02,
+                ),
             ]
         )
-        scenario = compile(cfg)
-        assert scenario.actuator_state.rw_speed.shape == (2,)
-        np.testing.assert_allclose(scenario.actuator_state.rw_inertia, [0.01, 0.02])
-        np.testing.assert_allclose(scenario.actuator_state.rw_speed, [0, 0])
+        assert data.actuators.rw_speed.shape == (2,)
+        np.testing.assert_allclose(data.actuators.rw_inertia, [0.01, 0.02])
+        np.testing.assert_allclose(data.actuators.rw_speed, [0, 0])
 
     def test_with_mtq(self):
-        cfg = _circular_leo_cfg(
+        _, data = _make_model_data(
             magnetorquers=[
-                MagnetorquerCfg(body_name="spacecraft", axis_body=np.array([1, 0, 0]),
-                                dipole_limit=5.0),
+                MagnetorquerSpec(
+                    body_name="spacecraft",
+                    axis_body=np.array([1, 0, 0]),
+                    dipole_limit=5.0,
+                )
             ]
         )
-        scenario = compile(cfg)
-        assert scenario.actuator_state.mtq_dipole.shape == (1,)
+        assert data.actuators.mtq_dipole_cmd.shape == (1,)
 
     def test_with_thr(self):
-        cfg = _circular_leo_cfg(
+        _, data = _make_model_data(
             thrusters=[
-                ThrusterCfg(body_name="spacecraft", position_body=np.array([0, 0, -0.5]),
-                            direction_body=np.array([0, 0, 1]), force_limit=10.0),
+                ThrusterSpec(
+                    body_name="spacecraft",
+                    position_body=np.array([0, 0, -0.5]),
+                    direction_body=np.array([0, 0, 1]),
+                    force_limit=10.0,
+                )
             ]
         )
-        scenario = compile(cfg)
-        assert scenario.actuator_state.thr_force.shape == (1,)
+        assert data.actuators.thr_force_cmd.shape == (1,)
 
     def test_rw_momentum_update(self):
-        cfg = _circular_leo_cfg(
+        _, data = _make_model_data(
             reaction_wheels=[
-                ReactionWheelCfg(body_name="spacecraft", axis_body=np.array([0, 0, 1]),
-                                 inertia=0.05),
+                ReactionWheelSpec(
+                    body_name="spacecraft",
+                    axis_body=np.array([0, 0, 1]),
+                    inertia=0.05,
+                )
             ]
         )
-        scenario = compile(cfg)
-        scenario.actuator_state.rw_speed[0] = 100.0  # rad/s
-        scenario.actuator_state.update_rw_momentum()
-        np.testing.assert_allclose(scenario.actuator_state.rw_momentum[0], 5.0)
+        data.actuators.rw_speed[0] = 100.0
+        data.actuators.update_rw_momentum()
+        np.testing.assert_allclose(data.actuators.rw_momentum[0], 5.0)
