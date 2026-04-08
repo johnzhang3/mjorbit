@@ -1,4 +1,4 @@
-"""Browser-based 3D viewer for mujoco_orbit simulations (requires ``mujoco-orbit[viewer]``)."""
+"""Browser-based 3D viewer for mujoco_orbit simulations."""
 
 from .viewer import MjOrbitViewer
 

@@ -30,7 +30,7 @@ commands, caches, and sensor runtime state.
 - `src/mujoco_orbit/coupling/` — external wrench assembly and actuator/environment coupling
 - `src/mujoco_orbit/sensors.py` — sensor catalogs, callback plumbing, measurement helpers
 - `src/mujoco_orbit/testdata/` — bundled XML assets
-- `src/viewer/` — optional viewer integration
+- `src/viewer/` — browser viewer integration
 - `examples/` — lightweight demos of the public API
 - `ISS/` — separate homework/report analysis workspace and artifacts
 - `tests/mujoco_orbit/` — unit and integration tests
@@ -40,7 +40,6 @@ commands, caches, and sensor runtime state.
 ```bash
 uv sync --dev
 uv sync --dev --extra report
-uv sync --dev --extra viewer
 uv run pytest -q
 uv run ruff check .
 uv run pyright
