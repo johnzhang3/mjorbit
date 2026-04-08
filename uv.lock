@@ -739,16 +739,14 @@ dependencies = [
     { name = "cvxpy" },
     { name = "mujoco" },
     { name = "numpy" },
+    { name = "trimesh" },
+    { name = "viser" },
 ]
 
 [package.optional-dependencies]
 report = [
     { name = "matplotlib" },
     { name = "scipy" },
-]
-viewer = [
-    { name = "trimesh" },
-    { name = "viser" },
 ]
 
 [package.dev-dependencies]
@@ -765,10 +763,10 @@ requires-dist = [
     { name = "mujoco", specifier = ">=3.3" },
     { name = "numpy", specifier = ">=1.26,<2" },
     { name = "scipy", marker = "extra == 'report'", specifier = ">=1.17.1" },
-    { name = "trimesh", marker = "extra == 'viewer'", specifier = ">=4.0" },
-    { name = "viser", marker = "extra == 'viewer'", specifier = ">=0.2.0" },
+    { name = "trimesh", specifier = ">=4.0" },
+    { name = "viser", specifier = ">=0.2.0" },
 ]
-provides-extras = ["viewer", "report"]
+provides-extras = ["report"]
 
 [package.metadata.requires-dev]
 dev = [

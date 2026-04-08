@@ -1,4 +1,4 @@
-# pyright: reportMissingImports=false
+# pyright: reportAttributeAccessIssue=false, reportMissingImports=false
 
 """MjOrbitViewer — interactive 3D viewer for mujoco_orbit simulations.
 
@@ -20,16 +20,20 @@ Units are **metres** (MuJoCo SI).
 
 from __future__ import annotations
 
+import copy
 import time
-from typing import Callable, Optional, Sequence
+from dataclasses import dataclass
+from typing import Any, Callable, Literal, Optional, Sequence
 
+import mujoco
 import numpy as np
 import viser
 
 from mujoco_orbit.core.runtime import MjoData, MjoModel
-from mujoco_orbit.core.step import mjo_step
+from mujoco_orbit.core.step import mjo_forward, mjo_step
 
 from .bodies import MuJoCoScene
+from .contacts import ContactForceOverlay
 from .earth import BodyTrail, add_earth
 
 # Default trail colour cycle (RGBA)
@@ -40,6 +44,41 @@ _TRAIL_COLORS: list[tuple[int, int, int]] = [
     (100, 255, 100),  # lime
     (200, 150, 255),  # lavender
 ]
+
+_SPEED_OPTIONS = [0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0]
+_LOCAL_SCALE_OPTIONS = [
+    0.1,
+    0.25,
+    0.5,
+    1.0,
+    2.0,
+    5.0,
+    10.0,
+    25.0,
+    50.0,
+    100.0,
+    250.0,
+    500.0,
+    1000.0,
+    2500.0,
+    5000.0,
+    10000.0,
+]
+_DEFAULT_LOCAL_SCENE_SCALE = 1.0
+
+
+@dataclass
+class _ViewerSnapshot:
+    mj_state: np.ndarray
+    orbit_R_eci: np.ndarray
+    orbit_V_eci: np.ndarray
+    orbit_t: float
+    rw_speed: np.ndarray
+    rw_torque_cmd: np.ndarray
+    mtq_dipole_cmd: np.ndarray
+    thr_force_cmd: np.ndarray
+    sensor_biases: dict[str, np.ndarray]
+    sensor_rng_state: Any
 
 
 class MjOrbitViewer:
@@ -65,6 +104,10 @@ class MjOrbitViewer:
     camera_distance : float or None
         Initial camera distance from the origin (metres).  If *None*,
         defaults to 10 m for detail view.
+    render_frame : {"lvlh", "eci"}
+        World frame used for visualization. ``"lvlh"`` keeps the chief
+        at the origin. ``"eci"`` renders the chief and local bodies in
+        an Earth-centered inertial frame so the system visibly orbits Earth.
     """
 
     def __init__(
@@ -79,37 +122,52 @@ class MjOrbitViewer:
         track_bodies: Optional[Sequence[str]] = None,
         trail_max_points: int = 2000,
         camera_distance: Optional[float] = None,
+        render_frame: Literal["lvlh", "eci"] = "lvlh",
     ) -> None:
         self.model = model
         self.data = data
 
         self._port = port
         self._show_earth = show_earth
+        self._show_axes = show_axes
+        self._render_frame = render_frame
 
         # ---- viser server ---------------------------------------------------
         self.server = viser.ViserServer(host=host, port=port)
         self.server.scene.set_up_direction("+z")
+        self._local_scene = self.server.scene.add_frame("/local_scene", show_axes=False)
 
         # ---- Camera ----------------------------------------------------------
         R_orbit_m = float(np.linalg.norm(self.data.orbit.R_eci)) * 1000.0
         cam_dist = camera_distance if camera_distance is not None else 10.0
-        self.server.initial_camera.position = (0.0, -cam_dist, cam_dist * 0.5)
-        self.server.initial_camera.look_at = (0.0, 0.0, 0.0)
+        cam_look_at = np.zeros(3)
+        cam_position = np.array([0.0, -cam_dist, cam_dist * 0.5])
+        if self._render_frame == "eci":
+            rotation, translation = self._world_transform()
+            assert rotation is not None and translation is not None
+            cam_look_at = translation
+            cam_position = translation + rotation @ cam_position
+        self.server.initial_camera.position = tuple(cam_position)
+        self.server.initial_camera.look_at = tuple(cam_look_at)
         if show_earth:
             # Far plane must reach Earth surface: orbit radius + Earth radius
             self.server.initial_camera.far = R_orbit_m * 2.5
 
         # ---- MuJoCo body geometry -------------------------------------------
-        self.mj_scene = MuJoCoScene(self.server, self.model.mj_model)
+        self.mj_scene = MuJoCoScene(
+            self.server,
+            self.model.mj_model,
+            root_path="/local_scene/spacecraft",
+        )
 
         # ---- Earth -----------------------------------------------------------
         if show_earth:
-            # In RSW, +x is radial outward -> Earth centre is at -x
-            add_earth(self.server, position=(-R_orbit_m, 0.0, 0.0))
-
-        # ---- LVLH reference axes --------------------------------------------
-        if show_axes:
-            self._add_lvlh_axes()
+            earth_position = (
+                (0.0, 0.0, 0.0)
+                if self._render_frame == "eci"
+                else (-R_orbit_m, 0.0, 0.0)
+            )
+            add_earth(self.server, position=earth_position)
 
         # ---- Body trails -----------------------------------------------------
         # Unify track_body (legacy) and track_bodies into a single list
@@ -125,30 +183,61 @@ class MjOrbitViewer:
             self._track_ids.append(self.model.body_id(name))
             color = _TRAIL_COLORS[i % len(_TRAIL_COLORS)]
             self.trails.append(
-                BodyTrail(self.server, name, max_points=trail_max_points, color=color)
+                BodyTrail(
+                    self.server,
+                    name,
+                    max_points=trail_max_points,
+                    color=color,
+                    path_prefix="/local_scene/trail",
+                )
             )
 
         # Backward-compat alias
         self.trail: Optional[BodyTrail] = self.trails[0] if self.trails else None
 
         # ---- GUI controls ----------------------------------------------------
-        self._speed = 1.0
+        self._speed_index = _SPEED_OPTIONS.index(1.0)
+        self._speed = _SPEED_OPTIONS[self._speed_index]
+        self._scale_index = _LOCAL_SCALE_OPTIONS.index(_DEFAULT_LOCAL_SCENE_SCALE)
+        self._local_scene_scale = _LOCAL_SCALE_OPTIONS[self._scale_index]
         self._paused = False
+        self._reset_requested = False
+        self._sim_t = 0.0
+        self._budget = 0.0
+        self._last_wall = time.time()
+        self._axes_handle: viser.SceneNodeHandle | None = None
+        self._initial_snapshot = self._capture_snapshot()
+        self._contact_force_overlay = ContactForceOverlay(
+            self.server,
+            path="/local_scene/contact_forces",
+        )
+        self._apply_local_scene_scale()
         self._setup_gui()
 
         # Initial render
-        self.mj_scene.update(self.data.mj_data)
+        rotation, translation = self._world_transform()
+        self.mj_scene.update(self.data.mj_data, rotation=rotation, translation=translation)
 
     # ------------------------------------------------------------------
     # Scene helpers
     # ------------------------------------------------------------------
 
-    def _add_lvlh_axes(self) -> None:
+    def _world_transform(self) -> tuple[np.ndarray | None, np.ndarray | None]:
+        if self._render_frame == "eci":
+            return self.data.frame.C_IL, 1000.0 * self.data.orbit.R_eci
+        return None, None
+
+    def _render_lvlh_axes(self) -> None:
         """Draw R (red), S (green), W (blue) axes at the origin."""
         length = 1.0  # m
         origins = np.zeros((3, 3))
-        ends = np.diag([length, length, length])
+        ends = self._local_scene_scale * np.diag([length, length, length])
         segments = np.stack([origins, ends], axis=1)  # (3, 2, 3)
+        rotation, translation = self._world_transform()
+        if rotation is not None:
+            segments = segments @ rotation.T
+        if translation is not None:
+            segments = segments + translation
         colors = np.array(
             [
                 [[255, 50, 50], [255, 50, 50]],
@@ -157,9 +246,88 @@ class MjOrbitViewer:
             ],
             dtype=np.uint8,
         )  # (3, 2, 3)
-        self.server.scene.add_line_segments(
-            "/lvlh_axes", segments, colors=colors, line_width=3.0,
+        if self._axes_handle is not None:
+            self._axes_handle.remove()
+        self._axes_handle = self.server.scene.add_line_segments(
+            "/local_scene/lvlh_axes", segments, colors=colors, line_width=3.0,
         )
+
+    def _add_lvlh_axes(self) -> None:
+        self._render_lvlh_axes()
+
+    def _capture_snapshot(self) -> _ViewerSnapshot:
+        state_spec = mujoco.mjtState.mjSTATE_INTEGRATION
+        mj_state = np.empty(mujoco.mj_stateSize(self.model.mj_model, state_spec))
+        mujoco.mj_getState(self.model.mj_model, self.data.mj_data, mj_state, state_spec)
+
+        return _ViewerSnapshot(
+            mj_state=mj_state.copy(),
+            orbit_R_eci=self.data.orbit.R_eci.copy(),
+            orbit_V_eci=self.data.orbit.V_eci.copy(),
+            orbit_t=float(self.data.orbit.t),
+            rw_speed=self.data.actuators.rw_speed.copy(),
+            rw_torque_cmd=self.data.actuators.rw_torque_cmd.copy(),
+            mtq_dipole_cmd=self.data.actuators.mtq_dipole_cmd.copy(),
+            thr_force_cmd=self.data.actuators.thr_force_cmd.copy(),
+            sensor_biases={
+                name: bias.copy() for name, bias in self.data.sensors.biases.items()
+            },
+            sensor_rng_state=copy.deepcopy(self.data.sensors.rng.bit_generator.state),
+        )
+
+    def _restore_snapshot(self, snapshot: _ViewerSnapshot) -> None:
+        state_spec = mujoco.mjtState.mjSTATE_INTEGRATION
+        mujoco.mj_setState(self.model.mj_model, self.data.mj_data, snapshot.mj_state, state_spec)
+
+        self.data.orbit.R_eci[:] = snapshot.orbit_R_eci
+        self.data.orbit.V_eci[:] = snapshot.orbit_V_eci
+        self.data.orbit.t = snapshot.orbit_t
+
+        self.data.actuators.rw_speed[:] = snapshot.rw_speed
+        self.data.actuators.rw_torque_cmd[:] = snapshot.rw_torque_cmd
+        self.data.actuators.mtq_dipole_cmd[:] = snapshot.mtq_dipole_cmd
+        self.data.actuators.thr_force_cmd[:] = snapshot.thr_force_cmd
+        self.data.actuators.update_rw_momentum(self.model.rw_inertia)
+
+        self.data.sensors.biases = {
+            name: bias.copy() for name, bias in snapshot.sensor_biases.items()
+        }
+        self.data.sensors.rng.bit_generator.state = copy.deepcopy(snapshot.sensor_rng_state)
+
+        mjo_forward(self.model, self.data)
+
+    def _clear_visual_history(self) -> None:
+        for trail in self.trails:
+            trail.clear()
+        self._contact_force_overlay.clear()
+
+    def _apply_local_scene_scale(self) -> None:
+        self.mj_scene.set_scale(self._local_scene_scale)
+        for trail in self.trails:
+            trail.set_scale(self._local_scene_scale)
+        self._contact_force_overlay.set_scale(self._local_scene_scale)
+        if self._show_axes:
+            self._render_lvlh_axes()
+
+    def set_local_scene_scale(self, scale: float) -> None:
+        """Set the local-scene visualization scale relative to Earth."""
+        self._local_scene_scale = float(scale)
+        self._apply_local_scene_scale()
+        rotation, translation = self._world_transform()
+        self.mj_scene.update(self.data.mj_data, rotation=rotation, translation=translation)
+        if hasattr(self, "_scale_md"):
+            self._scale_md.content = self._scale_markdown()
+
+    def reset_simulation(self) -> None:
+        """Restore the viewer-managed simulation to its initial state."""
+        self._restore_snapshot(self._initial_snapshot)
+        self._clear_visual_history()
+        self._sim_t = 0.0
+        self._budget = 0.0
+        self._last_wall = time.time()
+        rotation, translation = self._world_transform()
+        self.mj_scene.update(self.data.mj_data, rotation=rotation, translation=translation)
+        self._time_md.content = f"**t** = {self._sim_t:.2f} s"
 
     # ------------------------------------------------------------------
     # GUI
@@ -167,10 +335,24 @@ class MjOrbitViewer:
 
     def _setup_gui(self) -> None:
         with self.server.gui.add_folder("Playback"):
-            self._speed_slider = self.server.gui.add_slider(
-                "Speed", min=0.1, max=100.0, step=0.1, initial_value=1.0,
-            )
             self._pause_btn = self.server.gui.add_button("Pause")
+            self._reset_btn = self.server.gui.add_button("Reset")
+            self._speed_btns = self.server.gui.add_button_group(
+                "Speed", options=["Slower", "1x", "Faster"],
+            )
+            self._speed_md = self.server.gui.add_markdown(self._speed_markdown())
+
+        with self.server.gui.add_folder("Scene"):
+            self._scale_btns = self.server.gui.add_button_group(
+                "Local Scale", options=["Smaller", "1x", "Larger"],
+            )
+            self._scale_md = self.server.gui.add_markdown(self._scale_markdown())
+
+        with self.server.gui.add_folder("Visualization"):
+            self._contact_force_checkbox = self.server.gui.add_checkbox(
+                "Contact Forces",
+                initial_value=False,
+            )
 
         self._time_md = self.server.gui.add_markdown("**t** = 0.00 s")
 
@@ -179,9 +361,39 @@ class MjOrbitViewer:
             self._paused = not self._paused
             self._pause_btn.label = "Resume" if self._paused else "Pause"
 
-        @self._speed_slider.on_update
+        @self._reset_btn.on_click
         def _(_) -> None:  # type: ignore[arg-type]
-            self._speed = self._speed_slider.value
+            self._reset_requested = True
+
+        @self._speed_btns.on_click
+        def _(event) -> None:
+            if event.target.value == "Slower":
+                self._speed_index = max(0, self._speed_index - 1)
+            elif event.target.value == "Faster":
+                self._speed_index = min(len(_SPEED_OPTIONS) - 1, self._speed_index + 1)
+            else:
+                self._speed_index = _SPEED_OPTIONS.index(1.0)
+
+            self._speed = _SPEED_OPTIONS[self._speed_index]
+            self._speed_md.content = self._speed_markdown()
+
+        @self._scale_btns.on_click
+        def _(event) -> None:
+            if event.target.value == "Smaller":
+                self._scale_index = max(0, self._scale_index - 1)
+            elif event.target.value == "Larger":
+                self._scale_index = min(len(_LOCAL_SCALE_OPTIONS) - 1, self._scale_index + 1)
+            else:
+                self._scale_index = _LOCAL_SCALE_OPTIONS.index(1.0)
+
+            self.set_local_scene_scale(_LOCAL_SCALE_OPTIONS[self._scale_index])
+            self._scale_md.content = self._scale_markdown()
+
+    def _speed_markdown(self) -> str:
+        return f"**speed** = {self._speed:g}x"
+
+    def _scale_markdown(self) -> str:
+        return f"**scale** = {self._local_scene_scale:g}x"
 
     # ------------------------------------------------------------------
     # Main loop
@@ -203,54 +415,65 @@ class MjOrbitViewer:
             Called every physics step to supply MuJoCo controls.
         """
         dt = self.model.opt.timestep
-        sim_t = 0.0
-        last_wall = time.time()
-        budget = 0.0
-
-        # Trail sampling interval — every 10 physics steps or 20 ms, whichever is larger
-        trail_interval = max(dt * 10, 0.02)
-        last_trail_t = 0.0
+        self._last_wall = time.time()
 
         print(f"Viewer running at http://localhost:{self._port}")
 
         try:
-            while sim_t < duration:
+            while self._sim_t < duration:
                 now = time.time()
-                wall_dt = min(now - last_wall, 0.1)  # cap to avoid spiral
-                last_wall = now
+                wall_dt = min(now - self._last_wall, 0.1)  # cap to avoid spiral
+                self._last_wall = now
+
+                if self._reset_requested:
+                    self.reset_simulation()
+                    self._reset_requested = False
 
                 if not self._paused:
-                    budget += wall_dt * self._speed
+                    self._budget += wall_dt * self._speed
 
                     steps = 0
-                    while budget >= dt and sim_t < duration:
-                        ctrl = action_fn(self.data, sim_t) if action_fn else None
+                    while self._budget >= dt and self._sim_t < duration:
+                        ctrl = action_fn(self.data, self._sim_t) if action_fn else None
                         if ctrl is not None:
                             np.copyto(self.data.ctrl, ctrl)
                         mjo_step(self.model, self.data)
-                        sim_t += dt
-                        budget -= dt
+                        self._sim_t += dt
+                        self._budget -= dt
                         steps += 1
 
-                        # Sample trails
-                        if (
-                            self.trails
-                            and sim_t - last_trail_t >= trail_interval
-                        ):
+                        if self.trails:
                             for tid, trail in zip(self._track_ids, self.trails):
                                 trail.append(self.data.xipos[tid].copy())
-                            last_trail_t = sim_t
 
                         # Cap steps per render frame to stay responsive
                         if steps >= 200:
-                            budget = 0.0
+                            self._budget = 0.0
                             break
 
                 # ---- update visuals ------------------------------------------
-                self.mj_scene.update(self.data.mj_data)
-                for trail in self.trails:
-                    trail.render()
-                self._time_md.content = f"**t** = {sim_t:.2f} s"
+                rotation, translation = self._world_transform()
+                self.mj_scene.update(
+                    self.data.mj_data,
+                    rotation=rotation,
+                    translation=translation,
+                )
+                if self._show_axes and self._render_frame == "eci":
+                    self._render_lvlh_axes()
+                for tid, trail in zip(self._track_ids, self.trails):
+                    trail.render(
+                        current_position=self.data.xipos[tid],
+                        rotation=rotation,
+                        translation=translation,
+                    )
+                self._contact_force_overlay.render_transformed(
+                    self.model.mj_model,
+                    self.data.mj_data,
+                    visible=self._contact_force_checkbox.value,
+                    rotation=rotation,
+                    translation=translation,
+                )
+                self._time_md.content = f"**t** = {self._sim_t:.2f} s"
 
                 time.sleep(1.0 / 60.0)
 

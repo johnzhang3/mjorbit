@@ -9,7 +9,7 @@ browser via the viser-based MjOrbitViewer.
 The end-effector trajectory is drawn as a yellow trail.
 
 Usage:
-    uv sync --extra viewer
+    uv sync
     uv run python examples/arm_reach_viewer.py
 """
 

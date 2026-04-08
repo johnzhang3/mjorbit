@@ -19,6 +19,7 @@ import trimesh
 import trimesh.visual
 import trimesh.visual.material
 import viser
+import viser.transforms as vtf
 
 
 def _rgba_to_uint8(rgba: np.ndarray) -> np.ndarray:
@@ -64,28 +65,47 @@ class MuJoCoScene:
     are updated each tick from ``mjd.xpos`` / ``mjd.xquat``.
     """
 
-    def __init__(self, server: viser.ViserServer, mjm: mujoco.MjModel) -> None:
+    def __init__(
+        self,
+        server: viser.ViserServer,
+        mjm: mujoco.MjModel,
+        *,
+        root_path: str = "/spacecraft",
+    ) -> None:
         self._server = server
         self._mjm = mjm
+        self._root_path = root_path.rstrip("/")
+        self._scale = 1.0
+        self._root_frame = self._server.scene.add_frame(
+            self._root_path,
+            show_axes=False,
+        )
         self._body_frames: list[viser.FrameHandle] = []
+        self._geom_handles: list[viser.SceneNodeHandle] = []
         self._build()
 
     def _build(self) -> None:
-        mjm = self._mjm
+        self._build_body_frames()
+        self._build_geom_meshes()
 
-        # One frame per non-world body
+    def _build_body_frames(self) -> None:
+        mjm = self._mjm
+        if self._body_frames:
+            return
         for body_id in range(1, mjm.nbody):
             name = (
                 mujoco.mj_id2name(mjm, mujoco.mjtObj.mjOBJ_BODY, body_id)
                 or f"body_{body_id}"
             )
-            frame = self._server.scene.add_frame(
-                f"/spacecraft/{name}",
-                show_axes=False,
+            self._body_frames.append(
+                self._server.scene.add_frame(
+                    f"{self._root_path}/{name}",
+                    show_axes=False,
+                )
             )
-            self._body_frames.append(frame)
 
-        # One mesh per geom (skip world-body geoms)
+    def _build_geom_meshes(self) -> None:
+        mjm = self._mjm
         for geom_id in range(mjm.ngeom):
             body_id = mjm.geom_bodyid[geom_id]
             if body_id == 0:
@@ -100,7 +120,10 @@ class MuJoCoScene:
                 or f"geom_{geom_id}"
             )
 
-            mesh = _make_trimesh(mjm.geom_type[geom_id], mjm.geom_size[geom_id])
+            mesh = _make_trimesh(
+                mjm.geom_type[geom_id],
+                self._scale * mjm.geom_size[geom_id],
+            )
             if mesh is None:
                 continue
 
@@ -110,17 +133,44 @@ class MuJoCoScene:
                 rgba = np.array([0.5, 0.5, 0.5, 1.0])
             _apply_color(mesh, rgba)
 
-            self._server.scene.add_mesh_trimesh(
-                f"/spacecraft/{body_name}/{geom_name}",
-                mesh,
-                position=tuple(mjm.geom_pos[geom_id]),
-                wxyz=tuple(mjm.geom_quat[geom_id]),
+            self._geom_handles.append(
+                self._server.scene.add_mesh_trimesh(
+                    f"{self._root_path}/{body_name}/{geom_name}",
+                    mesh,
+                    position=tuple(self._scale * mjm.geom_pos[geom_id]),
+                    wxyz=tuple(mjm.geom_quat[geom_id]),
+                )
             )
 
-    def update(self, mjd: mujoco.MjData) -> None:
+    def set_scale(self, scale: float) -> None:
+        self._scale = float(scale)
+        for handle in self._geom_handles:
+            handle.remove()
+        self._geom_handles.clear()
+        self._build_geom_meshes()
+
+    def update(
+        self,
+        mjd: mujoco.MjData,
+        *,
+        rotation: np.ndarray | None = None,
+        translation: np.ndarray | None = None,
+    ) -> None:
         """Sync body frame transforms from simulation state."""
+        rot = None if rotation is None else np.asarray(rotation, dtype=float)
+        trans = None if translation is None else np.asarray(translation, dtype=float)
         with self._server.atomic():
             for i, frame in enumerate(self._body_frames):
                 body_id = i + 1  # skip worldbody 0
-                frame.position = tuple(mjd.xpos[body_id])
-                frame.wxyz = tuple(mjd.xquat[body_id])
+                pos = self._scale * mjd.xpos[body_id]
+                if rot is not None:
+                    pos = rot @ pos
+                if trans is not None:
+                    pos = pos + trans
+                frame.position = tuple(pos)
+
+                if rot is None:
+                    frame.wxyz = tuple(mjd.xquat[body_id])
+                else:
+                    body_rot = mjd.xmat[body_id].reshape(3, 3)
+                    frame.wxyz = tuple(vtf.SO3.from_matrix(rot @ body_rot).wxyz)

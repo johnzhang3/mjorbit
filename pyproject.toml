@@ -10,13 +10,11 @@ dependencies = [
     "cvxpy>=1.7.5",
     "mujoco>=3.3",
     "numpy>=1.26,<2",
+    "trimesh>=4.0",
+    "viser>=0.2.0",
 ]
 
 [project.optional-dependencies]
-viewer = [
-    "viser>=0.2.0",
-    "trimesh>=4.0",
-]
 report = [
     "matplotlib>=3.10.8",
     "scipy>=1.17.1",

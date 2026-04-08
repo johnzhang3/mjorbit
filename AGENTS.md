@@ -11,7 +11,7 @@
 - `src/mujoco_orbit/coupling/` assembles external wrenches from environment and actuators.
 - `src/mujoco_orbit/sensors.py` contains sensor catalogs, callbacks, and measurement helpers.
 - `src/mujoco_orbit/testdata/` contains XML fixtures used by tests and examples.
-- `src/viewer/` contains the optional browser viewer integration.
+- `src/viewer/` contains the browser viewer integration.
 - `examples/` contains small runnable demos of the public API.
 - `ISS/` is a separate top-level workspace for homework analysis, plots, and report material.
 - `tests/mujoco_orbit/` mirrors the production package; shared setup lives in `_helpers.py`.
@@ -20,9 +20,7 @@
 Use `uv` for environment management and command execution.
 
 - `uv sync --dev`: install the package plus test, lint, and type-check tools.
-- `uv sync --dev --extra viewer`: add optional viewer dependencies.
 - `uv sync --dev --extra report`: add report/analysis dependencies for `ISS/`.
-- `uv sync --dev --extra viewer --extra report`: install both optional stacks.
 - `uv run pytest -q`: run the full test suite.
 - `uv run pytest tests/mujoco_orbit/test_api_model_data.py -q`: run the public API tests.
 - `uv run ruff check .`: run linting and import-order checks.
@@ -62,8 +60,8 @@ changes, and include plot diffs or artifact notes when the change intentionally 
 material under `ISS/`.
 
 ## Environment Notes
-Target Python `>=3.11,<3.13` as defined in `pyproject.toml`. MuJoCo is a required runtime
-dependency. Viewer support and report tooling are optional extras.
+Target Python `>=3.11,<3.13` as defined in `pyproject.toml`. MuJoCo and viewer support are
+required runtime dependencies. Report tooling remains an optional extra.
 
 Do not commit generated caches such as `__pycache__/`, `.pytest_cache/`, or `.ruff_cache/`.
 Treat `ISS/` plots, PDFs, and saved data as intentional analysis artifacts rather than
