@@ -8,6 +8,15 @@ import numpy as np
 import pytest
 
 from mujoco_orbit import MjoModel, mjo_forward
+from mujoco_orbit.sensors import (
+    _POS_STAGE,
+    _QUATERNION_DATATYPE,
+    _USER_SENSOR_TYPE,
+    SensorDescriptor,
+    _apply_sensor_noise,
+    _quat_from_rotvec,
+    _quat_mul,
+)
 from mujoco_orbit.testdata import FREE_BODY_SENSORS_XML
 
 from ._helpers import make_model_data
@@ -72,6 +81,25 @@ def _set_attitude(
     data.qpos[3:7] = quat_world_body
     data.qvel[3:6] = omega_body
     mjo_forward(model, data)
+
+
+def _make_sensor_descriptor(
+    *, name: str, datatype: int, dim: int, noise: float
+) -> SensorDescriptor:
+    return SensorDescriptor(
+        sensor_id=0,
+        name=name,
+        sensor_type=_USER_SENSOR_TYPE,
+        datatype=datatype,
+        objtype=0,
+        objid=0,
+        adr=0,
+        dim=dim,
+        noise=noise,
+        cutoff=0.0,
+        needstage=_POS_STAGE,
+        user=np.zeros(0),
+    )
 
 
 def _q_method(
@@ -317,6 +345,81 @@ class TestSensorMeasurements:
         np.testing.assert_allclose(meas1, expected)
         assert not np.allclose(meas1, truth)
         assert bias.shape == (3,)
+
+    def test_axis_sensor_bias_is_preserved_when_noise_is_enabled(self, tmp_path: pathlib.Path):
+        xml = """\
+<mujoco model="vector_biases_with_noise">
+  <size nuser_sensor="4"/>
+  <option timestep="0.01" gravity="0 0 0"/>
+  <worldbody>
+    <body name="spacecraft">
+      <freejoint/>
+      <geom type="box" size="0.5 0.5 0.5" mass="100"/>
+      <site name="tracker" pos="0.2 0 0"/>
+    </body>
+  </worldbody>
+  <sensor>
+    <user
+      name="orbit_star_body"
+      objtype="site"
+      objname="tracker"
+      datatype="axis"
+      needstage="pos"
+      dim="3"
+      noise="5e-4"
+      user="0.3 0.8 -0.4 1e-3"
+    />
+  </sensor>
+</mujoco>
+"""
+        xml_path = tmp_path / "vector_biases_with_noise.xml"
+        xml_path.write_text(xml)
+
+        model, data = _make_model_data(str(xml_path), rng_seed=123)
+        _set_attitude(model, data, _quat_from_axis_angle(np.array([0.3, 0.2, -0.5]), 0.4))
+
+        descriptor = model.sensors.by_name["orbit_star_body"]
+        truth = data.sensors.measure("orbit_star_body", noisy=False)
+        bias = data.sensors.bias("orbit_star_body")
+        seed = 7
+        meas = data.sensors.measure("orbit_star_body", noisy=True, rng=np.random.default_rng(seed))
+
+        biased = _rotation_matrix_from_rotvec(bias) @ truth
+        biased /= np.linalg.norm(biased)
+        noise_rot = np.random.default_rng(seed).normal(0.0, descriptor.noise, size=3)
+        expected = _rotation_matrix_from_rotvec(noise_rot) @ biased
+        expected /= np.linalg.norm(expected)
+
+        np.testing.assert_allclose(meas, expected)
+
+    def test_quaternion_sensor_bias_is_preserved_when_noise_is_enabled(self):
+        descriptor = _make_sensor_descriptor(
+            name="quat_sensor",
+            datatype=_QUATERNION_DATATYPE,
+            dim=4,
+            noise=4e-4,
+        )
+        truth = _quat_from_axis_angle(np.array([0.4, -0.1, 0.2]), 0.7)
+        bias = np.array([0.01, -0.02, 0.03])
+        seed = 11
+
+        meas = _apply_sensor_noise(
+            np.random.default_rng(seed),
+            descriptor,
+            truth,
+            bias=bias,
+        )
+
+        noise_rot = np.random.default_rng(seed).normal(0.0, descriptor.noise, size=3)
+        expected = _quat_mul(
+            _quat_from_rotvec(noise_rot),
+            _quat_mul(_quat_from_rotvec(bias), truth),
+        )
+        expected /= np.linalg.norm(expected)
+        if np.dot(meas, expected) < 0.0:
+            expected = -expected
+
+        np.testing.assert_allclose(meas, expected)
 
     def test_truth_vectors_match_expected_transforms(self):
         model, data = _make_model_data()

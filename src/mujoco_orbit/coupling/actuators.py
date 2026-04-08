@@ -70,15 +70,16 @@ def _apply_reaction_wheels(model: MjoModel, data: MjoData) -> None:
         # Wheel angular momentum in body frame: h_i = I_w * Ω_w * axis
         h_body = model.rw_inertia[i] * act.rw_speed[i] * rw_cfg.axis_body  # kg·m²/s
 
-        # Free-joint angular velocity is in body frame
-        w_body = mjd.qvel[3:6]
+        # cvel stores angular velocity in the world frame for every body, including
+        # downstream articulated links. Rotate it back into the host body frame.
+        R_body = mjd.xmat[bid].reshape(3, 3)
+        w_body = R_body.T @ mjd.cvel[bid, :3]
 
         # Gyroscopic coupling torque: τ = -ω × h  (body frame)
         tau_body = -np.cross(w_body, h_body)
 
         # Rotate to world frame for xfrc_applied
         # Use xmat (body frame), NOT ximat (inertia frame)
-        R_body = mjd.xmat[bid].reshape(3, 3)
         tau_world = R_body @ tau_body
 
         data.wrench_buffer[bid, 3:] += tau_world

@@ -1,14 +1,16 @@
 """Phase 7 validation: reaction wheels, magnetorquers, thrusters."""
 
+import mujoco
 import numpy as np
 
 from mujoco_orbit import MagnetorquerSpec, ReactionWheelSpec, ThrusterSpec, mjo_forward
 from mujoco_orbit.coupling.actuators import (
     _apply_magnetorquers,
+    _apply_reaction_wheels,
     _apply_thrusters,
     command_rw_torques,
 )
-from mujoco_orbit.testdata import FREE_BODY_XML, SPACECRAFT_ARM_XML
+from mujoco_orbit.testdata import FREE_BODY_XML, SPACECRAFT_ARM_XML, TWO_BODIES_XML
 
 from ._helpers import make_model_data
 
@@ -142,6 +144,40 @@ class TestReactionWheel:
         expected_speed = 0.01 / 0.05
         np.testing.assert_allclose(data.actuators.rw_speed[0], expected_speed)
         np.testing.assert_allclose(data.actuators.rw_momentum[0], expected_speed * 0.05)
+
+    def test_gyro_coupling_uses_host_body_angular_velocity(self):
+        model, data = _make_model_data(
+            xml_path=TWO_BODIES_XML,
+            reaction_wheels=[
+                ReactionWheelSpec(
+                    body_name="body_b",
+                    axis_body=np.array([0.0, 0.0, 1.0]),
+                    inertia=0.02,
+                )
+            ],
+        )
+
+        joint_a = mujoco.mj_name2id(model.mj_model, mujoco.mjtObj.mjOBJ_JOINT, "jnt_a")
+        joint_b = mujoco.mj_name2id(model.mj_model, mujoco.mjtObj.mjOBJ_JOINT, "jnt_b")
+        data.qvel[model.jnt_dofadr[joint_a] + 3 : model.jnt_dofadr[joint_a] + 6] = 0.0
+        data.qvel[model.jnt_dofadr[joint_b] + 3 : model.jnt_dofadr[joint_b] + 6] = [1.0, 0.0, 0.0]
+        mjo_forward(model, data)
+
+        data.actuators.rw_speed[0] = 200.0
+        data.clear_wrench_buffer()
+        _apply_reaction_wheels(model, data)
+
+        expected_tau = model.rw_inertia[0] * data.actuators.rw_speed[0]
+        np.testing.assert_allclose(
+            data.wrench_buffer[model.body_id("body_b"), 3:],
+            [0.0, expected_tau, 0.0],
+            atol=1e-12,
+        )
+        np.testing.assert_allclose(
+            data.wrench_buffer[model.body_id("body_a"), 3:],
+            0.0,
+            atol=1e-12,
+        )
 
 
 class TestMagnetorquer:

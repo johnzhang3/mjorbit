@@ -360,9 +360,9 @@ def _apply_sensor_noise(
         measurement = measurement + rng.normal(0.0, descriptor.noise, size=descriptor.dim)
         measurement = np.maximum(measurement, 0.0)
     elif descriptor.datatype == _AXIS_DATATYPE:
-        measurement = _rotate_axis(truth, rng.normal(0.0, descriptor.noise, size=3))
+        measurement = _rotate_axis(measurement, rng.normal(0.0, descriptor.noise, size=3))
     elif descriptor.datatype == _QUATERNION_DATATYPE:
-        measurement = _rotate_quaternion(truth, rng.normal(0.0, descriptor.noise, size=3))
+        measurement = _rotate_quaternion(measurement, rng.normal(0.0, descriptor.noise, size=3))
     else:
         measurement = measurement + rng.normal(0.0, descriptor.noise, size=descriptor.dim)
 
