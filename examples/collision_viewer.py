@@ -59,7 +59,7 @@ def main() -> None:
     # Body A: qvel[0:6], Body B: qvel[6:12]
     # Give Body A a +x (radial) velocity of 1 m/s toward Body B
     # ------------------------------------------------------------------
-    data.qvel[0] = 1.0  # body_a vx = +1 m/s (radial, toward body_b)
+    data.qvel[6] = -0.5  # body_a vx = +1 m/s (radial, toward body_b)
 
     from mujoco_orbit import mjo_forward
     mjo_forward(model, data)
