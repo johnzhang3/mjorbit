@@ -1,17 +1,20 @@
 # mujoco_orbit
 
 MuJoCo-style simulator for coupled orbital dynamics and MuJoCo multibody dynamics.
+`mujoco_orbit` is the stable CPU reference backend, and `mujoco_orbit_warp` is the
+GPU-targeting MJWarp backend.
 
 ## Public API
 
-The supported public surface is built around `MjoModel` and `MjoData`.
+The supported public surface is built around `MjoModel` and `MjoData`. Backend choice is
+explicit by import path, and `model.make_data(...)` is the preferred way to construct runtime
+state.
 
 ```python
-from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
+from mujoco_orbit import MjoModel, OrbitInit, mjo_forward, mjo_step
 
 model = MjoModel.from_xml_path("model.xml")
-data = MjoData(
-    model,
+data = model.make_data(
     orbit=OrbitInit(R_eci=[7000.0, 0.0, 0.0], V_eci=[0.0, 7.5, 0.0]),
 )
 
@@ -19,27 +22,47 @@ mjo_forward(model, data)  # call after direct state edits
 mjo_step(model, data)     # advance one step
 ```
 
+The warp backend uses the same API names, plus `nworld` on `make_data(...)` for batched GPU
+simulation:
+
+```python
+from mujoco_orbit_warp import MjoModel, OrbitInit, mjo_step
+
+model = MjoModel.from_xml_path("model.xml")
+data = model.make_data(
+    orbit=OrbitInit(R_eci=[7000.0, 0.0, 0.0], V_eci=[0.0, 7.5, 0.0]),
+    nworld=256,
+)
+
+mjo_step(model, data)
+```
+
 `MjoModel` owns compiled/static state. `MjoData` owns runtime state, orbit state, actuator
-commands, caches, and sensor runtime state.
+commands, caches, and sensor runtime state. On the CPU backend,
+`MjoData(model, orbit=...)` still works for compatibility, but prefer `model.make_data(...)`
+for new code.
 
 ## Project Layout
 
-- `src/mujoco_orbit/` — main package
+- `src/mujoco_orbit/` — CPU reference backend
 - `src/mujoco_orbit/core/` — public specs, model/data wrappers, stepping
 - `src/mujoco_orbit/orbit/` — orbital propagation, gravity, LVLH, environment
 - `src/mujoco_orbit/coupling/` — external wrench assembly and actuator/environment coupling
 - `src/mujoco_orbit/sensors.py` — sensor catalogs, callback plumbing, measurement helpers
 - `src/mujoco_orbit/testdata/` — bundled XML assets
+- `src/mujoco_orbit_warp/` — optional MJWarp backend, host/device sync, and batched runtime API
 - `src/viewer/` — browser viewer integration
 - `examples/` — lightweight demos of the public API
 - `ISS/` — separate homework/report analysis workspace and artifacts
 - `tests/mujoco_orbit/` — unit and integration tests
+- `tests/mujoco_orbit_warp/` — guarded MJWarp tests
 
 ## Development
 
 ```bash
 uv sync --dev
 uv sync --dev --extra report
+uv sync --dev --extra warp
 uv run pytest -q
 uv run ruff check .
 uv run pyright
@@ -87,12 +110,19 @@ energy/momentum non-conservation.
 ## Key Design Rules
 
 - The public interface is `MjoModel` / `MjoData`; do not rebuild the old scenario wrapper.
+- Choose the backend explicitly by import path:
+  - CPU: `mujoco_orbit`
+  - MJWarp: `mujoco_orbit_warp`
 - Static metadata belongs on `MjoModel`; per-run state belongs on `MjoData`.
+- Prefer `model.make_data(...)` for runtime construction. Warp users specify batched parallel
+  simulation count with `nworld`.
 - After directly mutating `data.qpos`, `data.qvel`, `data.orbit`, or actuator commands, call
   `mjo_forward(model, data)`.
 - Advance the simulation with `mjo_step(model, data)`. MuJoCo controls come from `data.ctrl`,
   and orbital actuators come from `data.actuators.*_cmd`.
 - `data.sensordata` is the canonical forward/step-updated sensor buffer. Stochastic sampling
   lives behind `data.sensors`.
+- Keep warp-specific implementation under `src/mujoco_orbit_warp/`. Preserve MuJoCo frame
+  conventions exactly across both backends.
 - Keep lightweight demos in `examples/`. Keep ISS homework/report analysis and generated
-  artifacts in `ISS/`.
+  artifacts in `ISS/`. Viewer integration and the `ISS/` workspace remain CPU-only for now.

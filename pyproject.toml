@@ -19,9 +19,20 @@ report = [
     "matplotlib>=3.10.8",
     "scipy>=1.17.1",
 ]
+warp = [
+    "mujoco-warp>=3.6.0",
+]
 
 [tool.uv]
 python-preference = "only-managed"
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com/"
+explicit = true
+
+[tool.uv.sources]
+warp-lang = { index = "nvidia" }
 
 [dependency-groups]
 dev = [
@@ -31,11 +42,16 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mujoco_orbit", "src/viewer"]
+packages = ["src/mujoco_orbit", "src/mujoco_orbit_warp", "src/viewer"]
 include = ["src/mujoco_orbit/testdata/*.xml"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/mujoco_orbit/testdata/*.xml"]
+include = [
+    "src/mujoco_orbit/**/*.py",
+    "src/mujoco_orbit/testdata/*.xml",
+    "src/mujoco_orbit_warp/**/*.py",
+    "src/viewer/**/*.py",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

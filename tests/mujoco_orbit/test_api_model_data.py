@@ -35,14 +35,34 @@ def test_model_and_data_expose_mujoco_fields():
         use_srp=False,
         use_magnetic=False,
     )
-    data = MjoData(model, orbit=_orbit_init())
+    data = model.make_data(orbit=_orbit_init())
 
     assert model.nbody >= 2
+    assert model.backend == "cpu"
     np.testing.assert_allclose(model.opt.gravity, [0.0, 0.0, 0.0])
+    assert data.backend == "cpu"
+    assert data.nworld == 1
     assert data.qpos.shape[0] == model.nq
     assert data.qvel.shape[0] == model.nv
     assert data.wrench_buffer.shape == (model.nbody, 6)
     assert data.orbit.t == 0.0
+
+
+def test_model_make_data_matches_direct_constructor():
+    model = MjoModel.from_xml_path(
+        FREE_BODY_XML,
+        mj_timestep=0.01,
+        use_j2=False,
+        use_drag=False,
+        use_srp=False,
+        use_magnetic=False,
+    )
+    via_factory = model.make_data(orbit=_orbit_init())
+    via_constructor = MjoData(model, orbit=_orbit_init(alt_km=450.0))
+
+    assert via_factory.model is model
+    assert via_constructor.model is model
+    assert via_factory.mj_data is not via_constructor.mj_data
 
 
 def test_mjo_forward_syncs_derived_state():

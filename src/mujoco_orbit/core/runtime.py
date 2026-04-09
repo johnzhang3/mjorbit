@@ -218,6 +218,7 @@ class MjoModel:
     use_srp: bool = True
     use_magnetic: bool = True
     orbit_dt: float | None = None
+    backend: str = "cpu"
 
     def __post_init__(self) -> None:
         self.rw_inertia = np.array([wheel.inertia for wheel in self.reaction_wheels], dtype=float)
@@ -284,9 +285,16 @@ class MjoModel:
             raise ValueError(f"Sensor '{name}' not found in model")
         return descriptor
 
+    def make_data(self, *, orbit: OrbitInit, rng_seed: int | None = None) -> "MjoData":
+        """Construct one runtime state object for this compiled model."""
+        return MjoData(self, orbit=orbit, rng_seed=rng_seed)
+
 
 class MjoData:
     """Runtime state for one simulation run."""
+
+    backend = "cpu"
+    nworld = 1
 
     def __init__(self, model: MjoModel, *, orbit: OrbitInit, rng_seed: int | None = None) -> None:
         self.model = model

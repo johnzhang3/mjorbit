@@ -61,5 +61,5 @@ def make_model_data(
         use_srp=use_srp,
         use_magnetic=use_magnetic,
     )
-    data = MjoData(model, orbit=circular_leo_orbit_init(alt_km), rng_seed=rng_seed)
+    data = model.make_data(orbit=circular_leo_orbit_init(alt_km), rng_seed=rng_seed)
     return model, data
