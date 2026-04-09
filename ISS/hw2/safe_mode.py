@@ -40,6 +40,14 @@ from common import (
 from scipy.integrate import solve_ivp
 
 np.random.seed(42)
+plt.rcParams.update({
+    "axes.titlesize": 13,
+    "axes.labelsize": 11,
+    "figure.titlesize": 16,
+    "legend.fontsize": 9,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+})
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +227,7 @@ def main() -> None:
     fig1.suptitle(
         "Safe Mode Gyrostat — Angular Velocity Components (Body Frame)\n"
         f"Perturbed ISS inertia, 10 RPM about solar panel normal (+Z), "
-        f"inertia ratio = {actual_ratio:.2f}", fontsize=11)
+        f"inertia ratio = {actual_ratio:.2f}", fontsize=15)
     comp_labels = ["wx", "wy", "wz"]
     colors = ["#1f77b4", "#ff7f0e", "#2ca02c"]
 
@@ -228,9 +236,9 @@ def main() -> None:
         w = result["omega"]
         for k in range(3):
             ax.plot(t, w[:, k], label=comp_labels[k], color=colors[k], linewidth=0.6)
-        ax.set_title(result["label"], fontsize=10)
+        ax.set_title(result["label"], fontsize=13)
         ax.set_ylabel("omega (rad/s)")
-        ax.legend(fontsize=7, loc="upper right")
+        ax.legend(fontsize=9, loc="upper right")
         ax.grid(True, alpha=0.3)
 
     axes1[1, 0].set_xlabel("Time (s)")
@@ -241,7 +249,7 @@ def main() -> None:
     # Figure 2: Pointing error
     fig2, axes2 = plt.subplots(2, 2, figsize=(14, 10), sharex=True)
     fig2.suptitle("Safe Mode Gyrostat — Solar Panel Pointing Error\n"
-                  "Angle between panel normal and sun direction (+X ECI)", fontsize=11)
+                  "Angle between panel normal and sun direction (+X ECI)", fontsize=15)
 
     for ax, result in zip(axes2.flat, [result_exact, result_pert1, result_pert5, result_no_rotor]):
         t = result["times"]
@@ -249,7 +257,7 @@ def main() -> None:
             [compute_pointing_error(result["quat"][i], sun_eci) for i in range(len(t))]
         )
         ax.plot(t, errors, color="#d62728", linewidth=0.6)
-        ax.set_title(result["label"], fontsize=10)
+        ax.set_title(result["label"], fontsize=13)
         ax.set_ylabel("Pointing error (deg)")
         ax.grid(True, alpha=0.3)
 
@@ -261,7 +269,7 @@ def main() -> None:
     # Figure 3: Quaternion components
     fig3, axes3 = plt.subplots(2, 2, figsize=(14, 10), sharex=True)
     fig3.suptitle("Safe Mode Gyrostat — Attitude Quaternion Components\n"
-                  "q = [q0, q1, q2, q3] (scalar-first)", fontsize=11)
+                  "q = [q0, q1, q2, q3] (scalar-first)", fontsize=15)
     q_labels = ["q0", "q1", "q2", "q3"]
     q_colors = ["#1f77b4", "#ff7f0e", "#2ca02c", "#d62728"]
 
@@ -270,9 +278,9 @@ def main() -> None:
         q = result["quat"]
         for k in range(4):
             ax.plot(t, q[:, k], label=q_labels[k], color=q_colors[k], linewidth=0.6)
-        ax.set_title(result["label"], fontsize=10)
+        ax.set_title(result["label"], fontsize=13)
         ax.set_ylabel("Quaternion component")
-        ax.legend(fontsize=7, loc="upper right")
+        ax.legend(fontsize=9, loc="upper right")
         ax.grid(True, alpha=0.3)
         ax.set_ylim(-1.1, 1.1)
 
@@ -284,14 +292,14 @@ def main() -> None:
     # Figure 4: Transverse rate magnitude
     fig4, ax4 = plt.subplots(figsize=(10, 5))
     ax4.set_title("Transverse Angular Velocity Magnitude\n"
-                  "sqrt(wx^2 + wy^2) — should remain bounded for stable gyrostat", fontsize=11)
+                  "sqrt(wx^2 + wy^2) — should remain bounded for stable gyrostat", fontsize=14)
     for result in [result_exact, result_pert1, result_pert5, result_no_rotor]:
         t = result["times"]
         w = result["omega"]
         ax4.plot(t, np.sqrt(w[:, 0]**2 + w[:, 1]**2), label=result["label"], linewidth=0.8)
     ax4.set_xlabel("Time (s)")
     ax4.set_ylabel("|omega_transverse| (rad/s)")
-    ax4.legend(fontsize=9)
+    ax4.legend(fontsize=10)
     ax4.grid(True, alpha=0.3)
     plt.tight_layout()
     fig4.savefig(plot_dir / "safe_mode_transverse.png", dpi=200, bbox_inches="tight")

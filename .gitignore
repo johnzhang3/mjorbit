@@ -18,4 +18,15 @@ build/
 *.dylib
 *.log
 *.out
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.run.xml
+*.synctex.gz
+*.toc
 .DS_Store

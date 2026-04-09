@@ -45,6 +45,14 @@ from common import (
 from mujoco_orbit import mjo_forward, mjo_step
 
 np.random.seed(42)
+plt.rcParams.update({
+    "axes.titlesize": 13,
+    "axes.labelsize": 11,
+    "figure.titlesize": 16,
+    "legend.fontsize": 9,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+})
 
 
 # ===================================================================
@@ -509,8 +517,8 @@ def main() -> None:
     )
     ax.set_xlabel("Rate error ($\\mu$rad/s)")
     ax.set_ylabel("Density")
-    ax.set_title("Gyroscope White Noise")
-    ax.legend(fontsize=7)
+    ax.set_title("Gyroscope White Noise", fontsize=13)
+    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 
     # 2. Star tracker angular error
@@ -535,8 +543,8 @@ def main() -> None:
     )
     ax.set_xlabel("Angular error (arcsec)")
     ax.set_ylabel("Density")
-    ax.set_title(f"Star Tracker Error ($\\sigma_{{cross}}$={STAR_CROSS_ARCSEC}\")")
-    ax.legend(fontsize=7)
+    ax.set_title(f"Star Tracker Error ($\\sigma_{{cross}}$={STAR_CROSS_ARCSEC}\")", fontsize=13)
+    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 
     # 3. Sun sensor angular error
@@ -562,8 +570,8 @@ def main() -> None:
     )
     ax.set_xlabel("Angular error (deg)")
     ax.set_ylabel("Density")
-    ax.set_title("Fine Sun Sensor Error")
-    ax.legend(fontsize=8)
+    ax.set_title("Fine Sun Sensor Error", fontsize=13)
+    ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
 
     # 4. Magnetometer noise
@@ -581,8 +589,8 @@ def main() -> None:
     )
     ax.set_xlabel("Field error (nT)")
     ax.set_ylabel("Density")
-    ax.set_title("Magnetometer Noise")
-    ax.legend(fontsize=7)
+    ax.set_title("Magnetometer Noise", fontsize=13)
+    ax.legend(fontsize=9)
     ax.grid(True, alpha=0.3)
 
     # 5. Horizon sensor angular error
@@ -608,8 +616,8 @@ def main() -> None:
     )
     ax.set_xlabel("Angular error (deg)")
     ax.set_ylabel("Density")
-    ax.set_title("Earth Horizon Sensor Error")
-    ax.legend(fontsize=8)
+    ax.set_title("Earth Horizon Sensor Error", fontsize=13)
+    ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
 
     # 6. Summary table
@@ -637,11 +645,11 @@ def main() -> None:
     table.auto_set_font_size(False)
     table.set_fontsize(8)
     table.scale(1.1, 1.4)
-    ax.set_title("Error Statistics Summary", fontsize=10, pad=10)
+    ax.set_title("Error Statistics Summary", fontsize=13, pad=10)
 
     fig.suptitle(
         "ISS Attitude Sensor Noise Validation (Monte Carlo, N=10000)",
-        fontsize=13,
+        fontsize=16,
         fontweight="bold",
     )
     plt.tight_layout(rect=[0, 0, 1, 0.95])
@@ -722,8 +730,8 @@ def main() -> None:
         ax.plot(t_plot, gyro_meas_hist[:n_rec, k], '.', ms=1, alpha=0.3)
     ax.set_xlabel("Time (min)")
     ax.set_ylabel("Angular rate (rad/s)")
-    ax.set_title("Gyroscope: True vs Measured")
-    ax.legend(fontsize=7, ncol=2)
+    ax.set_title("Gyroscope: True vs Measured", fontsize=13)
+    ax.legend(fontsize=9, ncol=2)
     ax.grid(True, alpha=0.3)
 
     ax = axes2[0, 1]
@@ -737,15 +745,15 @@ def main() -> None:
     )
     ax.set_xlabel("Time (min)")
     ax.set_ylabel("Angular error (deg)")
-    ax.set_title("Fine Sun Sensor Error")
-    ax.legend(fontsize=8)
+    ax.set_title("Fine Sun Sensor Error", fontsize=13)
+    ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
 
     ax = axes2[1, 0]
     ax.plot(t_plot, mag_error_hist[:n_rec], '.', ms=2, alpha=0.5, color="C3")
     ax.set_xlabel("Time (min)")
     ax.set_ylabel("Direction error (deg)")
-    ax.set_title("Magnetometer Direction Error")
+    ax.set_title("Magnetometer Direction Error", fontsize=13)
     ax.grid(True, alpha=0.3)
 
     ax = axes2[1, 1]
@@ -759,11 +767,11 @@ def main() -> None:
     )
     ax.set_xlabel("Time (min)")
     ax.set_ylabel("Angular error (deg)")
-    ax.set_title("Earth Horizon Sensor Error")
-    ax.legend(fontsize=8)
+    ax.set_title("Earth Horizon Sensor Error", fontsize=13)
+    ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
 
-    fig2.suptitle("Sensor Measurements Over 5 Minutes", fontsize=13, fontweight="bold")
+    fig2.suptitle("Sensor Measurements Over 5 Minutes", fontsize=16, fontweight="bold")
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     fig2.savefig(plot_dir / "attitude_sensors_timeseries.png", dpi=200, bbox_inches="tight")
     print(f"Plot saved: {plot_dir / 'attitude_sensors_timeseries.png'}")
