@@ -11,7 +11,7 @@ assignment:
      additive/rotation noise and constant-bias model.
 
   2. Star tracker — returns a full attitude quaternion:
-       q_meas = dq(delta_theta) * q_true,   delta_theta ~ N(0, R_star)
+       q_meas = q_true * dq(delta_theta),   delta_theta ~ N(0, R_star)
      Errors sampled from an *anisotropic* Gaussian in axis-angle space
      (tighter cross-boresight, looser about the roll/boresight axis).
 
@@ -313,6 +313,16 @@ class GyroSimulator:
 
 def calibrate_mag(y: np.ndarray) -> np.ndarray:
     return MAG_M_INV @ (y - MAG_BIAS)
+
+
+def calibrate_sun(y: np.ndarray) -> np.ndarray:
+    corrected = SUN_M_INV @ (y - SUN_BIAS)
+    return corrected / np.linalg.norm(corrected)
+
+
+def calibrate_horizon(y: np.ndarray) -> np.ndarray:
+    corrected = HOR_M_INV @ (y - HOR_BIAS)
+    return corrected / np.linalg.norm(corrected)
 
 
 def calibrate_gyro(y: np.ndarray) -> np.ndarray:
