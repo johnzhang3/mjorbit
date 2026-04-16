@@ -25,26 +25,83 @@ from mujoco_orbit.core.runtime import MjoModel as CpuMjoModel
 from ._deps import require_mjwarp
 
 _MIRRORED_ARRAY_FIELDS = (
+    "solver_niter",
+    "energy",
     "qpos",
     "qvel",
     "qacc",
+    "act_dot",
     "act",
     "ctrl",
     "qacc_warmstart",
     "qfrc_applied",
     "xfrc_applied",
     "sensordata",
+    "xpos",
     "xipos",
     "xquat",
     "xmat",
     "ximat",
+    "xanchor",
+    "xaxis",
+    "geom_xpos",
+    "geom_xmat",
     "site_xpos",
     "site_xmat",
+    "cam_xpos",
+    "cam_xmat",
+    "light_xpos",
+    "light_xdir",
+    "subtree_com",
+    "cdof",
+    "cinert",
+    "flexvert_xpos",
+    "flexedge_J",
+    "flexedge_length",
+    "flexedge_velocity",
+    "actuator_length",
+    "actuator_moment",
+    "actuator_velocity",
+    "moment_rownnz",
+    "moment_rowadr",
+    "moment_colind",
+    "crb",
+    "qM",
+    "qLD",
+    "qLDiagInv",
+    "ten_wrapadr",
+    "ten_wrapnum",
+    "ten_J",
+    "ten_length",
+    "ten_velocity",
+    "wrap_obj",
+    "wrap_xpos",
     "cvel",
+    "cdof_dot",
+    "qfrc_bias",
+    "qfrc_spring",
+    "qfrc_damper",
+    "qfrc_gravcomp",
+    "qfrc_fluid",
+    "qfrc_passive",
+    "subtree_linvel",
+    "subtree_angmom",
+    "actuator_force",
+    "qfrc_actuator",
+    "qfrc_smooth",
+    "qacc_smooth",
+    "qfrc_constraint",
+    "qfrc_inverse",
+    "cacc",
+    "cfrc_int",
+    "cfrc_ext",
+    "tree_island",
     "mocap_pos",
     "mocap_quat",
     "eq_active",
 )
+
+_MIRRORED_SCALAR_FIELDS = ("ncon", "ne", "nf", "nl", "nefc", "nisland")
 
 _HOST_MUTABLE_FIELDS = (
     "qpos",
@@ -79,6 +136,10 @@ def _copy_world_value(
         np.copyto(target, source)
         return
     np.copyto(target[world_id], source)
+
+
+def _copy_host_value(target: np.ndarray, source: np.ndarray) -> None:
+    np.copyto(target, source)
 
 
 def _world_view(array: np.ndarray, world_id: int, *, nworld: int) -> np.ndarray:
@@ -285,6 +346,11 @@ class MjoModel:
     def __getattr__(self, name: str):  # pragma: no cover - trivial delegation
         return getattr(self.host_model, name)
 
+    @property
+    def device_model(self) -> Any:
+        """Return the underlying ``mujoco_warp.Model``."""
+        return self.warp_model
+
     def body_id(self, name: str) -> int:
         return self.host_model.body_id(name)
 
@@ -297,9 +363,24 @@ class MjoModel:
         orbit: OrbitInit | Sequence[OrbitInit],
         rng_seed: int | Sequence[int | None] | None = None,
         nworld: int = 1,
+        nconmax: int | None = None,
+        nccdmax: int | None = None,
+        njmax: int | None = None,
+        naconmax: int | None = None,
+        naccdmax: int | None = None,
     ) -> "MjoData":
         """Construct one or more runtime state objects for this compiled model."""
-        return MjoData(self, orbit=orbit, rng_seed=rng_seed, nworld=nworld)
+        return MjoData(
+            self,
+            orbit=orbit,
+            rng_seed=rng_seed,
+            nworld=nworld,
+            nconmax=nconmax,
+            nccdmax=nccdmax,
+            njmax=njmax,
+            naconmax=naconmax,
+            naccdmax=naccdmax,
+        )
 
 
 class MjoData:
@@ -314,6 +395,11 @@ class MjoData:
         orbit: OrbitInit | Sequence[OrbitInit],
         rng_seed: int | Sequence[int | None] | None = None,
         nworld: int = 1,
+        nconmax: int | None = None,
+        nccdmax: int | None = None,
+        njmax: int | None = None,
+        naconmax: int | None = None,
+        naccdmax: int | None = None,
     ) -> None:
         if nworld < 1:
             raise ValueError("nworld must be >= 1")
@@ -331,9 +417,26 @@ class MjoData:
         ]
 
         if nworld == 1:
-            self.warp_data = mjw.put_data(model.mj_model, self._host_runs[0].mj_data, nworld=1)
+            self.warp_data = mjw.put_data(
+                model.mj_model,
+                self._host_runs[0].mj_data,
+                nworld=1,
+                nconmax=nconmax,
+                nccdmax=nccdmax,
+                njmax=njmax,
+                naconmax=naconmax,
+                naccdmax=naccdmax,
+            )
         else:
-            self.warp_data = mjw.make_data(model.mj_model, nworld=nworld)
+            self.warp_data = mjw.make_data(
+                model.mj_model,
+                nworld=nworld,
+                nconmax=nconmax,
+                nccdmax=nccdmax,
+                njmax=njmax,
+                naconmax=naconmax,
+                naccdmax=naccdmax,
+            )
 
         first = self._host_runs[0].mj_data
         for field in _MIRRORED_ARRAY_FIELDS:
@@ -341,6 +444,12 @@ class MjoData:
             setattr(self, field, _zeros_world(nworld, *value.shape, dtype=value.dtype))
 
         self.time = 0.0 if nworld == 1 else np.zeros(nworld, dtype=float)
+        for field in _MIRRORED_SCALAR_FIELDS:
+            setattr(
+                self,
+                field,
+                int(getattr(first, field)) if nworld == 1 else np.zeros(nworld, dtype=np.int32),
+            )
         self.orbit = OrbitBatchState(
             R_eci=_zeros_world(nworld, 3),
             V_eci=_zeros_world(nworld, 3),
@@ -396,6 +505,11 @@ class MjoData:
         """Return one host shadow ``MjData`` instance."""
         return self._host_runs[world_id].mj_data
 
+    @property
+    def device_data(self) -> Any:
+        """Return the underlying ``mujoco_warp.Data``."""
+        return self.warp_data
+
     def clear_wrench_buffer(self) -> None:
         """Reset the assembled external wrench buffer and applied wrench."""
         self.wrench_buffer[:] = 0.0
@@ -430,11 +544,9 @@ class MjoData:
         for world_id, run in enumerate(self._host_runs):
             mjd = run.mj_data
             for field in _HOST_MUTABLE_FIELDS:
-                _copy_world_value(
+                _copy_host_value(
                     getattr(mjd, field),
-                    world_id,
                     _world_view(getattr(self, field), world_id, nworld=self.nworld),
-                    nworld=self.nworld,
                 )
 
             if self.nworld == 1:
@@ -477,6 +589,8 @@ class MjoData:
 
             if self.nworld == 1:
                 self.time = float(mjd.time)
+                for field in _MIRRORED_SCALAR_FIELDS:
+                    setattr(self, field, int(getattr(mjd, field)))
                 np.copyto(self.orbit.R_eci, run.orbit.R_eci)
                 np.copyto(self.orbit.V_eci, run.orbit.V_eci)
                 self.orbit.t = float(run.orbit.t)
@@ -497,6 +611,8 @@ class MjoData:
                 np.copyto(self.wrench_buffer, run.wrench_buffer)
             else:
                 self.time[world_id] = float(mjd.time)
+                for field in _MIRRORED_SCALAR_FIELDS:
+                    getattr(self, field)[world_id] = int(getattr(mjd, field))
                 np.copyto(self.orbit.R_eci[world_id], run.orbit.R_eci)
                 np.copyto(self.orbit.V_eci[world_id], run.orbit.V_eci)
                 self.orbit.t[world_id] = float(run.orbit.t)
