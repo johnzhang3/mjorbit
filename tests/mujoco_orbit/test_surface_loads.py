@@ -130,7 +130,7 @@ class TestSRPSanity:
                 SurfaceSpec(
                     body_name="spacecraft",
                     center_of_pressure_body=np.zeros(3),
-                    normal_body=np.array([1.0, 0.0, 0.0]),
+                    normal_body=np.array([-1.0, 0.0, 0.0]),
                     area=4.0,
                     srp_coeff=1.8,
                     use_drag=False,
@@ -138,7 +138,11 @@ class TestSRPSanity:
             ],
             use_drag=False,
         )
-        data.env.eclipse = 0.0
+        # Place the chief in Earth's cylindrical umbra by pointing the sun
+        # opposite to R_eci.  The surface normal faces the sun, so cos_sun>0
+        # and only the eclipse factor can zero out the SRP force.
+        r_hat = data.orbit.R_eci / np.linalg.norm(data.orbit.R_eci)
+        data.env.sun_vector_eci = -r_hat
         data.clear_wrench_buffer()
         apply_surface_wrenches(model, data)
         np.testing.assert_allclose(data.wrench_buffer[1, :3], 0.0)

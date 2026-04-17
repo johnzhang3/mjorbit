@@ -1011,6 +1011,7 @@ def _assemble_wrenches(
     sun_world = C_LI @ env_sun_vector_eci[world_id]
     omega_earth_lvlh = C_LI @ omega_earth
 
+    sun_hat_eci = env_sun_vector_eci[world_id]
     for surface_id in range(nsurface):
         bid = surface_body_id[surface_id]
         R_body = _mat33d_from_mat33(xmat[world_id, bid])
@@ -1021,6 +1022,7 @@ def _assemble_wrenches(
         omega_body = _spatial_ang(vel)
         v_point = v_com + wp.cross(omega_body, r_cop_world)
         r_point_lvlh_km = (_vec3d_from_vec3(xipos[world_id, bid]) + r_cop_world) * m_to_km
+        r_point_eci = R_ref + C_IL @ r_point_lvlh_km
         correction_km_s = wp.cross(omega - omega_earth_lvlh, r_point_lvlh_km)
         v_rel_m_s = v_rel_chief_lvlh * km_to_m + v_point + correction_km_s * km_to_m
         speed = wp.length(v_rel_m_s)
@@ -1030,20 +1032,23 @@ def _assemble_wrenches(
             v_hat = v_rel_m_s / speed
             cos_angle = wp.dot(n_world, v_hat)
             if cos_angle > zero64:
+                rho_local = _atm_density(r_point_eci)
                 projected_area = surface_area[surface_id] * cos_angle
-                drag_scale = -wp.float64(0.5) * env_atm_density[world_id]
+                drag_scale = -wp.float64(0.5) * rho_local
                 drag_scale = drag_scale * surface_drag_coeff[surface_id]
                 drag_scale = drag_scale * projected_area * speed * speed
                 force = force + v_hat * drag_scale
 
-        if surface_use_srp[surface_id] != 0 and use_srp != 0 and env_eclipse[world_id] > zero64:
+        if surface_use_srp[surface_id] != 0 and use_srp != 0:
             cos_sun = wp.dot(n_world, sun_world)
             if cos_sun > zero64:
-                projected_area = surface_area[surface_id] * cos_sun
-                srp_scale = -env_eclipse[world_id] * wp.float64(P_SUN)
-                srp_scale = srp_scale * surface_srp_coeff[surface_id]
-                srp_scale = srp_scale * projected_area
-                force = force + sun_world * srp_scale
+                eclipse_local = _eclipse_factor(r_point_eci, sun_hat_eci)
+                if eclipse_local > zero64:
+                    projected_area = surface_area[surface_id] * cos_sun
+                    srp_scale = -eclipse_local * wp.float64(P_SUN)
+                    srp_scale = srp_scale * surface_srp_coeff[surface_id]
+                    srp_scale = srp_scale * projected_area
+                    force = force + sun_world * srp_scale
 
         torque = wp.cross(r_cop_world, force)
         wrench_buffer[world_id, bid] = _spatial_add(wrench_buffer[world_id, bid], force, torque)
