@@ -156,10 +156,15 @@ def _copy_device_field_to_public(data: MjoData, field: str) -> None:
         return
 
     target = getattr(data, field)
-    if data.nworld == 1:
-        np.copyto(target, values[0])
-    else:
-        np.copyto(target, values)
+    source = values[0] if data.nworld == 1 else values
+    if source.shape != target.shape:
+        if source.size != target.size:
+            raise ValueError(
+                f"Cannot pull MJWarp field {field!r}: "
+                f"device shape {source.shape} is incompatible with public shape {target.shape}"
+            )
+        source = source.reshape(target.shape)
+    np.copyto(target, source)
 
 
 def _pull_device_fields_to_public(data: MjoData, fields: frozenset[str]) -> None:
@@ -399,9 +404,16 @@ def mjo_step(model: MjoModel, data: MjoData, *, sync: bool = False) -> None:
     if sync:
         mjo_upload(model, data)
     refresh_core(model, data)
-    mjw.forward(model.warp_model, data.warp_data)
-    assemble_step_and_propagate(model, data, mj_dt=mj_dt, orbit_dt=orbit_dt)
-    mjw.step(model.warp_model, data.warp_data)
+    # MJWarp's step2 falls back to Euler for RK4, so keep the one-piece
+    # step path when RK4 semantics are requested.
+    if model.opt.integrator == int(mujoco.mjtIntegrator.mjINT_RK4):
+        mjw.forward(model.warp_model, data.warp_data)
+        assemble_step_and_propagate(model, data, mj_dt=mj_dt, orbit_dt=orbit_dt)
+        mjw.step(model.warp_model, data.warp_data)
+    else:
+        mjw.step1(model.warp_model, data.warp_data)
+        assemble_step_and_propagate(model, data, mj_dt=mj_dt, orbit_dt=orbit_dt)
+        mjw.step2(model.warp_model, data.warp_data)
     if sync:
         mjo_pull(model, data)
 

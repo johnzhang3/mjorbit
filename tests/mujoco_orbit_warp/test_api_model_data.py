@@ -232,6 +232,40 @@ def test_batched_selective_pull_refreshes_public_state_only(monkeypatch):
     assert np.all(np.isfinite(data.orbit.R_eci))
 
 
+def test_selective_pull_reshapes_matrix_fields():
+    model = MjoModel.from_xml_path(
+        FREE_BODY_XML,
+        mj_timestep=0.01,
+        use_j2=False,
+        use_drag=False,
+        use_srp=False,
+        use_magnetic=False,
+    )
+    single_orbit = _orbit_init()
+    batched_orbits = [_orbit_init(400.0), _orbit_init(500.0)]
+    cases = [
+        (model.make_data(orbit=single_orbit), model.make_data(orbit=single_orbit)),
+        (
+            model.make_data(orbit=batched_orbits, nworld=2),
+            model.make_data(orbit=batched_orbits, nworld=2),
+        ),
+    ]
+    matrix_fields = ("xmat", "ximat", "geom_xmat", "site_xmat", "cam_xmat")
+
+    for reference, selective in cases:
+        for data in (reference, selective):
+            data.qpos[..., :3] = 0.1
+            data.upload(fields="state")
+            mjo_forward(model, data)
+
+        mjo_pull(model, reference)
+        selective.pull(fields=matrix_fields)
+
+        for field in matrix_fields:
+            np.testing.assert_allclose(getattr(selective, field), getattr(reference, field))
+            assert getattr(selective, field).shape[-1] == 9
+
+
 def test_selective_pull_rejects_unknown_field():
     model = MjoModel.from_xml_path(
         FREE_BODY_XML,
