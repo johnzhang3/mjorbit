@@ -61,6 +61,15 @@ def _make_pair(xml_path: str, *, orbit: mjo_cpu.OrbitInit | None = None, **kwarg
     return cpu_model, cpu_data, warp_model, warp_data
 
 
+def _upload_warp_inputs(warp_model, warp_data) -> None:
+    mjo_warp.mjo_upload(warp_model, warp_data, fields=("state", "inputs", "core"))
+
+
+def _forward_and_pull_warp(warp_model, warp_data) -> None:
+    mjo_warp.mjo_forward(warp_model, warp_data)
+    mjo_warp.mjo_pull(warp_model, warp_data)
+
+
 def _normalize_quat(qpos: Sequence[float] | np.ndarray) -> np.ndarray:
     out = np.asarray(qpos, dtype=float).copy()
     out[3:7] /= np.linalg.norm(out[3:7])
@@ -90,9 +99,10 @@ def test_free_body_step_matches_cpu_reference():
     warp_data.qpos[:] = qpos
     cpu_data.qvel[:] = qvel
     warp_data.qvel[:] = qvel
+    _upload_warp_inputs(warp_model, warp_data)
 
     mjo_cpu.mjo_forward(cpu_model, cpu_data)
-    mjo_warp.mjo_forward(warp_model, warp_data)
+    _forward_and_pull_warp(warp_model, warp_data)
     _assert_single_world_state_matches(cpu_data, warp_data)
 
     for _ in range(50):
@@ -100,7 +110,7 @@ def test_free_body_step_matches_cpu_reference():
         mjo_warp.mjo_step(warp_model, warp_data)
 
     mjo_cpu.mjo_forward(cpu_model, cpu_data)
-    mjo_warp.mjo_forward(warp_model, warp_data)
+    _forward_and_pull_warp(warp_model, warp_data)
     _assert_single_world_state_matches(cpu_data, warp_data)
     _assert_close(warp_data.orbit.R_eci, cpu_data.orbit.R_eci, atol=1e-10)
     _assert_close(warp_data.orbit.V_eci, cpu_data.orbit.V_eci, atol=1e-10)
@@ -118,15 +128,16 @@ def test_articulated_position_actuator_matches_cpu_reference():
     warp_data.qvel[:] = qvel
     cpu_data.ctrl[:] = ctrl
     warp_data.ctrl[:] = ctrl
+    _upload_warp_inputs(warp_model, warp_data)
 
     mjo_cpu.mjo_forward(cpu_model, cpu_data)
-    mjo_warp.mjo_forward(warp_model, warp_data)
+    _forward_and_pull_warp(warp_model, warp_data)
     for _ in range(50):
         mjo_cpu.mjo_step(cpu_model, cpu_data)
         mjo_warp.mjo_step(warp_model, warp_data)
 
     mjo_cpu.mjo_forward(cpu_model, cpu_data)
-    mjo_warp.mjo_forward(warp_model, warp_data)
+    _forward_and_pull_warp(warp_model, warp_data)
     _assert_single_world_state_matches(cpu_data, warp_data)
     _assert_close(warp_data.ctrl, cpu_data.ctrl)
     _assert_close(warp_data.actuator_force, cpu_data.actuator_force)
@@ -144,9 +155,10 @@ def test_sensor_truth_matches_cpu_reference():
     warp_data.qpos[:] = qpos
     cpu_data.qvel[:] = qvel
     warp_data.qvel[:] = qvel
+    _upload_warp_inputs(warp_model, warp_data)
 
     mjo_cpu.mjo_forward(cpu_model, cpu_data)
-    mjo_warp.mjo_forward(warp_model, warp_data)
+    _forward_and_pull_warp(warp_model, warp_data)
 
     _assert_close(warp_data.sensordata, cpu_data.sensordata, atol=1e-6)
     for name in (
@@ -199,15 +211,16 @@ def test_orbit_actuator_coupling_matches_cpu_reference():
     warp_data.actuators.rw_torque_cmd[0] = 0.012
     cpu_data.actuators.thr_force_cmd[0] = 4.0
     warp_data.actuators.thr_force_cmd[0] = 4.0
+    _upload_warp_inputs(warp_model, warp_data)
 
     mjo_cpu.mjo_forward(cpu_model, cpu_data)
-    mjo_warp.mjo_forward(warp_model, warp_data)
+    _forward_and_pull_warp(warp_model, warp_data)
     for _ in range(40):
         mjo_cpu.mjo_step(cpu_model, cpu_data)
         mjo_warp.mjo_step(warp_model, warp_data)
 
     mjo_cpu.mjo_forward(cpu_model, cpu_data)
-    mjo_warp.mjo_forward(warp_model, warp_data)
+    _forward_and_pull_warp(warp_model, warp_data)
     _assert_single_world_state_matches(cpu_data, warp_data)
     _assert_close(warp_data.xfrc_applied, cpu_data.xfrc_applied, atol=DERIVED_ATOL)
     _assert_close(warp_data.wrench_buffer, cpu_data.wrench_buffer, atol=DERIVED_ATOL)
@@ -216,6 +229,154 @@ def test_orbit_actuator_coupling_matches_cpu_reference():
     _assert_close(warp_data.actuators.rw_speed, cpu_data.actuators.rw_speed)
     _assert_close(warp_data.actuators.rw_momentum, cpu_data.actuators.rw_momentum)
     _assert_close(warp_data.actuators.thr_force_cmd, cpu_data.actuators.thr_force_cmd)
+
+
+def test_device_resident_steps_match_synced_path_after_final_pull():
+    reaction_wheels = [
+        mjo_cpu.ReactionWheelSpec(
+            body_name="spacecraft",
+            axis_body=np.array([0.0, 0.0, 1.0]),
+            inertia=0.01,
+            torque_limit=0.02,
+        )
+    ]
+    thrusters = [
+        mjo_cpu.ThrusterSpec(
+            body_name="spacecraft",
+            position_body=np.array([0.1, 0.0, 0.0]),
+            direction_body=np.array([0.0, 1.0, 0.0]),
+            force_limit=10.0,
+        )
+    ]
+    common: dict[str, Any] = dict(
+        mj_timestep=0.01,
+        use_j2=False,
+        use_drag=False,
+        use_srp=False,
+        use_magnetic=False,
+        reaction_wheels=reaction_wheels,
+        thrusters=thrusters,
+    )
+    orbit = _orbit_init()
+    cpu_model = mjo_cpu.MjoModel.from_xml_path(FREE_BODY_XML, **common)
+    warp_model = mjo_warp.MjoModel.from_xml_path(FREE_BODY_XML, **common)
+    cpu_data = cpu_model.make_data(orbit=orbit)
+    warp_synced = warp_model.make_data(orbit=_warp_orbit_init(orbit))
+    warp_device = warp_model.make_data(orbit=_warp_orbit_init(orbit))
+
+    qpos = np.array([0.1, 0.2, -0.1, 1.0, 0.0, 0.0, 0.0])
+    qvel = np.array([0.02, 0.01, -0.01, 0.01, 0.02, 0.03])
+    for data in (cpu_data, warp_synced, warp_device):
+        data.qpos[:] = qpos
+        data.qvel[:] = qvel
+        data.actuators.rw_speed[0] = 1.5
+        data.actuators.rw_torque_cmd[0] = 0.012
+        data.actuators.thr_force_cmd[0] = 4.0
+        if data is not cpu_data:
+            _upload_warp_inputs(warp_model, data)
+
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_synced)
+    mjo_warp.mjo_forward(warp_model, warp_device)
+    stale_public_time = float(warp_device.time)
+
+    for _ in range(60):
+        mjo_cpu.mjo_step(cpu_model, cpu_data)
+        mjo_warp.mjo_step(warp_model, warp_synced, sync=True)
+        mjo_warp.mjo_step(warp_model, warp_device)
+
+    assert float(warp_device.time) == stale_public_time
+
+    mjo_warp.mjo_forward(warp_model, warp_device, sync=False)
+    assert float(warp_device.time) == stale_public_time
+    mjo_warp.mjo_pull(warp_model, warp_device)
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_synced)
+
+    _assert_single_world_state_matches(cpu_data, warp_device)
+    _assert_close(warp_device.qpos, warp_synced.qpos)
+    _assert_close(warp_device.qvel, warp_synced.qvel)
+    _assert_close(warp_device.orbit.R_eci, warp_synced.orbit.R_eci, atol=1e-10)
+    _assert_close(warp_device.orbit.V_eci, warp_synced.orbit.V_eci, atol=1e-10)
+    _assert_close(warp_device.actuators.rw_speed, warp_synced.actuators.rw_speed)
+    _assert_close(warp_device.actuators.rw_momentum, warp_synced.actuators.rw_momentum)
+    _assert_close(warp_device.wrench_buffer, warp_synced.wrench_buffer, atol=DERIVED_ATOL)
+
+
+def test_surface_magnetic_and_limited_rw_coupling_matches_cpu_reference():
+    surfaces = [
+        mjo_cpu.SurfaceSpec(
+            body_name="spacecraft",
+            center_of_pressure_body=np.array([0.0, 0.0, 0.2]),
+            normal_body=np.array([0.0, 1.0, 0.0]),
+            area=3.0,
+            drag_coeff=2.0,
+            srp_coeff=1.4,
+        )
+    ]
+    magnetic_bodies = [
+        mjo_cpu.MagneticBodySpec(
+            body_name="spacecraft",
+            dipole_body=np.array([0.02, -0.01, 0.03]),
+        )
+    ]
+    reaction_wheels = [
+        mjo_cpu.ReactionWheelSpec(
+            body_name="spacecraft",
+            axis_body=np.array([0.0, 0.0, 1.0]),
+            inertia=0.02,
+            speed_limit=1.0,
+            torque_limit=0.01,
+        )
+    ]
+    magnetorquers = [
+        mjo_cpu.MagnetorquerSpec(
+            body_name="spacecraft",
+            axis_body=np.array([1.0, 0.0, 0.0]),
+            dipole_limit=0.04,
+        )
+    ]
+    cpu_model, cpu_data, warp_model, warp_data = _make_pair(
+        FREE_BODY_XML,
+        use_j2=True,
+        use_drag=True,
+        use_srp=True,
+        use_magnetic=True,
+        surfaces=surfaces,
+        magnetic_bodies=magnetic_bodies,
+        reaction_wheels=reaction_wheels,
+        magnetorquers=magnetorquers,
+    )
+
+    qpos = _normalize_quat([0.05, -0.02, 0.1, 0.98, -0.1, 0.08, 0.05])
+    qvel = np.array([0.03, 0.02, -0.01, 0.02, -0.03, 0.04])
+    cpu_data.qpos[:] = qpos
+    warp_data.qpos[:] = qpos
+    cpu_data.qvel[:] = qvel
+    warp_data.qvel[:] = qvel
+    cpu_data.actuators.rw_speed[0] = 0.995
+    warp_data.actuators.rw_speed[0] = 0.995
+    cpu_data.actuators.rw_torque_cmd[0] = 0.03
+    warp_data.actuators.rw_torque_cmd[0] = 0.03
+    cpu_data.actuators.mtq_dipole_cmd[0] = 0.08
+    warp_data.actuators.mtq_dipole_cmd[0] = 0.08
+    _upload_warp_inputs(warp_model, warp_data)
+
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+    _assert_close(warp_data.wrench_buffer, cpu_data.wrench_buffer, atol=1e-6)
+    _assert_close(warp_data.xfrc_applied, cpu_data.xfrc_applied, atol=1e-6)
+
+    for _ in range(20):
+        mjo_cpu.mjo_step(cpu_model, cpu_data)
+        mjo_warp.mjo_step(warp_model, warp_data)
+
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+    _assert_single_world_state_matches(cpu_data, warp_data)
+    _assert_close(warp_data.wrench_buffer, cpu_data.wrench_buffer, atol=1e-5)
+    _assert_close(warp_data.actuators.rw_speed, cpu_data.actuators.rw_speed, atol=1e-8)
+    _assert_close(warp_data.actuators.rw_momentum, cpu_data.actuators.rw_momentum, atol=1e-8)
 
 
 def test_batched_warp_worlds_match_independent_cpu_runs():
@@ -247,10 +408,11 @@ def test_batched_warp_worlds_match_independent_cpu_runs():
         cpu_data.qvel[:] = qvels[world_id]
     warp_data.qpos[:] = qposes
     warp_data.qvel[:] = qvels
+    _upload_warp_inputs(warp_model, warp_data)
 
     for cpu_data in cpu_runs:
         mjo_cpu.mjo_forward(cpu_model, cpu_data)
-    mjo_warp.mjo_forward(warp_model, warp_data)
+    _forward_and_pull_warp(warp_model, warp_data)
 
     for _ in range(25):
         for cpu_data in cpu_runs:
@@ -259,7 +421,7 @@ def test_batched_warp_worlds_match_independent_cpu_runs():
 
     for cpu_data in cpu_runs:
         mjo_cpu.mjo_forward(cpu_model, cpu_data)
-    mjo_warp.mjo_forward(warp_model, warp_data)
+    _forward_and_pull_warp(warp_model, warp_data)
 
     for world_id, cpu_data in enumerate(cpu_runs):
         _assert_close(np.asarray(warp_data.time)[world_id], cpu_data.time, atol=1e-6)
@@ -270,6 +432,68 @@ def test_batched_warp_worlds_match_independent_cpu_runs():
         _assert_close(warp_data.cvel[world_id], cpu_data.cvel, atol=DERIVED_ATOL)
         _assert_close(warp_data.orbit.R_eci[world_id], cpu_data.orbit.R_eci, atol=1e-10)
         _assert_close(warp_data.orbit.V_eci[world_id], cpu_data.orbit.V_eci, atol=1e-10)
+
+
+def test_batched_device_resident_steps_match_synced_path_after_final_pull():
+    common: dict[str, Any] = dict(
+        mj_timestep=0.01,
+        use_j2=False,
+        use_drag=False,
+        use_srp=False,
+        use_magnetic=False,
+    )
+    warp_model = mjo_warp.MjoModel.from_xml_path(FREE_BODY_XML, **common)
+    orbits = [_orbit_init(400.0), _orbit_init(500.0)]
+    warp_synced = warp_model.make_data(
+        orbit=[_warp_orbit_init(orbit) for orbit in orbits],
+        nworld=2,
+    )
+    warp_device = warp_model.make_data(
+        orbit=[_warp_orbit_init(orbit) for orbit in orbits],
+        nworld=2,
+    )
+    qposes = np.stack(
+        [
+            np.array([0.1, 0.2, -0.1, 1.0, 0.0, 0.0, 0.0]),
+            _normalize_quat([-0.2, 0.05, 0.3, 0.98, 0.1, 0.05, -0.1]),
+        ],
+        axis=0,
+    )
+    qvels = np.stack(
+        [
+            np.array([0.02, 0.01, -0.01, 0.01, 0.02, 0.03]),
+            np.array([-0.01, 0.04, 0.02, -0.02, 0.01, -0.03]),
+        ],
+        axis=0,
+    )
+    for data in (warp_synced, warp_device):
+        data.qpos[:] = qposes
+        data.qvel[:] = qvels
+        _upload_warp_inputs(warp_model, data)
+
+    _forward_and_pull_warp(warp_model, warp_synced)
+    mjo_warp.mjo_forward(warp_model, warp_device)
+    stale_public_time = warp_device.time.copy()
+
+    for _ in range(30):
+        mjo_warp.mjo_step(warp_model, warp_synced, sync=True)
+        mjo_warp.step(warp_model, warp_device)
+
+    np.testing.assert_array_equal(warp_device.time, stale_public_time)
+
+    mjo_warp.forward(warp_model, warp_device, sync=False)
+    np.testing.assert_array_equal(warp_device.time, stale_public_time)
+    mjo_warp.mjo_pull(warp_model, warp_device)
+    _forward_and_pull_warp(warp_model, warp_synced)
+
+    _assert_close(warp_device.time, warp_synced.time, atol=1e-6)
+    _assert_close(warp_device.qpos, warp_synced.qpos)
+    _assert_close(warp_device.qvel, warp_synced.qvel)
+    _assert_close(warp_device.xpos, warp_synced.xpos, atol=DERIVED_ATOL)
+    _assert_close(warp_device.xmat, warp_synced.xmat, atol=DERIVED_ATOL)
+    _assert_close(warp_device.cvel, warp_synced.cvel, atol=DERIVED_ATOL)
+    _assert_close(warp_device.orbit.R_eci, warp_synced.orbit.R_eci, atol=1e-10)
+    _assert_close(warp_device.orbit.V_eci, warp_synced.orbit.V_eci, atol=1e-10)
 
 
 def test_initial_contact_dynamics_match_cpu_reference(tmp_path):
@@ -303,7 +527,7 @@ def test_initial_contact_dynamics_match_cpu_reference(tmp_path):
     )
 
     mjo_cpu.mjo_forward(cpu_model, cpu_data)
-    mjo_warp.mjo_forward(warp_model, warp_data)
+    _forward_and_pull_warp(warp_model, warp_data)
     assert cpu_data.ncon == 1
     assert warp_data.ncon == 1
     _assert_close(warp_data.qacc, cpu_data.qacc, atol=1e-4)
@@ -313,7 +537,7 @@ def test_initial_contact_dynamics_match_cpu_reference(tmp_path):
         mjo_warp.mjo_step(warp_model, warp_data)
 
     mjo_cpu.mjo_forward(cpu_model, cpu_data)
-    mjo_warp.mjo_forward(warp_model, warp_data)
+    _forward_and_pull_warp(warp_model, warp_data)
     assert cpu_data.ncon == warp_data.ncon == 1
     _assert_close(warp_data.qpos, cpu_data.qpos, atol=1e-5)
     _assert_close(warp_data.qvel, cpu_data.qvel, atol=1e-5)

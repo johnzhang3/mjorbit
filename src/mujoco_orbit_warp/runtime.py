@@ -300,11 +300,24 @@ class MjoModel:
 
     host_model: CpuMjoModel
     warp_model: Any
+    core_model: Any
     backend: str = "warp"
 
     @property
     def mj_model(self) -> mujoco.MjModel:
         return self.host_model.mj_model
+
+    @classmethod
+    def from_host_model(cls, host_model: CpuMjoModel) -> "MjoModel":
+        """Upload a CPU mjorbit model into the orbit-aware MJWarp wrapper."""
+        mjw, _ = require_mjwarp()
+        from .core_gpu import make_device_core_model
+
+        return cls(
+            host_model=host_model,
+            warp_model=mjw.put_model(host_model.mj_model),
+            core_model=make_device_core_model(host_model),
+        )
 
     @classmethod
     def from_xml_path(
@@ -324,8 +337,6 @@ class MjoModel:
         use_magnetic: bool = True,
     ) -> "MjoModel":
         """Compile the host model and upload an MJWarp device model."""
-        mjw, _ = require_mjwarp()
-
         host_model = CpuMjoModel.from_xml_path(
             xml_path,
             surfaces=surfaces,
@@ -340,8 +351,7 @@ class MjoModel:
             use_srp=use_srp,
             use_magnetic=use_magnetic,
         )
-        warp_model = mjw.put_model(host_model.mj_model)
-        return cls(host_model=host_model, warp_model=warp_model)
+        return cls.from_host_model(host_model)
 
     def __getattr__(self, name: str):  # pragma: no cover - trivial delegation
         return getattr(self.host_model, name)
@@ -477,12 +487,77 @@ class MjoData:
         )
         self.wrench_buffer = _zeros_world(nworld, model.nbody, 6)
         self.sensors = WarpSensorDataNamespace(model=model, data=self)
+        from .core_gpu import make_device_core_data
+
+        self.core_data = make_device_core_data(orbit_inits, nworld=nworld, model=model.host_model)
 
         self._pull_from_host()
 
         from mujoco_orbit_warp.step import mjo_forward
 
         mjo_forward(model, self)
+
+    @classmethod
+    def from_host_data(
+        cls,
+        model: MjoModel,
+        host_data: CpuMjoData,
+        *,
+        nworld: int = 1,
+        nconmax: int | None = None,
+        nccdmax: int | None = None,
+        njmax: int | None = None,
+        naconmax: int | None = None,
+        naccdmax: int | None = None,
+    ) -> "MjoData":
+        """Upload a CPU mjorbit data object into the orbit-aware MJWarp wrapper."""
+        if nworld < 1:
+            raise ValueError("nworld must be >= 1")
+
+        mjw, _ = require_mjwarp()
+        orbit = OrbitInit(
+            R_eci=host_data.orbit.R_eci.copy(),
+            V_eci=host_data.orbit.V_eci.copy(),
+            t=host_data.orbit.t,
+        )
+        data = cls(
+            model,
+            orbit=orbit,
+            nworld=nworld,
+            nconmax=nconmax,
+            nccdmax=nccdmax,
+            njmax=njmax,
+            naconmax=naconmax,
+            naccdmax=naccdmax,
+        )
+        data.warp_data = mjw.put_data(
+            model.mj_model,
+            host_data.mj_data,
+            nworld=nworld,
+            nconmax=nconmax,
+            nccdmax=nccdmax,
+            njmax=njmax,
+            naconmax=naconmax,
+            naccdmax=naccdmax,
+        )
+
+        for run in data._host_runs:
+            mujoco.mj_copyData(run.mj_data, model.mj_model, host_data.mj_data)
+            np.copyto(run.orbit.R_eci, host_data.orbit.R_eci)
+            np.copyto(run.orbit.V_eci, host_data.orbit.V_eci)
+            run.orbit.t = float(host_data.orbit.t)
+            run.frame = host_data.frame
+            run.env = host_data.env
+            np.copyto(run.actuators.rw_speed, host_data.actuators.rw_speed)
+            np.copyto(run.actuators.rw_momentum, host_data.actuators.rw_momentum)
+            np.copyto(run.actuators.rw_torque_cmd, host_data.actuators.rw_torque_cmd)
+            np.copyto(run.actuators.mtq_dipole_cmd, host_data.actuators.mtq_dipole_cmd)
+            np.copyto(run.actuators.thr_force_cmd, host_data.actuators.thr_force_cmd)
+            np.copyto(run.wrench_buffer, host_data.wrench_buffer)
+
+        data._pull_from_host()
+        data.upload(fields="core")
+        return data
 
     @property
     def mj_data(self) -> mujoco.MjData:
@@ -509,6 +584,27 @@ class MjoData:
     def device_data(self) -> Any:
         """Return the underlying ``mujoco_warp.Data``."""
         return self.warp_data
+
+    @property
+    def device_core_data(self) -> Any:
+        """Return the underlying orbit/coupling device state."""
+        return self.core_data
+
+    def pull(self, fields: Iterable[str] | str | None = None) -> None:
+        """Refresh public buffers from device state.
+
+        Passing ``fields`` performs a selective public-buffer readback.  Leaving
+        it as ``None`` performs the full compatibility pull into host shadows.
+        """
+        from mujoco_orbit_warp.step import mjo_pull
+
+        mjo_pull(self.model, self, fields=fields)
+
+    def upload(self, fields: Iterable[str] | str | None = None) -> None:
+        """Upload explicitly selected public input buffers to device state."""
+        from mujoco_orbit_warp.step import mjo_upload
+
+        mjo_upload(self.model, self, fields=fields)
 
     def clear_wrench_buffer(self) -> None:
         """Reset the assembled external wrench buffer and applied wrench."""

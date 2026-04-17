@@ -23,7 +23,7 @@ from mujoco_orbit.core.config import (
 
 from ._deps import require_mjwarp
 from .runtime import MjoData, MjoModel
-from .step import mjo_forward, mjo_step
+from .step import mjo_forward, mjo_pull, mjo_step, mjo_upload
 
 _MJWARP_FACTORY_NAMES = {
     "create_render_context",
@@ -147,18 +147,11 @@ def _unwrap_kwargs(kwargs: dict[str, Any], unwrap) -> dict[str, Any]:
 
 
 def _sync_device_from_wrapper(model: MjoModel, data: MjoData) -> None:
-    from .step import _sync_device_from_public
-
-    data._push_to_host()
-    data._pull_from_host()
-    _sync_device_from_public(model, data)
+    mjo_upload(model, data)
 
 
 def _pull_device_into_wrapper(model: MjoModel, data: MjoData) -> None:
-    mjw, _ = require_mjwarp()
-    for world_id, run in enumerate(data._host_runs):
-        mjw.get_data_into(run.mj_data, model.mj_model, data.warp_data, world_id=world_id)
-    data._pull_from_host()
+    mjo_pull(model, data)
 
 
 def _call_mjwarp(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -168,14 +161,20 @@ def _call_mjwarp(name: str, *args: Any, **kwargs: Any) -> Any:
     if name in _MJWARP_SYNCED_MODEL_DATA_NAMES and _is_wrapped_pair(args):
         model = args[0]
         data = args[1]
-        _sync_device_from_wrapper(model, data)
+        sync = bool(kwargs.pop("sync", False))
+        pull = bool(kwargs.pop("pull", False))
+        upload_fields = kwargs.pop("upload_fields", None)
+        pull_fields = kwargs.pop("pull_fields", None)
+        if sync:
+            mjo_upload(model, data, fields=upload_fields)
         result = fn(
             model.warp_model,
             data.warp_data,
             *(_unwrap_device_arg(arg) for arg in args[2:]),
             **_unwrap_kwargs(kwargs, _unwrap_device_arg),
         )
-        _pull_device_into_wrapper(model, data)
+        if sync or pull:
+            mjo_pull(model, data, fields=pull_fields)
         return result
 
     return fn(
@@ -187,25 +186,31 @@ def _call_mjwarp(name: str, *args: Any, **kwargs: Any) -> Any:
 def forward(model: Any, data: Any, *args: Any, **kwargs: Any) -> Any:
     """Run MJWarp ``forward`` or the orbit-aware wrapper forward."""
     if isinstance(model, MjoModel) and isinstance(data, MjoData):
-        if args or kwargs:
-            raise TypeError("orbit-aware forward accepts only (model, data)")
-        return mjo_forward(model, data)
+        return mjo_forward(model, data, *args, **kwargs)
     return _call_mjwarp("forward", model, data, *args, **kwargs)
 
 
 def step(model: Any, data: Any, *args: Any, **kwargs: Any) -> Any:
     """Run MJWarp ``step`` or the orbit-aware wrapper step."""
     if isinstance(model, MjoModel) and isinstance(data, MjoData):
-        if args or kwargs:
-            raise TypeError("orbit-aware step accepts only (model, data)")
-        return mjo_step(model, data)
+        return mjo_step(model, data, *args, **kwargs)
     return _call_mjwarp("step", model, data, *args, **kwargs)
 
 
 def put_model(model: Any) -> Any:
     """Return an MJWarp device model for a host or orbit wrapper model."""
     if isinstance(model, MjoModel):
-        return model.warp_model
+        return model
+    from mujoco_orbit.core.runtime import MjoModel as CpuMjoModel
+
+    if isinstance(model, CpuMjoModel):
+        cached = getattr(model, "_mujoco_orbit_warp_model", None)
+        if cached is not None:
+            return cached
+        wrapped = MjoModel.from_host_model(model)
+        setattr(model, "_mujoco_orbit_warp_model", wrapped)
+        return wrapped
+
     mjw, _ = require_mjwarp()
     return mjw.put_model(model)
 
@@ -226,6 +231,22 @@ def make_data(model: Any, *args: Any, **kwargs: Any) -> Any:
 
 def put_data(model: Any, data: Any, *args: Any, **kwargs: Any) -> Any:
     """Upload host data to MJWarp, accepting orbit wrapper arguments when provided."""
+    if isinstance(model, MjoModel):
+        if isinstance(data, MjoData):
+            return data
+        from mujoco_orbit.core.runtime import MjoData as CpuMjoData
+
+        if isinstance(data, CpuMjoData):
+            return MjoData.from_host_data(model, data, *args, **kwargs)
+
+    from mujoco_orbit.core.runtime import MjoData as CpuMjoData
+    from mujoco_orbit.core.runtime import MjoModel as CpuMjoModel
+
+    if isinstance(model, CpuMjoModel):
+        if not isinstance(data, CpuMjoData):
+            raise TypeError("orbit-aware put_data requires a mujoco_orbit.MjoData instance")
+        return MjoData.from_host_data(put_model(model), data, *args, **kwargs)
+
     mjw, _ = require_mjwarp()
     return mjw.put_data(
         _unwrap_host_model_arg(model),
@@ -325,7 +346,9 @@ __all__ = [
     "metadata",
     "mul_m",
     "mjo_forward",
+    "mjo_pull",
     "mjo_step",
+    "mjo_upload",
     "nxn_broadphase",
     "passive",
     "primitive_narrowphase",
