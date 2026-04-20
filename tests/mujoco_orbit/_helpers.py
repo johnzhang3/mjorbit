@@ -7,6 +7,7 @@ from collections.abc import Iterable
 import numpy as np
 
 from mujoco_orbit import (
+    ControlMomentGyroSpec,
     MagneticBodySpec,
     MagnetorquerSpec,
     MjoData,
@@ -44,6 +45,7 @@ def make_model_data(
     reaction_wheels: Iterable[ReactionWheelSpec] = (),
     magnetorquers: Iterable[MagnetorquerSpec] = (),
     thrusters: Iterable[ThrusterSpec] = (),
+    cmgs: Iterable[ControlMomentGyroSpec] = (),
     rng_seed: int | None = None,
 ) -> tuple[MjoModel, MjoData]:
     """Build one model/data pair for a standard circular LEO test orbit."""
@@ -54,6 +56,7 @@ def make_model_data(
         reaction_wheels=reaction_wheels,
         magnetorquers=magnetorquers,
         thrusters=thrusters,
+        cmgs=cmgs,
         mj_timestep=mj_timestep,
         orbit_dt=orbit_dt,
         use_j2=use_j2,

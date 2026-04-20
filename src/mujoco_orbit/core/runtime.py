@@ -12,6 +12,7 @@ import numpy as np
 
 from mujoco_orbit.core.actuators import ActuatorData
 from mujoco_orbit.core.config import (
+    ControlMomentGyroSpec,
     MagneticBodySpec,
     MagnetorquerSpec,
     OrbitInit,
@@ -75,6 +76,20 @@ class MagnetorquerMetadata:
     body_id: int
     axis_body: np.ndarray
     dipole_limit: float
+
+
+@dataclass(frozen=True)
+class ControlMomentGyroMetadata:
+    """Resolved control moment gyro metadata."""
+
+    body_name: str
+    body_id: int
+    gimbal_axis_body: np.ndarray
+    spin_axis_body_0: np.ndarray
+    torque_axis_body_0: np.ndarray  # gimbal_axis × spin_axis_0 (unit)
+    rotor_momentum: float
+    gimbal_rate_limit: float | None
+    gimbal_angle_limit: float | None
 
 
 @dataclass(frozen=True)
@@ -182,6 +197,44 @@ def _resolve_magnetorquers(
     return resolved
 
 
+def _resolve_cmgs(
+    mj_model: mujoco.MjModel, cmgs: Iterable[ControlMomentGyroSpec]
+) -> list[ControlMomentGyroMetadata]:
+    resolved: list[ControlMomentGyroMetadata] = []
+    for cmg in cmgs:
+        gimbal_axis = _normalized(
+            cmg.gimbal_axis_body, f"CMG '{cmg.body_name}' gimbal axis"
+        )
+        spin_axis_0 = _normalized(
+            cmg.spin_axis_body_0, f"CMG '{cmg.body_name}' spin axis"
+        )
+        dot = float(np.dot(gimbal_axis, spin_axis_0))
+        if abs(dot) > 1e-8:
+            raise ValueError(
+                f"CMG '{cmg.body_name}' spin axis must be orthogonal to gimbal axis "
+                f"(dot product = {dot:.3e})"
+            )
+        torque_axis_0 = np.cross(gimbal_axis, spin_axis_0)
+        if cmg.rotor_momentum <= 0.0:
+            raise ValueError(
+                f"CMG '{cmg.body_name}' rotor_momentum must be positive "
+                f"(got {cmg.rotor_momentum})"
+            )
+        resolved.append(
+            ControlMomentGyroMetadata(
+                body_name=cmg.body_name,
+                body_id=_resolve_body_id(mj_model, cmg.body_name),
+                gimbal_axis_body=gimbal_axis,
+                spin_axis_body_0=spin_axis_0,
+                torque_axis_body_0=torque_axis_0,
+                rotor_momentum=float(cmg.rotor_momentum),
+                gimbal_rate_limit=cmg.gimbal_rate_limit,
+                gimbal_angle_limit=cmg.gimbal_angle_limit,
+            )
+        )
+    return resolved
+
+
 def _resolve_thrusters(
     mj_model: mujoco.MjModel, thrusters: Iterable[ThrusterSpec]
 ) -> list[ThrusterMetadata]:
@@ -212,6 +265,7 @@ class MjoModel:
     reaction_wheels: list[ReactionWheelMetadata]
     magnetorquers: list[MagnetorquerMetadata]
     thrusters: list[ThrusterMetadata]
+    cmgs: list[ControlMomentGyroMetadata]
     sensors: ModelSensorCatalog
     use_j2: bool = True
     use_drag: bool = True
@@ -221,6 +275,9 @@ class MjoModel:
 
     def __post_init__(self) -> None:
         self.rw_inertia = np.array([wheel.inertia for wheel in self.reaction_wheels], dtype=float)
+        self.cmg_rotor_momentum = np.array(
+            [cmg.rotor_momentum for cmg in self.cmgs], dtype=float
+        )
 
     @classmethod
     def from_xml_path(
@@ -232,6 +289,7 @@ class MjoModel:
         reaction_wheels: Iterable[ReactionWheelSpec] = (),
         magnetorquers: Iterable[MagnetorquerSpec] = (),
         thrusters: Iterable[ThrusterSpec] = (),
+        cmgs: Iterable[ControlMomentGyroSpec] = (),
         mj_timestep: float | None = 0.01,
         orbit_dt: float | None = None,
         use_j2: bool = True,
@@ -262,6 +320,7 @@ class MjoModel:
             reaction_wheels=_resolve_reaction_wheels(mj_model, reaction_wheels),
             magnetorquers=_resolve_magnetorquers(mj_model, magnetorquers),
             thrusters=_resolve_thrusters(mj_model, thrusters),
+            cmgs=_resolve_cmgs(mj_model, cmgs),
             sensors=compile_sensor_catalog(mj_model),
             use_j2=use_j2,
             use_drag=use_drag,
@@ -303,6 +362,8 @@ class MjoData:
             model.rw_inertia,
             len(model.magnetorquers),
             len(model.thrusters),
+            len(model.cmgs),
+            model.cmg_rotor_momentum,
         )
         self.actuators.update_rw_momentum(model.rw_inertia)
         self.wrench_buffer = np.zeros((model.nbody, 6))
@@ -327,6 +388,7 @@ class MjoData:
 
 
 __all__ = [
+    "ControlMomentGyroMetadata",
     "MagneticMetadata",
     "MjoData",
     "MjoModel",

@@ -77,6 +77,37 @@ class MagnetorquerSpec:
 
 
 @dataclass
+class ControlMomentGyroSpec:
+    """Configuration for one single-gimbal control moment gyro (SGCMG).
+
+    The rotor is idealized as spinning at constant angular momentum ``rotor_momentum``
+    about the spin axis ``spin_axis_body_0`` (at gimbal angle ``θ = 0``). The gimbal
+    axis ``gimbal_axis_body`` is body-fixed and must be orthogonal to
+    ``spin_axis_body_0``. As the gimbal rotates by angle ``θ`` about ``gimbal_axis_body``,
+    the spin axis rotates within the plane orthogonal to the gimbal axis, and the
+    rotor momentum vector in the body frame becomes::
+
+        ŝ(θ) = cos(θ) · spin_axis_body_0 + sin(θ) · (gimbal_axis_body × spin_axis_body_0)
+        h(θ) = rotor_momentum · ŝ(θ)
+
+    The controllable output torque on the spacecraft body from gimbaling at rate
+    ``θ̇`` is ``-rotor_momentum · θ̇ · t̂(θ)`` where
+    ``t̂(θ) = gimbal_axis_body × ŝ(θ)``.
+    """
+
+    body_name: str
+    gimbal_axis_body: np.ndarray  # shape (3,) unit vector, body frame
+    spin_axis_body_0: np.ndarray  # shape (3,) unit vector at θ=0, body frame, ⟂ gimbal_axis
+    rotor_momentum: float  # kg·m^2/s, constant rotor angular momentum magnitude
+    gimbal_rate_limit: Optional[float] = None  # rad/s, None = unlimited
+    gimbal_angle_limit: Optional[float] = None  # rad, symmetric ±, None = unlimited
+
+    def __post_init__(self) -> None:
+        self.gimbal_axis_body = np.asarray(self.gimbal_axis_body, dtype=float)
+        self.spin_axis_body_0 = np.asarray(self.spin_axis_body_0, dtype=float)
+
+
+@dataclass
 class ThrusterSpec:
     """Configuration for one thruster."""
 
@@ -91,6 +122,7 @@ class ThrusterSpec:
 
 
 __all__ = [
+    "ControlMomentGyroSpec",
     "MagneticBodySpec",
     "MagnetorquerSpec",
     "OrbitInit",

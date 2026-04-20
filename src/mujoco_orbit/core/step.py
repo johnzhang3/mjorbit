@@ -9,9 +9,11 @@ import numpy as np
 
 from mujoco_orbit.core.runtime import MjoData, MjoModel
 from mujoco_orbit.coupling.actuators import (
+    _apply_cmgs,
     _apply_magnetorquers,
     _apply_reaction_wheels,
     _apply_thrusters,
+    command_cmg_gimbal_rates,
     command_rw_torques,
 )
 from mujoco_orbit.coupling.apply import assemble_and_apply_wrenches
@@ -42,6 +44,7 @@ def mjo_forward(model: MjoModel, data: MjoData) -> None:
     _clear_wrench_buffer(data)
     assemble_and_apply_wrenches(model, data)
     _apply_reaction_wheels(model, data)
+    _apply_cmgs(model, data)
     _apply_magnetorquers(model, data)
     _apply_thrusters(model, data)
     np.copyto(data.xfrc_applied, data.wrench_buffer)
@@ -58,6 +61,8 @@ def mjo_step(model: MjoModel, data: MjoData) -> None:
     assemble_and_apply_wrenches(model, data)
     _apply_reaction_wheels(model, data)
     command_rw_torques(model, data, data.actuators.rw_torque_cmd, mj_dt)
+    _apply_cmgs(model, data)
+    command_cmg_gimbal_rates(model, data, data.actuators.cmg_gimbal_rate_cmd, mj_dt)
     _apply_magnetorquers(model, data)
     _apply_thrusters(model, data)
     np.copyto(data.xfrc_applied, data.wrench_buffer)
