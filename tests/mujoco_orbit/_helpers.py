@@ -40,6 +40,7 @@ def make_model_data(
     use_drag: bool = False,
     use_srp: bool = False,
     use_magnetic: bool = False,
+    use_gravity_gradient: bool = True,
     surfaces: Iterable[SurfaceSpec] = (),
     magnetic_bodies: Iterable[MagneticBodySpec] = (),
     reaction_wheels: Iterable[ReactionWheelSpec] = (),
@@ -63,6 +64,7 @@ def make_model_data(
         use_drag=use_drag,
         use_srp=use_srp,
         use_magnetic=use_magnetic,
+        use_gravity_gradient=use_gravity_gradient,
     )
     data = MjoData(model, orbit=circular_leo_orbit_init(alt_km), rng_seed=rng_seed)
     return model, data

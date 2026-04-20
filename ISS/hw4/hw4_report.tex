@@ -1,0 +1,319 @@
+\documentclass[conference]{IEEEtran}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{bm}
+
+\graphicspath{{plots/}}
+
+\title{ADCS Homework 4}
+\author{John Zhang}
+
+\begin{document}
+\maketitle
+
+% ==================================================================
+\section{Actuator Specifications}
+\label{sec:actuators}
+
+The ISS uses two classes of ADCS actuators: four large double-gimbal
+control moment gyros (CMGs) on the Z1 truss for primary non-propulsive
+attitude control, and the Zvezda service-module RCS cluster for
+momentum desaturation and reboost.  Public information on the exact
+mounting geometry of the CMGs is incomplete, so we model the array as
+the standard symmetric 4-CMG pyramid used throughout the
+literature~\cite{wie2008,bedrossian2009}, and approximate each CMG as a
+single-gimbal unit at the cluster level (which is how the Bedrossian et
+al.\ analyses treat them for momentum-envelope and steering-law design).
+
+Both actuator groups are instantiated through the
+\texttt{mujoco\_orbit} public API as
+\texttt{ControlMomentGyroSpec} and \texttt{ThrusterSpec}, compiled into
+\texttt{MjoModel} against \texttt{iss\_model.xml}.  All specifications,
+geometry, and Jacobians below are produced by
+\texttt{ISS/hw4/actuator\_specs.py}.
+
+The body frame convention is LVLH-aligned at rest: $+X$ along-track
+(roll), $+Y$ orbit-normal (pitch), $+Z$ nadir (yaw).
+
+% ------------------------------------------------------------------
+\subsection{CMG Cluster}
+\label{sec:cmg}
+
+\paragraph{Device-level specifications.}  Each CMG is a Honeywell
+M1000-class unit with the parameters summarized in
+Table~\ref{tab:cmg-specs}~\cite{wie2008,hondatasheet}.  The published
+rotor-momentum magnitude is $h = \SI{4760}{N.m.s}$ and the peak output
+torque is $\tau_{\max} = \SI{258}{N.m}$; the maximum gimbal rate
+follows from these as
+$\dot\theta_{\max} = \tau_{\max}/h \approx \SI{0.054}{rad/s}
+\approx \SI{3.1}{deg/s}$.
+
+\begin{table}[h]
+\centering
+\caption{Per-CMG specifications (Honeywell M1000).}
+\label{tab:cmg-specs}
+\begin{tabular}{@{}lr@{}}
+\toprule
+Quantity & Value \\
+\midrule
+Rotor angular momentum $h$          & \SI{4760}{N.m.s} \\
+Peak output torque $\tau_{\max}$    & \SI{258}{N.m} \\
+Max gimbal rate $\dot\theta_{\max}$ & \SI{0.054}{rad/s} (\SI{3.11}{deg/s}) \\
+Gimbal angle range                  & full rotation (wrap-around) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Pyramid array geometry.}  Four CMGs are mounted on the Z1
+truss with gimbal axes arranged in the standard symmetric pyramid with
+skew angle $\beta = \cos^{-1}(1/\sqrt{3}) = 54.7356^\circ$, which
+maximizes the inscribed momentum sphere~\cite{wie2008}.  We orient the
+pyramid apex along $+Z_\text{body}$.  With azimuths
+$\phi_i \in \{0,\; \pi/2,\; \pi,\; 3\pi/2\}$, the gimbal axes
+$\hat{\bm g}_i$, the spin axes at neutral gimbal $\hat{\bm s}_i(0)$,
+and the output (torque) axes $\hat{\bm t}_i(0) = \hat{\bm g}_i
+\times \hat{\bm s}_i(0)$ are listed in
+Table~\ref{tab:cmg-geom}.  The neutral spin axes are chosen so that the
+net array momentum vanishes at $\bm\theta = \bm 0$:
+\begin{equation}
+  \bm H(\bm 0) = \sum_{i=1}^{4} h\,\hat{\bm s}_i(0) = \bm 0.
+\end{equation}
+
+\begin{table}[h]
+\centering
+\caption{CMG geometry in the body frame ($\beta = 54.7356^\circ$,
+apex $\parallel +Z_\text{body}$).}
+\label{tab:cmg-geom}
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+CMG & $\hat{\bm g}_i$ & $\hat{\bm s}_i(0)$ & $\hat{\bm t}_i(0)$ \\
+\midrule
+1 ($\phi = 0$)        & $(+0.816,\;0,\;+0.577)$ & $(0,\;+1,\;0)$ & $(-0.577,\;0,\;+0.816)$ \\
+2 ($\phi = \pi/2$)    & $(0,\;+0.816,\;+0.577)$ & $(-1,\;0,\;0)$ & $(0,\;-0.577,\;+0.816)$ \\
+3 ($\phi = \pi$)      & $(-0.816,\;0,\;+0.577)$ & $(0,\;-1,\;0)$ & $(+0.577,\;0,\;+0.816)$ \\
+4 ($\phi = 3\pi/2$)   & $(0,\;-0.816,\;+0.577)$ & $(+1,\;0,\;0)$ & $(0,\;+0.577,\;+0.816)$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Cluster momentum and Jacobian.}  For an SGCMG at gimbal
+angle $\theta_i$, the spin axis in the body frame is
+\begin{equation}
+  \hat{\bm s}_i(\theta_i) = \cos\theta_i\,\hat{\bm s}_i(0)
+    + \sin\theta_i\,\hat{\bm t}_i(0).
+\end{equation}
+The cluster angular-momentum map and the body-frame torque Jacobian
+with respect to commanded gimbal rates $\dot{\bm\theta}\in\mathbb{R}^4$
+are therefore
+\begin{align}
+  \bm H(\bm\theta) &= \sum_{i=1}^{4} h\,\hat{\bm s}_i(\theta_i), \label{eq:cmg-momentum}\\
+  A(\bm\theta) &= \frac{\partial \bm\tau_\text{body}}{\partial \dot{\bm\theta}}
+                 = -h\,\bigl[\hat{\bm t}_1(\theta_1)\;|\;\hat{\bm t}_2(\theta_2)\;|\;
+                             \hat{\bm t}_3(\theta_3)\;|\;\hat{\bm t}_4(\theta_4)\bigr], \label{eq:cmg-jacobian}
+\end{align}
+where $\hat{\bm t}_i(\theta_i) = \hat{\bm g}_i \times \hat{\bm s}_i(\theta_i)$.
+The negative sign in~\eqref{eq:cmg-jacobian} comes from Newton's third
+law: the body torque is the reaction to
+$\mathrm{d}\bm h_i^\text{body}/\mathrm{d}t
+= h\,\dot\theta_i\,\hat{\bm t}_i$.
+
+Evaluated at the neutral gimbal state $\bm\theta = \bm 0$,
+\begin{equation}
+  A(\bm 0) = \begin{bmatrix}
+      +2748 &  0      & -2748 &  0 \\
+      0     & +2748   & 0     & -2748 \\
+      -3887 & -3887   & -3887 & -3887
+  \end{bmatrix}\ \si{N.m \per rad \per s}.
+  \label{eq:A0}
+\end{equation}
+Rows 1 and 2 have the sparsity pattern
+$\pm h\cos\beta\cdot\hat{\bm s}_i^{xy}$ (only opposing-azimuth CMGs
+contribute to roll/pitch torque at $\bm\theta = \bm 0$), and the
+row-3 entries are all $-h\sin\beta = -3887$~N$\cdot$m per rad/s, so all
+four CMGs contribute constructively to yaw torque in the zero-gimbal
+configuration.  This is a well-known feature of the pyramid array and
+is why the "null motion" direction at $\bm\theta = \bm 0$
+($\dot{\bm\theta} = (1,1,1,1)$) produces a pure $-Z$ torque of
+magnitude $4h\sin\beta\cdot\dot\theta_{\max} \approx \SI{842}{N.m}$.
+
+\paragraph{Momentum envelope.}  Sampling $\bm\theta\in[-\pi,\pi]^4$
+uniformly and plotting $\bm H(\bm\theta)$ gives the solid region
+shown in Fig.~\ref{fig:cmg-envelope}.  Its maximum extent is
+$4h = \SI{19040}{N.m.s}$ (when all spin axes align), and the largest
+inscribed sphere has radius $2h\cos(\beta/2) \approx
+\SI{7558}{N.m.s}$.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{cmg_momentum_envelope.png}
+\caption{Cluster angular-momentum envelope of the 4-CMG pyramid
+($40\,000$ random gimbal configurations).  Projections on the three
+body-frame coordinate planes.  The envelope is convex in each
+projection; internal singular surfaces exist within the solid region
+(not shown).}
+\label{fig:cmg-envelope}
+\end{figure}
+
+\paragraph{Output-torque set.}  At $\bm\theta = \bm 0$, the image of
+the unit $\dot{\bm\theta}$-ball under $A(\bm 0)$, scaled by
+$\dot\theta_{\max}$, is the rank-3 ellipsoid of body torques
+simultaneously achievable without saturating any gimbal
+(Fig.~\ref{fig:cmg-torque}).  The ellipsoid is stretched along $\pm Z$
+because row~3 of~\eqref{eq:A0} is coherent across all four CMGs.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{cmg_torque_image.png}
+\caption{Image of $\|\dot{\bm\theta}\|_2 = \dot\theta_{\max}$ under
+$A(\bm 0)$ — the body-frame torques reachable without exceeding any
+gimbal-rate limit at the zero-gimbal configuration.}
+\label{fig:cmg-torque}
+\end{figure}
+
+% ------------------------------------------------------------------
+\subsection{Zvezda RCS Thrusters}
+\label{sec:thrusters}
+
+The Russian Zvezda service module provides the ISS's only on-station
+propulsive ADCS authority.  Its aft propulsion assembly (PAO) houses
+$\sim$32 small DPO attitude thrusters (\SI{130}{N}
+class)~\cite{nasa_iss_prop} and 2 large DKD reboost engines
+(\SI{3070}{N} class).  For this analysis we use a simplified symmetric
+layout of 8 attitude thrusters on the aft rings plus the 2 aft-facing
+reboost engines (Table~\ref{tab:thrusters}).  Positions are given with
+respect to the ISS center of mass, which is approximately
+\SI{30}{m} forward of Zvezda's aft bulkhead.
+
+\begin{table*}[h]
+\centering
+\caption{Simplified Zvezda RCS layout modeled in \texttt{actuator\_specs.py}.}
+\label{tab:thrusters}
+\small
+\begin{tabular}{@{}llccc@{}}
+\toprule
+Role & Label & Position [m] & Direction & $F_{\max}$ [N] \\
+\midrule
+Attitude (ring, top/bot ±Y)    & ACS\_+Y\_top & $(-30,+3,+3)$ & $(0,+1,0)$ & 130 \\
+                               & ACS\_-Y\_top & $(-30,-3,+3)$ & $(0,-1,0)$ & 130 \\
+                               & ACS\_+Y\_bot & $(-30,+3,-3)$ & $(0,+1,0)$ & 130 \\
+                               & ACS\_-Y\_bot & $(-30,-3,-3)$ & $(0,-1,0)$ & 130 \\
+Attitude (ring, fwd/aft ±Z)    & ACS\_+Z\_fwd & $(-29,0,+3)$  & $(0,0,+1)$ & 130 \\
+                               & ACS\_+Z\_aft & $(-31,0,+3)$  & $(0,0,+1)$ & 130 \\
+                               & ACS\_-Z\_fwd & $(-29,0,-3)$  & $(0,0,-1)$ & 130 \\
+                               & ACS\_-Z\_aft & $(-31,0,-3)$  & $(0,0,-1)$ & 130 \\
+Reboost (DKD)                  & DKD\_stbd    & $(-31.5,+0.8,0)$ & $(+1,0,0)$ & 3070 \\
+                               & DKD\_port    & $(-31.5,-0.8,0)$ & $(+1,0,0)$ & 3070 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+\paragraph{Wrench Jacobian.}  Each thruster produces a body-frame
+force $\hat{\bm d}_i F_i$ and a torque $\bm r_i \times \hat{\bm d}_i F_i$
+about the CM, so the full $6\times N$ wrench Jacobian is
+\begin{equation}
+  B = \begin{bmatrix} \hat{\bm d}_1 & \cdots & \hat{\bm d}_N \\
+                      \bm r_1 \times \hat{\bm d}_1 & \cdots & \bm r_N \times \hat{\bm d}_N
+        \end{bmatrix},
+  \qquad \begin{bmatrix}\bm F \\ \bm \tau\end{bmatrix}_\text{body} = B\,\bm u,
+  \label{eq:thr-B}
+\end{equation}
+with $\bm u \in [0, F_{\max,i}]^N$.  The numerical evaluation gives
+\begin{equation}
+  B = \left[\begin{array}{cccccccccc}
+    0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & +1 & +1 \\
+    +1 & -1 & +1 & -1 & 0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & +1 & +1 & -1 & -1 & 0 & 0 \\
+    -3 & +3 & +3 & -3 & 0 & 0 & 0 & 0 & 0 & 0 \\
+    0 & 0 & 0 & 0 & +29 & +31 & -29 & -31 & 0 & 0 \\
+    -30 & +30 & -30 & +30 & 0 & 0 & 0 & 0 & -0.8 & +0.8
+  \end{array}\right].
+  \label{eq:B-num}
+\end{equation}
+The top three rows give body-frame force per unit thrust and the bottom
+three give torque per unit thrust.  Firing each pair of Y-thrusters in
+the same direction produces a pure roll or yaw couple; firing each
+Z-pair in the same direction produces a pure pitch couple; the two DKD
+engines provide pure along-track force (with a small residual yaw
+couple from their $\pm Y$ lever arms).
+
+\paragraph{Maximum body wrenches.}  Saturating the thrusters that
+contribute in a given axis direction gives the upper-bound pure-torque
+capabilities in Table~\ref{tab:thr-capacity}.  Roll authority is the
+weakest (limited to the $\pm 3$\,m ring radius), while yaw authority is
+the strongest (benefiting from the $\sim 30$\,m lever arm along $-X$).
+
+\begin{table}[h]
+\centering
+\caption{Upper-bound pure-torque and reboost capabilities from the
+simplified Zvezda layout.}
+\label{tab:thr-capacity}
+\begin{tabular}{@{}lc@{}}
+\toprule
+Command & Max magnitude \\
+\midrule
+Pure roll torque $\tau_x$     & \SI{780}{N.m}  \\
+Pure pitch torque $\tau_y$    & \SI{7800}{N.m} \\
+Pure yaw torque $\tau_z$      & \SI{10256}{N.m} \\
+Pure $+X$ force (reboost)     & \SI{6140}{N}  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Use in the overall ADCS.}  Although the thrusters have much
+higher instantaneous torque than the CMG cluster, they are
+propellant-limited and are not used for continuous attitude regulation.
+Their role is to perform CMG desaturation (momentum dumping) when
+secular disturbance torques accumulate to the cluster momentum limit,
+and to execute orbit reboost.  Quantitative estimates of how often
+desaturation is required are addressed in
+Sec.~\ref{sec:environmental} (HW4 Q2), which is still to be written.
+
+% ==================================================================
+\section{Environmental Torques}
+\label{sec:environmental}
+
+\emph{To be completed.}
+
+% ==================================================================
+\section{Attitude Regulation}
+\label{sec:regulation}
+
+\emph{To be completed.}
+
+% ==================================================================
+\section{Eigen-Axis Slew}
+\label{sec:slew}
+
+\emph{To be completed.}
+
+% ==================================================================
+\begin{thebibliography}{9}
+
+\bibitem{wie2008}
+B.~Wie,
+\textit{Space Vehicle Dynamics and Control}, 2nd ed.
+AIAA Education Series, 2008. Chapter 7.
+
+\bibitem{bedrossian2009}
+N.~Bedrossian, S.~Bhatt, M.~Lebsock, and E.~Wong,
+``International Space Station zero-propellant maneuver,''
+\textit{Journal of Guidance, Control, and Dynamics},
+vol.~32, no.~4, pp.~1193--1201, 2009.
+
+\bibitem{hondatasheet}
+Honeywell Defense and Space,
+``M1000 Control Moment Gyroscope,'' product information sheet.
+
+\bibitem{nasa_iss_prop}
+NASA, ``International Space Station Propulsion System,''
+ISS Familiarization Manual, ISS FAM C TD9702A, 1998.
+
+\end{thebibliography}
+
+\end{document}

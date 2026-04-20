@@ -271,6 +271,7 @@ class MjoModel:
     use_drag: bool = True
     use_srp: bool = True
     use_magnetic: bool = True
+    use_gravity_gradient: bool = True
     orbit_dt: float | None = None
 
     def __post_init__(self) -> None:
@@ -296,6 +297,7 @@ class MjoModel:
         use_drag: bool = True,
         use_srp: bool = True,
         use_magnetic: bool = True,
+        use_gravity_gradient: bool = True,
     ) -> "MjoModel":
         """Compile a MuJoCo model plus static orbital coupling metadata."""
         sensor_callback = mujoco.get_mjcb_sensor()
@@ -326,6 +328,7 @@ class MjoModel:
             use_drag=use_drag,
             use_srp=use_srp,
             use_magnetic=use_magnetic,
+            use_gravity_gradient=use_gravity_gradient,
             orbit_dt=orbit_dt,
         )
 
