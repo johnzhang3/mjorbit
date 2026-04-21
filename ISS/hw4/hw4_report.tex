@@ -618,7 +618,166 @@ feedback design tested here.
 \section{Eigen-Axis Slew}
 \label{sec:slew}
 
-\emph{To be completed.}
+For Q4 I implemented an eigen-axis slew planner in
+\texttt{ISS/hw4/eigen\_axis\_slew.py}.  The planner follows the
+Lecture~16 construction~\cite{manchester_l16}: compute the relative
+attitude
+\[
+  R_e = R_0^\top R_f = \exp(\phi_f \hat{\bm e}^{\times}),
+\]
+then move from the initial attitude $R_0$ to the final attitude $R_f$
+by
+\begin{equation}
+  R(t) = R_0 \exp(\phi(t)\hat{\bm e}^{\times}).
+  \label{eq:eigen-axis-path}
+\end{equation}
+I used the versine rest-to-rest profile
+\begin{equation}
+  \phi(t) = \frac{\phi_f}{2}\left(1-\cos\frac{\pi t}{T}\right),
+  \qquad 0 \le t \le T ,
+  \label{eq:versine}
+\end{equation}
+with $\dot\phi(0)=\dot\phi(T)=0$.  The nominal body-frame angular
+velocity and acceleration are therefore
+\[
+  \bm\omega_d = \dot\phi\,\hat{\bm e}, \qquad
+  \dot{\bm\omega}_d = \ddot\phi\,\hat{\bm e}.
+\]
+The inverse-dynamics feedforward torque is the rigid-body Euler torque
+\begin{equation}
+  \bm\tau_\text{ff}
+  = J\dot{\bm\omega}_d
+    + \bm\omega_d\times J\bm\omega_d .
+  \label{eq:slew-inv-dyn}
+\end{equation}
+
+\subsection{Actuator Choice and Tracking Law}
+
+The requested test is a $180^\circ$ maneuver.  I chose an initial
+attitude that is $180^\circ$ away from the nominal LVLH earth-pointing
+attitude by a pitch-axis flip, then slewed back to the nominal
+attitude.  The resulting eigen-axis in the initial body frame is
+$-\hat{\bm y}_b$.  With a one-orbit maneuver time
+$T=\SI{5563}{s}=\SI{92.72}{min}$, the nominal maximum rate is
+\SI{0.0508}{deg/s} and the inverse-dynamics torque peaks at only
+\SI{53.6}{N.m}.
+
+Peak torque alone is not the limiting actuator constraint.  The same
+one-orbit maneuver requires
+\[
+  \max_t \|J\bm\omega_d(t)\| = \SI{9.49e4}{N.m.s}
+\]
+of spacecraft angular momentum, which is much larger than both the
+sampled CMG full envelope from Sec.~\ref{sec:cmg}
+($4h=\SI{1.904e4}{N.m.s}$) and the conservative inscribed sphere
+($\SI{8454}{N.m.s}$).  A CMG-only one-orbit $180^\circ$ slew would
+therefore violate the momentum capability even though the torque demand
+looks small.  For this Q4 test I used the Zvezda RCS attitude-thruster
+couples from Sec.~\ref{sec:thrusters}, keeping each thruster below its
+\SI{130}{N} limit and strongly penalizing net force in the allocator.
+
+The tracking controller uses the Q3 LQR gain, scaled by a factor of
+two, around the time-varying reference:
+\begin{equation}
+  \bm\tau_c =
+  \bm\tau_\text{ff}
+  -2K
+  \begin{bmatrix}
+    \delta\bm\theta \\
+    \delta\bm\omega
+  \end{bmatrix},
+  \label{eq:slew-tracking-law}
+\end{equation}
+where $\delta\bm\theta=\log(R_d^\top R)$ and
+$\delta\bm\omega=\bm\omega-\bm\omega_d$ are computed from the HW3 MEKF
+attitude and rate estimate.  I clipped the body torque command to
+$(250,200,250)$~N$\cdot$m and allocated thruster forces by the bounded
+least-squares problem
+\begin{equation}
+  \min_{0\le\bm u\le\bm u_{\max}}
+  \left\|W\left(B\bm u -
+  \begin{bmatrix}\bm 0\\ \bm\tau_c\end{bmatrix}\right)\right\|_2 ,
+  \label{eq:rcs-alloc}
+\end{equation}
+where $B$ is the RCS wrench Jacobian from~\eqref{eq:thr-B}.  The force
+rows of $W$ are weighted $25$ times more than the torque rows, so the
+solver prefers force-canceling thruster couples and accepts small
+torque error instead of using a large translational impulse.
+
+\subsection{Closed-Loop 180 Degree Slew}
+
+Figure~\ref{fig:slew-tracking} shows the MEKF-in-the-loop disturbed
+simulation with gravity gradient, drag, magnetic-field sensing, gyro
+noise, star tracker, sun sensor, horizon sensor, and magnetometer all
+enabled.  The closed-loop trajectory follows the planned rest-to-rest
+profile and settles after \SI{8670}{s} (\SI{1.56}{orbits}) to below
+\SI{0.25}{deg} attitude error and \SI{0.01}{deg/s} rate.  The final
+attitude error after the three-orbit simulation is
+\SI{0.020}{deg}.  The maximum tracking error during the maneuver is
+\SI{6.01}{deg}; this peak occurs near the middle of the slew, where
+gravity-gradient torque is largest and the controller is trading
+tracking tightness against the conservative RCS torque limit.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{eigen_axis_slew_tracking.png}
+\caption{Nominal and closed-loop states for the $180^\circ$ eigen-axis
+slew.  The controller uses the HW3 MEKF state estimate; the estimator
+error remains small compared with the trajectory-tracking error.}
+\label{fig:slew-tracking}
+\end{figure}
+
+The actuator commands remain inside the modeled RCS capability
+(Fig.~\ref{fig:slew-inputs}).  The largest commanded body torque is
+\SI{125.0}{N.m}, the largest achieved torque is
+\SI{125.0}{N.m}, and the largest individual thruster command is
+\SI{78.7}{N}.  The allocation keeps net force below
+\SI{3.3e-2}{N}, so the maneuver is effectively torque-only in the
+coupled orbit simulation.  The total absolute thruster impulse,
+computed as $\int\sum_i |u_i|\,dt$, is
+\SI{6.17e5}{N.s}; this is not a propellant-optimal steering law, only a
+bounded inverse-dynamics and feedback test.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{eigen_axis_slew_inputs.png}
+\caption{RCS torque and force commands during the eigen-axis slew.  The
+dotted line in the middle panel is the \SI{130}{N} per-thruster limit.}
+\label{fig:slew-inputs}
+\end{figure}
+
+\subsection{Comparison With Direct Regulation}
+
+I compared the planned slew against the same LQR feedback law used as a
+direct regulator from the identical $180^\circ$ initial attitude
+(Fig.~\ref{fig:slew-regulator-compare}).  In this single-axis case the
+direct regulator converges slightly faster, settling in
+\SI{7430}{s} and ending at \SI{0.0167}{deg} error, because it simply
+saturates the pitch torque command near \SI{200}{N.m} and drives toward
+the target as fast as the imposed torque limit permits.  It also uses a
+larger individual thruster command, \SI{112.8}{N}, and reaches a much
+higher rate error, \SI{0.136}{deg/s}, than the planned slew's
+\SI{0.0085}{deg/s}.
+
+The practical difference is predictability.  The eigen-axis slew gives
+a specified maneuver time, a known rest-to-rest rate profile, and
+bounded inverse-dynamics inputs before simulation.  The direct
+regulator has no planned rate or torque history; for a far initial
+condition it behaves like a saturated nonlinear controller.  It works
+for this pitch-axis test because the attitude-log error selects the
+right rotation axis and the RCS torque limit is high enough, but it
+does not by itself guarantee actuator-feasible motion for arbitrary
+large-angle slews.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\linewidth]{eigen_axis_slew_regulator_compare.png}
+\caption{Comparison between the planned eigen-axis slew and a direct
+LQR regulator from the same $180^\circ$ initial attitude.  The direct
+regulator is faster here, but only by saturating the torque command and
+using higher rates.}
+\label{fig:slew-regulator-compare}
+\end{figure}
 
 % ==================================================================
 \begin{thebibliography}{9}
@@ -641,6 +800,12 @@ Honeywell Defense and Space,
 \bibitem{nasa_iss_prop}
 NASA, ``International Space Station Propulsion System,''
 ISS Familiarization Manual, ISS FAM C TD9702A, 1998.
+
+\bibitem{manchester_l16}
+Z.~Manchester,
+``Lecture 16: Attitude regulation and slew maneuvers,''
+Spacecraft Attitude Dynamics and Control lecture notes, 2026.
+Available: \url{https://github.com/zacmanchester/spacecraft-attitude-course/blob/main/lecture%20notes/Lecture%2016/Lecture%2016.pdf}
 
 \end{thebibliography}
 
