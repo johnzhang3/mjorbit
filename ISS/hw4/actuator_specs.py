@@ -15,7 +15,7 @@ Computes:
 
 Body frame convention (LVLH-aligned at rest):
   +X along-track (roll)
-  +Y orbit-normal (pitch)
+  +Y cross-track (pitch)
   +Z nadir (yaw, pointing at Earth)
 
 Pyramid apex is taken along the body +Z axis; this corresponds to the
@@ -159,15 +159,55 @@ def build_thruster_specs() -> tuple[list[ThrusterSpec], list[str]]:
     # Pairs chosen so that firing both members of a pair gives pure torque
     # (no net force).
     # --- Yaw / Roll couples (firing ±Y) ---
-    add([ZVEZDA_X, +ZVEZDA_Y_OFFSET, +ZVEZDA_Z_OFFSET], [0, +1, 0], "ACS_+Y_top", RCS_ATTITUDE_THRUST)
-    add([ZVEZDA_X, -ZVEZDA_Y_OFFSET, +ZVEZDA_Z_OFFSET], [0, -1, 0], "ACS_-Y_top", RCS_ATTITUDE_THRUST)
-    add([ZVEZDA_X, +ZVEZDA_Y_OFFSET, -ZVEZDA_Z_OFFSET], [0, +1, 0], "ACS_+Y_bot", RCS_ATTITUDE_THRUST)
-    add([ZVEZDA_X, -ZVEZDA_Y_OFFSET, -ZVEZDA_Z_OFFSET], [0, -1, 0], "ACS_-Y_bot", RCS_ATTITUDE_THRUST)
+    add(
+        [ZVEZDA_X, +ZVEZDA_Y_OFFSET, +ZVEZDA_Z_OFFSET],
+        [0, +1, 0],
+        "ACS_+Y_top",
+        RCS_ATTITUDE_THRUST,
+    )
+    add(
+        [ZVEZDA_X, -ZVEZDA_Y_OFFSET, +ZVEZDA_Z_OFFSET],
+        [0, -1, 0],
+        "ACS_-Y_top",
+        RCS_ATTITUDE_THRUST,
+    )
+    add(
+        [ZVEZDA_X, +ZVEZDA_Y_OFFSET, -ZVEZDA_Z_OFFSET],
+        [0, +1, 0],
+        "ACS_+Y_bot",
+        RCS_ATTITUDE_THRUST,
+    )
+    add(
+        [ZVEZDA_X, -ZVEZDA_Y_OFFSET, -ZVEZDA_Z_OFFSET],
+        [0, -1, 0],
+        "ACS_-Y_bot",
+        RCS_ATTITUDE_THRUST,
+    )
     # --- Pitch couples (firing ±Z) ---
-    add([ZVEZDA_X + ZVEZDA_XY_OFFSET, 0, +ZVEZDA_Z_OFFSET], [0, 0, +1], "ACS_+Z_fwd", RCS_ATTITUDE_THRUST)
-    add([ZVEZDA_X - ZVEZDA_XY_OFFSET, 0, +ZVEZDA_Z_OFFSET], [0, 0, +1], "ACS_+Z_aft", RCS_ATTITUDE_THRUST)
-    add([ZVEZDA_X + ZVEZDA_XY_OFFSET, 0, -ZVEZDA_Z_OFFSET], [0, 0, -1], "ACS_-Z_fwd", RCS_ATTITUDE_THRUST)
-    add([ZVEZDA_X - ZVEZDA_XY_OFFSET, 0, -ZVEZDA_Z_OFFSET], [0, 0, -1], "ACS_-Z_aft", RCS_ATTITUDE_THRUST)
+    add(
+        [ZVEZDA_X + ZVEZDA_XY_OFFSET, 0, +ZVEZDA_Z_OFFSET],
+        [0, 0, +1],
+        "ACS_+Z_fwd",
+        RCS_ATTITUDE_THRUST,
+    )
+    add(
+        [ZVEZDA_X - ZVEZDA_XY_OFFSET, 0, +ZVEZDA_Z_OFFSET],
+        [0, 0, +1],
+        "ACS_+Z_aft",
+        RCS_ATTITUDE_THRUST,
+    )
+    add(
+        [ZVEZDA_X + ZVEZDA_XY_OFFSET, 0, -ZVEZDA_Z_OFFSET],
+        [0, 0, -1],
+        "ACS_-Z_fwd",
+        RCS_ATTITUDE_THRUST,
+    )
+    add(
+        [ZVEZDA_X - ZVEZDA_XY_OFFSET, 0, -ZVEZDA_Z_OFFSET],
+        [0, 0, -1],
+        "ACS_-Z_aft",
+        RCS_ATTITUDE_THRUST,
+    )
     # --- Reboost (DKD) engines, aft-facing (+X thrust to raise orbit) ---
     add([ZVEZDA_X - 1.5, +0.8, 0], [+1, 0, 0], "DKD_starboard", RCS_REBOOST_THRUST)
     add([ZVEZDA_X - 1.5, -0.8, 0], [+1, 0, 0], "DKD_port", RCS_REBOOST_THRUST)
@@ -246,14 +286,25 @@ def print_thruster_specs(thr: list[ThrusterSpec], lbl: list[str]) -> None:
     print("=" * 70)
     print(f"{'Label':<18}{'position [m]':<28}{'direction':<22}{'F_max [N]':>10}")
     for t, name in zip(thr, lbl):
-        pos_str = f"[{t.position_body[0]:+6.1f}, {t.position_body[1]:+5.1f}, {t.position_body[2]:+5.1f}]"
-        dir_str = f"[{t.direction_body[0]:+.2f}, {t.direction_body[1]:+.2f}, {t.direction_body[2]:+.2f}]"
+        pos_str = (
+            f"[{t.position_body[0]:+6.1f}, "
+            f"{t.position_body[1]:+5.1f}, "
+            f"{t.position_body[2]:+5.1f}]"
+        )
+        dir_str = (
+            f"[{t.direction_body[0]:+.2f}, "
+            f"{t.direction_body[1]:+.2f}, "
+            f"{t.direction_body[2]:+.2f}]"
+        )
         print(f"{name:<18}{pos_str:<28}{dir_str:<22}{t.force_limit:>10.0f}")
     print()
 
     B = thruster_wrench_jacobian(thr)
-    print_matrix("Thruster wrench Jacobian B (6×N) — top 3 rows are force, bottom 3 are torque",
-                 B, fmt="{:+8.2f}")
+    print_matrix(
+        "Thruster wrench Jacobian B (6×N) — top 3 rows are force, bottom 3 are torque",
+        B,
+        fmt="{:+8.2f}",
+    )
 
     # Per-axis pure-torque capability using Moore-Penrose-based signed decomposition
     F_max = np.array([t.force_limit for t in thr])
