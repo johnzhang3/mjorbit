@@ -28,6 +28,7 @@ import numpy as np
 
 from mujoco_orbit.constants import GM_EARTH
 from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.coupling.inertial import body_eci_position_km
 
 
 def apply_gravity_gradient_torques(model: MjoModel, data: MjoData) -> None:
@@ -36,7 +37,7 @@ def apply_gravity_gradient_torques(model: MjoModel, data: MjoData) -> None:
 
     The torque on each body is evaluated using that body's inertia tensor
     (rotated to the world frame via ``ximat``) and the body-COM radial
-    direction in the world (ECI) frame.
+    direction in ECI-parallel world axes.
     """
     if not model.use_gravity_gradient:
         return
@@ -48,13 +49,13 @@ def apply_gravity_gradient_torques(model: MjoModel, data: MjoData) -> None:
         if mjm.body_mass[body_id] <= 0.0:
             continue
 
-        # Body COM position in ECI (km)
-        r_body_eci = mjd.xipos[body_id] * 1e-3
+        # Body COM position in absolute ECI (km)
+        r_body_eci = body_eci_position_km(data, mjd.xipos[body_id])
         R_mag = float(np.linalg.norm(r_body_eci))
         if R_mag < 1e-9:
             continue
 
-        # Radial direction in the world (= ECI) frame. The formula is sign invariant.
+        # Radial direction in ECI-parallel world axes. The formula is sign invariant.
         r_hat_world = r_body_eci / R_mag
 
         # Inertia tensor in the world frame via the inertia-frame rotation.

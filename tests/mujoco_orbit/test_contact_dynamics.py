@@ -3,7 +3,7 @@
 Key properties verified:
 1. Two colliding bodies bounce off each other (MuJoCo resolves contact)
 2. Contact forces do NOT leak into wrench_buffer / orbit feedback
-3. LVLH-frame momentum is conserved through the collision instant
+3. Chief-inertial momentum is conserved through the collision instant
 4. The chief orbit is only affected by tidal (gravity gradient) effects,
    not by contact forces
 5. Energy is not created through contact
@@ -69,7 +69,7 @@ def _make_collision_model_data(xml_str: str = TWO_BODY_COLLISION_XML, **override
 
 
 def _total_lvlh_momentum(model: MjoModel, data: MjoData) -> np.ndarray:
-    """Compute total linear momentum in the LVLH (MuJoCo world) frame."""
+    """Compute total linear momentum in the chief-inertial MuJoCo world frame."""
     md = data.mj_data
     p_total = np.zeros(3)
     for i in range(1, model.mj_model.nbody):
@@ -80,7 +80,7 @@ def _total_lvlh_momentum(model: MjoModel, data: MjoData) -> np.ndarray:
 
 
 def _total_kinetic_energy(model: MjoModel, data: MjoData) -> float:
-    """Compute total translational KE in the LVLH frame."""
+    """Compute total translational KE in the chief-inertial MuJoCo world frame."""
     md = data.mj_data
     ke = 0.0
     for i in range(1, model.mj_model.nbody):
@@ -116,8 +116,8 @@ class TestCollisionDynamics:
                 mjo_step(model, data)
 
             # body_a should have slowed or reversed
-            va_x = data.qvel[0] - data.orbit.V_eci[0] * 1e3
-            vb_x = data.qvel[6] - data.orbit.V_eci[0] * 1e3
+            va_x = data.qvel[0]
+            vb_x = data.qvel[6]
 
             # body_b should have gained positive x-velocity
             assert vb_x > 0.1, f"body_b should have gained speed, got vx={vb_x:.4f}"
@@ -131,7 +131,7 @@ class TestCollisionDynamics:
         """wrench_buffer should contain only inertial forces (~0.2 N), not contact forces (~kN).
 
         MuJoCo contact forces are O(1000 N) for 50 kg at 2 m/s. Inertial forces
-        (gravity gradient, Coriolis) are O(0.1 N) at LEO. If contact leaked into
+        differential gravity is O(0.1 N) at LEO. If contact leaked into
         wrench_buffer, we'd see values orders of magnitude larger.
         """
         model, data, xml_path = _make_collision_model_data()
@@ -156,7 +156,7 @@ class TestCollisionDynamics:
 
             # Contact forces should be much larger than wrench_buffer entries.
             # If contact leaked into wrench_buffer, max_wrench would be ~max_contact_force.
-            # ECI gravity wrenches are O(100 N); contact forces are O(1000+ N).
+            # Differential gravity wrenches are O(0.1 N); contact forces are O(1000+ N).
             assert max_wrench < 1000.0, (
                 f"wrench_buffer too large ({max_wrench:.1f} N) — "
                 f"contact forces ({max_contact_force:.1f} N) may be leaking in"
@@ -177,10 +177,9 @@ class TestCollisionDynamics:
         """Momentum should be conserved through the collision to within the
         inertial impulse per timestep.
 
-        In the LVLH rotating frame, fictitious forces (Coriolis, gravity gradient)
-        cause slow momentum drift. But through the collision instant, the contact
-        impulse should conserve momentum — the per-step drift from inertial forces
-        is negligible compared to the contact impulse.
+        Differential gravity causes slow momentum drift. But through the collision
+        instant, the contact impulse should conserve momentum — the per-step drift
+        from inertial forces is negligible compared to the contact impulse.
         """
         model, data, xml_path = _make_collision_model_data()
         try:
@@ -242,8 +241,7 @@ class TestCollisionDynamics:
             dR = np.linalg.norm(data.orbit.R_eci - data_ref.orbit.R_eci)
             dV = np.linalg.norm(data.orbit.V_eci - data_ref.orbit.V_eci)
 
-            # Inertial divergence (Coriolis + tidal) for a 2 m/s body at LEO:
-            #   Coriolis impulse ≈ 2mωv·t/M ≈ 0.226 N × 4s / 100 kg ≈ 9e-3 m/s = 9e-6 km/s
+            # Inertial divergence from tidal gravity remains tiny over this horizon.
             # If contact forces leaked (O(10 kN)), orbit dV would be ~0.4 km/s.
             assert dR < 1e-3, f"Orbit position diverged by {dR:.2e} km — contact leak?"
             assert dV < 1e-4, f"Orbit velocity diverged by {dV:.2e} km/s — contact leak?"
@@ -318,7 +316,7 @@ class TestPostCollisionOrbits:
     The simulator doesn't track per-body orbits explicitly. Instead, individual
     body orbits emerge from chief_orbit + LVLH_position. After collision:
       - MuJoCo changes each body's LVLH velocity (contact impulse)
-      - Inertial wrenches (gravity gradient + Coriolis) drive CW-like dynamics
+      - Inertial wrenches drive CW-like dynamics through differential gravity
       - Each body follows the correct CW trajectory for its post-collision ICs
       - In ECI, this means each body is now on a different orbit than before
 
@@ -408,8 +406,8 @@ class TestPostCollisionOrbits:
             mjo_forward(model, data)
 
             # Record initial ECI positions (should be close)
-            r_a_eci_0 = data.qpos[0:3] * 1e-3
-            r_b_eci_0 = data.qpos[7:10] * 1e-3
+            r_a_eci_0 = data.eci_position_from_world(data.qpos[0:3]) * 1e-3
+            r_b_eci_0 = data.eci_position_from_world(data.qpos[7:10]) * 1e-3
             eci_sep_0 = np.linalg.norm(r_a_eci_0 - r_b_eci_0)
 
             # Run past collision and then propagate
@@ -417,8 +415,8 @@ class TestPostCollisionOrbits:
                 mjo_step(model, data)
 
             # Compute ECI positions after propagation
-            r_a_eci = data.qpos[0:3] * 1e-3
-            r_b_eci = data.qpos[7:10] * 1e-3
+            r_a_eci = data.eci_position_from_world(data.qpos[0:3]) * 1e-3
+            r_b_eci = data.eci_position_from_world(data.qpos[7:10]) * 1e-3
             eci_sep_final = np.linalg.norm(r_a_eci - r_b_eci)
 
             # The bodies should have diverged in ECI — collision changed

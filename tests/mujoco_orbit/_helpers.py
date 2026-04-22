@@ -80,8 +80,8 @@ def set_freejoint_lvlh_state(
     """Set a free joint from chief-relative LVLH position/velocity."""
     position = np.asarray(position_lvlh_m, dtype=float)
     velocity = np.asarray(velocity_lvlh_m_s, dtype=float)
-    data.qpos[qpos_slice] = data.eci_position_from_lvlh(position)
-    data.qvel[qvel_slice] = data.eci_velocity_from_lvlh(position, velocity)
+    data.qpos[qpos_slice] = data.world_position_from_lvlh(position)
+    data.qvel[qvel_slice] = data.world_velocity_from_lvlh(position, velocity)
 
 
 def get_freejoint_lvlh_state(
@@ -90,6 +90,6 @@ def get_freejoint_lvlh_state(
     qvel_slice: slice,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return a free joint's chief-relative LVLH position/velocity."""
-    position = data.lvlh_position_from_eci(data.qpos[qpos_slice])
-    velocity = data.lvlh_velocity_from_eci(data.qpos[qpos_slice], data.qvel[qvel_slice])
+    position = data.lvlh_position_from_world(data.qpos[qpos_slice])
+    velocity = data.lvlh_velocity_from_world(data.qpos[qpos_slice], data.qvel[qvel_slice])
     return position, velocity

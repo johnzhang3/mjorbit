@@ -36,6 +36,19 @@ def _refresh_orbit_caches(model: MjoModel, data: MjoData) -> None:
     update_sensor_environment(model, data)
 
 
+def _subtract_origin_acceleration(model: MjoModel, data: MjoData, a_origin_eci: np.ndarray) -> None:
+    """Apply the fictitious force from chief-frame translational acceleration."""
+    a_origin_m_s2 = a_origin_eci * 1e3
+    if not np.any(a_origin_m_s2):
+        return
+
+    for body_id in range(1, model.nbody):
+        mass = model.body_mass[body_id]
+        if mass <= 0.0:
+            continue
+        data.wrench_buffer[body_id, :3] -= mass * a_origin_m_s2
+
+
 def mjo_forward(model: MjoModel, data: MjoData) -> None:
     """Synchronize derived runtime state after direct mutation."""
     _refresh_orbit_caches(model, data)
@@ -69,6 +82,8 @@ def mjo_step(model: MjoModel, data: MjoData) -> None:
 
     net_force, _ = compute_net_external_wrench(data)
     a_feedback = compute_orbit_feedback_accel(model, data, net_force)
+    _subtract_origin_acceleration(model, data, a_feedback)
+    np.copyto(data.xfrc_applied, data.wrench_buffer)
 
     orbit_next = propagate_rk4(data.orbit, orbit_dt, use_j2=model.use_j2, a_external=a_feedback)
     data.orbit.R_eci[:] = orbit_next.R_eci

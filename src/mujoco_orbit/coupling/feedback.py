@@ -21,7 +21,7 @@ from __future__ import annotations
 import numpy as np
 
 from mujoco_orbit.core.runtime import MjoData, MjoModel
-from mujoco_orbit.orbit.gravity import total_accel
+from mujoco_orbit.coupling.inertial import chief_gravity, differential_gravity_force
 
 
 def compute_net_external_wrench(data: MjoData) -> tuple[np.ndarray, np.ndarray]:
@@ -46,7 +46,7 @@ def compute_orbit_feedback_accel(
     Args:
         model: compiled model (provides mass)
         data: runtime state (provides frame cache)
-        net_force_world: net external force in ECI/world frame, N
+        net_force_world: net external force in chief-inertial/world frame, N
 
     Returns:
         acceleration in ECI, km/s^2
@@ -57,17 +57,22 @@ def compute_orbit_feedback_accel(
         return np.zeros(3)
 
     gravity_force = np.zeros(3)
+    g_chief = chief_gravity(data, model)
     for body_id in range(1, model.nbody):
         mass = model.body_mass[body_id]
         if mass <= 0.0:
             continue
-        r_eci_km = data.xipos[body_id] * 1e-3
-        gravity_force += mass * total_accel(r_eci_km, use_j2=model.use_j2) * 1e3
+        gravity_force += differential_gravity_force(
+            model,
+            data,
+            body_id,
+            chief_accel=g_chief,
+        )
 
     # Force (N) -> acceleration (m/s^2) -> km/s^2. The wrench buffer includes
-    # full ECI gravity applied to MuJoCo bodies, while the reference orbit
-    # propagator already applies gravity. Subtract all body gravity here so
-    # only non-gravitational external loads feed back into the chief orbit.
+    # chief-relative gravity applied to MuJoCo bodies, while the reference orbit
+    # propagator already applies chief gravity. Subtract differential body gravity
+    # here so only non-gravitational external loads feed back into the chief orbit.
     non_gravity_force = net_force_world - gravity_force
     a_feedback_eci = (non_gravity_force / total_mass) * 1e-3
 

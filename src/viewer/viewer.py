@@ -2,9 +2,9 @@
 
 """MjOrbitViewer — interactive 3D viewer for mujoco_orbit simulations.
 
-MuJoCo now simulates in absolute ECI coordinates, while the viewer can render
-either that ECI world directly or a chief-centered LVLH view for local detail.
-Units are **metres** (MuJoCo SI).
+MuJoCo simulates in chief-centered inertial coordinates, while the viewer can
+render either a local LVLH view or the chief-relative state translated into ECI
+so the system visibly orbits Earth. Units are **metres** (MuJoCo SI).
 """
 
 from __future__ import annotations
@@ -94,10 +94,9 @@ class MjOrbitViewer:
         Initial camera distance from the origin (metres).  If *None*,
         defaults to 10 m for detail view.
     render_frame : {"lvlh", "eci"}
-        World frame used for visualization. ``"lvlh"`` transforms absolute
-        ECI MuJoCo positions into the chief-centered LVLH frame. ``"eci"``
-        renders the MuJoCo ECI world directly so the system visibly orbits
-        Earth.
+        World frame used for visualization. ``"lvlh"`` rotates chief-inertial
+        MuJoCo positions into the chief-centered LVLH frame. ``"eci"``
+        translates the chief-relative MuJoCo world by the chief ECI position.
     """
 
     def __init__(
@@ -218,9 +217,8 @@ class MjOrbitViewer:
     def _world_transform(self) -> tuple[np.ndarray | None, np.ndarray | None]:
         if self._render_frame == "lvlh":
             rotation = self.data.frame.C_LI
-            translation = -(rotation @ (1000.0 * self.data.orbit.R_eci))
-            return rotation, translation
-        return None, None
+            return rotation, None
+        return None, 1000.0 * self.data.orbit.R_eci
 
     def _scale_origin(self) -> np.ndarray:
         if self._render_frame == "eci":

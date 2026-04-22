@@ -376,7 +376,7 @@ class MjoData:
             rng_seed=rng_seed,
         )
         register_sensor_data_namespace(self.sensors)
-        self._initialize_freejoints_in_eci()
+        self._initialize_freejoints_in_chief_inertial()
 
         from mujoco_orbit.core.step import mjo_forward
 
@@ -390,35 +390,90 @@ class MjoData:
         self.wrench_buffer[:] = 0.0
         self.xfrc_applied[:] = 0.0
 
-    def eci_position_from_lvlh(self, position_lvlh_m: np.ndarray) -> np.ndarray:
-        """Convert a chief-relative LVLH position to MuJoCo world/ECI meters."""
+    def world_position_from_lvlh(self, position_lvlh_m: np.ndarray) -> np.ndarray:
+        """Convert a chief-relative LVLH position to MuJoCo world meters.
+
+        The MuJoCo world frame is chief-centered with axes parallel to ECI.
+        """
         position_lvlh_km = np.asarray(position_lvlh_m, dtype=float) * 1e-3
-        return 1000.0 * (self.orbit.R_eci + self.frame.C_IL @ position_lvlh_km)
+        return 1000.0 * (self.frame.C_IL @ position_lvlh_km)
+
+    def world_velocity_from_lvlh(
+        self,
+        position_lvlh_m: np.ndarray,
+        velocity_lvlh_m_s: np.ndarray,
+    ) -> np.ndarray:
+        """Convert chief-relative LVLH velocity to MuJoCo world m/s."""
+        position_lvlh_km = np.asarray(position_lvlh_m, dtype=float) * 1e-3
+        velocity_lvlh_km_s = np.asarray(velocity_lvlh_m_s, dtype=float) * 1e-3
+        relative_eci_km_s = self.frame.C_IL @ (
+            velocity_lvlh_km_s + np.cross(self.frame.omega_lvlh, position_lvlh_km)
+        )
+        return 1000.0 * relative_eci_km_s
+
+    def lvlh_position_from_world(self, position_world_m: np.ndarray) -> np.ndarray:
+        """Convert MuJoCo world meters to chief-relative LVLH meters."""
+        position_world_km = np.asarray(position_world_m, dtype=float) * 1e-3
+        return 1000.0 * (self.frame.C_LI @ position_world_km)
+
+    def lvlh_velocity_from_world(
+        self,
+        position_world_m: np.ndarray,
+        velocity_world_m_s: np.ndarray,
+    ) -> np.ndarray:
+        """Convert MuJoCo world velocity to chief-relative LVLH m/s."""
+        position_lvlh_km = self.lvlh_position_from_world(position_world_m) * 1e-3
+        velocity_world_km_s = np.asarray(velocity_world_m_s, dtype=float) * 1e-3
+        velocity_lvlh_km_s = (
+            self.frame.C_LI @ velocity_world_km_s
+            - np.cross(self.frame.omega_lvlh, position_lvlh_km)
+        )
+        return 1000.0 * velocity_lvlh_km_s
+
+    def eci_position_from_world(self, position_world_m: np.ndarray) -> np.ndarray:
+        """Convert MuJoCo chief-inertial world meters to absolute ECI meters."""
+        position_world_km = np.asarray(position_world_m, dtype=float) * 1e-3
+        return 1000.0 * (self.orbit.R_eci + position_world_km)
+
+    def eci_velocity_from_world(self, velocity_world_m_s: np.ndarray) -> np.ndarray:
+        """Convert MuJoCo chief-inertial world velocity to absolute ECI m/s."""
+        velocity_world_km_s = np.asarray(velocity_world_m_s, dtype=float) * 1e-3
+        return 1000.0 * (self.orbit.V_eci + velocity_world_km_s)
+
+    def world_position_from_eci(self, position_eci_m: np.ndarray) -> np.ndarray:
+        """Convert absolute ECI meters to MuJoCo chief-inertial world meters."""
+        position_eci_km = np.asarray(position_eci_m, dtype=float) * 1e-3
+        return 1000.0 * (position_eci_km - self.orbit.R_eci)
+
+    def world_velocity_from_eci(self, velocity_eci_m_s: np.ndarray) -> np.ndarray:
+        """Convert absolute ECI velocity to MuJoCo chief-inertial world m/s."""
+        velocity_eci_km_s = np.asarray(velocity_eci_m_s, dtype=float) * 1e-3
+        return 1000.0 * (velocity_eci_km_s - self.orbit.V_eci)
+
+    def eci_position_from_lvlh(self, position_lvlh_m: np.ndarray) -> np.ndarray:
+        """Convert a chief-relative LVLH position to absolute ECI meters."""
+        return self.eci_position_from_world(self.world_position_from_lvlh(position_lvlh_m))
 
     def eci_velocity_from_lvlh(
         self,
         position_lvlh_m: np.ndarray,
         velocity_lvlh_m_s: np.ndarray,
     ) -> np.ndarray:
-        """Convert chief-relative LVLH velocity to MuJoCo world/ECI m/s."""
-        position_lvlh_km = np.asarray(position_lvlh_m, dtype=float) * 1e-3
-        velocity_lvlh_km_s = np.asarray(velocity_lvlh_m_s, dtype=float) * 1e-3
-        relative_eci_km_s = self.frame.C_IL @ (
-            velocity_lvlh_km_s + np.cross(self.frame.omega_lvlh, position_lvlh_km)
+        """Convert chief-relative LVLH velocity to absolute ECI m/s."""
+        return self.eci_velocity_from_world(
+            self.world_velocity_from_lvlh(position_lvlh_m, velocity_lvlh_m_s)
         )
-        return 1000.0 * (self.orbit.V_eci + relative_eci_km_s)
 
     def lvlh_position_from_eci(self, position_eci_m: np.ndarray) -> np.ndarray:
-        """Convert MuJoCo world/ECI meters to chief-relative LVLH meters."""
-        position_eci_km = np.asarray(position_eci_m, dtype=float) * 1e-3
-        return 1000.0 * (self.frame.C_LI @ (position_eci_km - self.orbit.R_eci))
+        """Convert absolute ECI meters to chief-relative LVLH meters."""
+        return self.lvlh_position_from_world(self.world_position_from_eci(position_eci_m))
 
     def lvlh_velocity_from_eci(
         self,
         position_eci_m: np.ndarray,
         velocity_eci_m_s: np.ndarray,
     ) -> np.ndarray:
-        """Convert MuJoCo world/ECI velocity to chief-relative LVLH m/s."""
+        """Convert absolute ECI velocity to chief-relative LVLH m/s."""
         position_lvlh_km = self.lvlh_position_from_eci(position_eci_m) * 1e-3
         velocity_eci_km_s = np.asarray(velocity_eci_m_s, dtype=float) * 1e-3
         velocity_lvlh_km_s = (
@@ -427,25 +482,15 @@ class MjoData:
         )
         return 1000.0 * velocity_lvlh_km_s
 
-    def _initialize_freejoints_in_eci(self) -> None:
-        """Move free-joint initial conditions from XML-local coordinates to ECI.
+    def _initialize_freejoints_in_chief_inertial(self) -> None:
+        """Keep free-joint XML positions as chief-centered inertial offsets.
 
-        MuJoCo still uses SI units. The orbit layer stores the reference orbit in km/km/s,
-        so the initial reference state is converted to m/m/s before being added to every
-        root free joint. XML body ``pos`` values remain useful as small local offsets.
+        The orbit layer stores the chief reference state in km/km/s, while MuJoCo
+        stores local multibody state in SI units. Root free-joint ``pos`` and
+        ``qvel`` values are therefore interpreted directly as relative inertial
+        offsets from the chief, not as absolute ECI coordinates.
         """
-        mjm = self.model.mj_model
-        r_ref_m = 1000.0 * self.orbit.R_eci
-        v_ref_m_s = 1000.0 * self.orbit.V_eci
-
-        for joint_id in range(mjm.njnt):
-            if mjm.jnt_type[joint_id] != mujoco.mjtJoint.mjJNT_FREE:
-                continue
-
-            qpos_adr = mjm.jnt_qposadr[joint_id]
-            dof_adr = mjm.jnt_dofadr[joint_id]
-            self.mj_data.qpos[qpos_adr : qpos_adr + 3] += r_ref_m
-            self.mj_data.qvel[dof_adr : dof_adr + 3] += v_ref_m_s
+        return
 
 
 __all__ = [

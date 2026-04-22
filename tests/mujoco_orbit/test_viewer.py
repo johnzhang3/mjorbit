@@ -69,7 +69,7 @@ def test_viewer_reset_restores_initial_state() -> None:
         viewer.set_local_scene_scale(10.0)
         np.testing.assert_allclose(
             np.asarray(viewer.mj_scene._body_frames[0].position),
-            10.0 * data.lvlh_position_from_eci(data.xpos[1]),
+            10.0 * data.lvlh_position_from_world(data.xpos[1]),
             atol=1e-8,
         )
 
@@ -89,7 +89,7 @@ def test_viewer_reset_restores_initial_state() -> None:
         assert viewer._sim_t == pytest.approx(0.0)
         np.testing.assert_allclose(
             np.asarray(viewer.mj_scene._body_frames[0].position),
-            viewer._local_scene_scale * data.lvlh_position_from_eci(data.xpos[1]),
+            viewer._local_scene_scale * data.lvlh_position_from_world(data.xpos[1]),
             atol=1e-8,
         )
         assert viewer.trails[0]._positions == []
@@ -124,7 +124,7 @@ def test_viewer_eci_render_positions_bodies_around_earth() -> None:
     try:
         viewer.set_local_scene_scale(10.0)
         origin = 1000.0 * data.orbit.R_eci
-        expected = origin + 10.0 * (data.xpos[1] - origin)
+        expected = origin + 10.0 * data.xpos[1]
         np.testing.assert_allclose(
             np.asarray(viewer.mj_scene._body_frames[0].position),
             expected,

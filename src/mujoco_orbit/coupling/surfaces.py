@@ -17,6 +17,7 @@ import numpy as np
 
 from mujoco_orbit.constants import OMEGA_EARTH, P_SUN
 from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.coupling.inertial import body_eci_position_km, body_eci_velocity_km_s
 
 
 def apply_surface_wrenches(model: MjoModel, data: MjoData) -> None:
@@ -29,7 +30,7 @@ def apply_surface_wrenches(model: MjoModel, data: MjoData) -> None:
 
     omega_earth = np.array([0.0, 0.0, OMEGA_EARTH])
 
-    # MuJoCo world = ECI, so cached ECI unit vectors are already world vectors.
+    # MuJoCo world axes are parallel to ECI, so cached ECI unit vectors are world vectors.
     sun_world = env.sun_vector_eci
 
     rho = env.atm_density  # kg/m^3
@@ -44,18 +45,19 @@ def apply_surface_wrenches(model: MjoModel, data: MjoData) -> None:
         r_cop_world = R_body @ surf.center_of_pressure_body  # m
         n_world = R_body @ surf.normal_body  # unit vector
 
-        # Body COM velocity and angular velocity (world frame, m/s, rad/s)
+        # Body COM velocity and angular velocity (chief-inertial world frame, m/s, rad/s)
         v_com = mjd.cvel[bid, 3:].copy()  # m/s
         omega_body = mjd.cvel[bid, :3].copy()  # rad/s
 
         # Velocity at surface point in world frame (m/s)
         v_point = v_com + np.cross(omega_body, r_cop_world)
 
-        # Atmosphere-relative velocity at surface point in world (= ECI) frame.
+        # Atmosphere-relative velocity at surface point in ECI-parallel world axes.
         # Atmosphere co-rotates with Earth, so v_rel = v_point_eci - omega_E x r_eci.
-        r_point_eci_km = (mjd.xipos[bid] + r_cop_world) * 1e-3
+        r_point_eci_km = body_eci_position_km(data, mjd.xipos[bid] + r_cop_world)
+        v_point_eci_m_s = body_eci_velocity_km_s(data, v_point) * 1e3
         v_atm_eci_m_s = np.cross(omega_earth, r_point_eci_km) * 1e3
-        v_rel_m_s = v_point - v_atm_eci_m_s
+        v_rel_m_s = v_point_eci_m_s - v_atm_eci_m_s
 
         speed = np.linalg.norm(v_rel_m_s)
 

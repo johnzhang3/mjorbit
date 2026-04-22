@@ -159,7 +159,7 @@ def _apply_magnetorquers(model: MjoModel, data: MjoData) -> None:
     mjd = data.mj_data
     env = data.env
 
-    # MuJoCo world = ECI, so the cached magnetic field is already in world frame.
+    # MuJoCo world axes are parallel to ECI, so cached B is already in world axes.
     B_world = env.mag_field_eci
 
     for i, mtq_cfg in enumerate(model.magnetorquers):

@@ -6,7 +6,7 @@ Magnetorquer actuator coupling is in coupling/actuators.py.
 Frame convention:
   - B field is in ECI from the environment cache
   - Dipoles are specified in body frame
-  - Torques are computed in body frame and rotated to world frame for xfrc_applied
+  - World axes are parallel to ECI, so torques rotate into the MuJoCo world frame
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ def apply_magnetic_wrenches(model: MjoModel, data: MjoData) -> None:
     env = data.env
     mjd = data.mj_data
 
-    # MuJoCo world = ECI, so the cached magnetic field is already in world frame.
+    # MuJoCo world axes are parallel to ECI, so cached B is already in world axes.
     B_world = env.mag_field_eci
 
     for mag in model.magnetic_bodies:

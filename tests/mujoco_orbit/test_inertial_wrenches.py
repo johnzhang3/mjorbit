@@ -1,4 +1,4 @@
-"""Phase 4 validation: ECI gravity coupling and derived LVLH relative motion."""
+"""Phase 4 validation: chief-inertial gravity coupling and derived LVLH motion."""
 
 import os
 import tempfile
@@ -34,12 +34,11 @@ class TestInertialWrenchBasics:
         mjo_step(model, data)
         assert np.all(np.isfinite(data.wrench_buffer))
 
-    def test_zero_offset_matches_eci_gravity(self):
+    def test_zero_offset_has_zero_differential_gravity(self):
         model, data = _make_model_data()
         data.clear_wrench_buffer()
         apply_inertial_wrenches(model, data)
-        expected = model.body_mass[1] * total_accel(data.orbit.R_eci, use_j2=False) * 1e3
-        np.testing.assert_allclose(data.wrench_buffer[1, :3], expected, rtol=1e-12)
+        np.testing.assert_allclose(data.wrench_buffer[1, :3], 0.0, atol=1e-12)
 
     def test_radial_offset_positive_radial_gradient(self):
         model, data = _make_model_data()
@@ -48,9 +47,7 @@ class TestInertialWrenchBasics:
 
         data.clear_wrench_buffer()
         apply_inertial_wrenches(model, data)
-        g_ref = total_accel(data.orbit.R_eci, use_j2=False)
-        force_residual = data.wrench_buffer[1, :3] - model.body_mass[1] * g_ref * 1e3
-        force_lvlh = data.frame.C_LI @ force_residual
+        force_lvlh = data.frame.C_LI @ data.wrench_buffer[1, :3]
 
         a_km = R_EARTH + 400.0
         n = np.sqrt(GM_EARTH / a_km**3)
@@ -65,8 +62,12 @@ class TestInertialWrenchBasics:
         mjo_forward(model, data)
         data.clear_wrench_buffer()
         apply_inertial_wrenches(model, data)
-        r_body_eci = data.xipos[1] * 1e-3
-        expected = model.body_mass[1] * total_accel(r_body_eci, use_j2=False) * 1e3
+        r_body_eci = data.orbit.R_eci + data.xipos[1] * 1e-3
+        expected = (
+            model.body_mass[1]
+            * (total_accel(r_body_eci, use_j2=False) - total_accel(data.orbit.R_eci, use_j2=False))
+            * 1e3
+        )
         np.testing.assert_allclose(data.wrench_buffer[1, :3], expected, rtol=1e-12)
 
 
@@ -171,9 +172,8 @@ class TestGravityGradient:
             data.clear_wrench_buffer()
             apply_inertial_wrenches(model, data)
 
-            g_ref = total_accel(data.orbit.R_eci, use_j2=False)
-            force_upper = data.frame.C_LI @ (data.wrench_buffer[1, :3] - 50.0 * g_ref * 1e3)
-            force_lower = data.frame.C_LI @ (data.wrench_buffer[2, :3] - 50.0 * g_ref * 1e3)
+            force_upper = data.frame.C_LI @ data.wrench_buffer[1, :3]
+            force_lower = data.frame.C_LI @ data.wrench_buffer[2, :3]
 
             a_km = R_EARTH + 400.0
             n = np.sqrt(GM_EARTH / a_km**3)
@@ -193,16 +193,13 @@ class TestGravityGradient:
         mjo_forward(model, data)
         data.clear_wrench_buffer()
         apply_inertial_wrenches(model, data)
-        g_ref = total_accel(data.orbit.R_eci, use_j2=True)
-        force_residual = data.wrench_buffer[1, :3] - model.body_mass[1] * g_ref * 1e3
-        force_plus = data.frame.C_LI @ force_residual
+        force_plus = data.frame.C_LI @ data.wrench_buffer[1, :3]
 
         set_freejoint_lvlh_state(data, slice(0, 3), slice(0, 3), [-1.0, 0.0, 0.0])
         mjo_forward(model, data)
         data.clear_wrench_buffer()
         apply_inertial_wrenches(model, data)
-        force_residual = data.wrench_buffer[1, :3] - model.body_mass[1] * g_ref * 1e3
-        force_minus = data.frame.C_LI @ force_residual
+        force_minus = data.frame.C_LI @ data.wrench_buffer[1, :3]
 
         assert abs(force_plus[0]) > 0
         assert abs(force_minus[0]) > 0
@@ -262,7 +259,7 @@ class TestStepIntegration:
         model, data = _make_model_data()
         for _ in range(1000):
             mjo_step(model, data)
-        assert np.linalg.norm(data.lvlh_position_from_eci(data.qpos[:3])) < 10.0
+        assert np.linalg.norm(data.lvlh_position_from_world(data.qpos[:3])) < 10.0
 
     def test_long_run_finite(self):
         model, data = _make_model_data()
