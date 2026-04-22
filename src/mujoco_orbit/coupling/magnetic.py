@@ -23,12 +23,11 @@ def apply_magnetic_wrenches(model: MjoModel, data: MjoData) -> None:
     if not model.use_magnetic:
         return
 
-    fc = data.frame
     env = data.env
     mjd = data.mj_data
 
-    # B field in world (LVLH) frame
-    B_world = fc.C_LI @ env.mag_field_eci
+    # MuJoCo world = ECI, so the cached magnetic field is already in world frame.
+    B_world = env.mag_field_eci
 
     for mag in model.magnetic_bodies:
         bid = mag.body_id

@@ -135,11 +135,11 @@ def _rotation_error_rad(r_est: np.ndarray, r_true: np.ndarray) -> float:
 def _wahba_inputs(model, data, *, noisy: bool, rng: np.random.Generator | None = None):
     suite = model.sensors
 
-    sun_world = data.frame.C_LI @ data.env.sun_vector_eci
+    sun_world = data.env.sun_vector_eci
     nadir_eci = -data.orbit.R_eci / np.linalg.norm(data.orbit.R_eci)
-    horizon_world = data.frame.C_LI @ nadir_eci
-    star_world = data.frame.C_LI @ suite.by_name["orbit_star_body"].reference_eci
-    mag_world = data.frame.C_LI @ data.env.mag_field_eci
+    horizon_world = nadir_eci
+    star_world = suite.by_name["orbit_star_body"].reference_eci
+    mag_world = data.env.mag_field_eci
 
     body_vecs = [
         data.sensors.measure("orbit_star_body", noisy=noisy, rng=rng),
@@ -430,11 +430,11 @@ class TestSensorMeasurements:
         body_id = model.body_id("spacecraft")
         r_world_body = data.xmat[body_id].reshape(3, 3)
 
-        sun_world = data.frame.C_LI @ data.env.sun_vector_eci
+        sun_world = data.env.sun_vector_eci
         nadir_eci = -data.orbit.R_eci / np.linalg.norm(data.orbit.R_eci)
-        horizon_world = data.frame.C_LI @ nadir_eci
-        star_world = data.frame.C_LI @ model.sensors.by_name["orbit_star_body"].reference_eci
-        mag_world = data.frame.C_LI @ data.env.mag_field_eci
+        horizon_world = nadir_eci
+        star_world = model.sensors.by_name["orbit_star_body"].reference_eci
+        mag_world = data.env.mag_field_eci
         mag_rot_site = data.site_xmat[model.sensors.by_name["mag_rotated"].objid].reshape(3, 3)
 
         np.testing.assert_allclose(data.sensors.measure("gyro_body", noisy=False), omega_body)

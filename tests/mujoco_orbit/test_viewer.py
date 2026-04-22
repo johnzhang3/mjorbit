@@ -5,7 +5,7 @@ import pytest
 
 from mujoco_orbit import mjo_forward, mjo_step
 from mujoco_orbit.testdata import FREE_BODY_XML, TWO_BODIES_XML
-from tests.mujoco_orbit._helpers import make_model_data
+from tests.mujoco_orbit._helpers import make_model_data, set_freejoint_lvlh_state
 from viewer import MjOrbitViewer
 from viewer.contacts import contact_force_segments
 from viewer.earth import BodyTrail
@@ -16,7 +16,7 @@ def test_contact_force_segments_for_collision() -> None:
         xml_path=TWO_BODIES_XML,
         mj_timestep=0.002,
     )
-    data.qvel[0] = 1.0
+    data.qvel[0] += 1.0
     mjo_forward(model, data)
 
     for _ in range(3000):
@@ -41,7 +41,7 @@ def test_contact_force_segments_for_collision() -> None:
 
 def test_viewer_reset_restores_initial_state() -> None:
     model, data = make_model_data(xml_path=FREE_BODY_XML)
-    data.qvel[0] = 1.25
+    data.qvel[0] += 1.25
     mjo_forward(model, data)
 
     initial_qpos = data.qpos.copy()
@@ -69,11 +69,11 @@ def test_viewer_reset_restores_initial_state() -> None:
         viewer.set_local_scene_scale(10.0)
         np.testing.assert_allclose(
             np.asarray(viewer.mj_scene._body_frames[0].position),
-            10.0 * data.xpos[1],
+            10.0 * data.lvlh_position_from_eci(data.xpos[1]),
+            atol=1e-8,
         )
 
-        data.qpos[0] = 4.0
-        data.qvel[0] = 0.0
+        set_freejoint_lvlh_state(data, slice(0, 3), slice(0, 3), [4.0, 0.0, 0.0])
         data.orbit.R_eci[:] = initial_R_eci + np.array([1.0, 2.0, 3.0])
         data.orbit.V_eci[:] = initial_V_eci + np.array([0.1, 0.2, 0.3])
         mjo_forward(model, data)
@@ -89,7 +89,8 @@ def test_viewer_reset_restores_initial_state() -> None:
         assert viewer._sim_t == pytest.approx(0.0)
         np.testing.assert_allclose(
             np.asarray(viewer.mj_scene._body_frames[0].position),
-            viewer._local_scene_scale * data.xpos[1],
+            viewer._local_scene_scale * data.lvlh_position_from_eci(data.xpos[1]),
+            atol=1e-8,
         )
         assert viewer.trails[0]._positions == []
     finally:
@@ -122,7 +123,8 @@ def test_viewer_eci_render_positions_bodies_around_earth() -> None:
     )
     try:
         viewer.set_local_scene_scale(10.0)
-        expected = 1000.0 * data.orbit.R_eci + data.frame.C_IL @ (10.0 * data.xpos[1])
+        origin = 1000.0 * data.orbit.R_eci
+        expected = origin + 10.0 * (data.xpos[1] - origin)
         np.testing.assert_allclose(
             np.asarray(viewer.mj_scene._body_frames[0].position),
             expected,

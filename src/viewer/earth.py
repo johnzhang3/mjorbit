@@ -1,11 +1,6 @@
 # pyright: reportAttributeAccessIssue=false, reportMissingImports=false
 
-"""Earth and body-trail rendering for viser.
-
-Earth is rendered as an icosphere positioned at the correct LVLH offset
-(radial direction, meters).  BodyTrail records a body's position history
-and renders it as line segments.
-"""
+"""Earth and body-trail rendering for viser."""
 
 from __future__ import annotations
 
@@ -24,11 +19,7 @@ def add_earth(
     server: viser.ViserServer,
     position: tuple[float, float, float],
 ) -> viser.SceneNodeHandle:
-    """Add an Earth icosphere at *position* (meters, LVLH frame).
-
-    In LVLH (RSW) the radial axis is +x, so Earth's centre sits at
-    roughly ``(-R_orbit_m, 0, 0)``.
-    """
+    """Add an Earth icosphere at *position* in the active viewer frame."""
     radius_m = R_EARTH * 1000.0  # km -> m
     mesh = trimesh.creation.icosphere(subdivisions=4, radius=radius_m)
     color = np.array([30, 80, 200, 255], dtype=np.uint8)

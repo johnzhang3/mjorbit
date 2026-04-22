@@ -157,11 +157,10 @@ def _apply_magnetorquers(model: MjoModel, data: MjoData) -> None:
 
     act = data.actuators
     mjd = data.mj_data
-    fc = data.frame
     env = data.env
 
-    # B field in world (LVLH) frame
-    B_world = fc.C_LI @ env.mag_field_eci
+    # MuJoCo world = ECI, so the cached magnetic field is already in world frame.
+    B_world = env.mag_field_eci
 
     for i, mtq_cfg in enumerate(model.magnetorquers):
         bid = mtq_cfg.body_id

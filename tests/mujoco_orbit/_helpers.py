@@ -68,3 +68,28 @@ def make_model_data(
     )
     data = MjoData(model, orbit=circular_leo_orbit_init(alt_km), rng_seed=rng_seed)
     return model, data
+
+
+def set_freejoint_lvlh_state(
+    data: MjoData,
+    qpos_slice: slice,
+    qvel_slice: slice,
+    position_lvlh_m: Iterable[float],
+    velocity_lvlh_m_s: Iterable[float] = (0.0, 0.0, 0.0),
+) -> None:
+    """Set a free joint from chief-relative LVLH position/velocity."""
+    position = np.asarray(position_lvlh_m, dtype=float)
+    velocity = np.asarray(velocity_lvlh_m_s, dtype=float)
+    data.qpos[qpos_slice] = data.eci_position_from_lvlh(position)
+    data.qvel[qvel_slice] = data.eci_velocity_from_lvlh(position, velocity)
+
+
+def get_freejoint_lvlh_state(
+    data: MjoData,
+    qpos_slice: slice,
+    qvel_slice: slice,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return a free joint's chief-relative LVLH position/velocity."""
+    position = data.lvlh_position_from_eci(data.qpos[qpos_slice])
+    velocity = data.lvlh_velocity_from_eci(data.qpos[qpos_slice], data.qvel[qvel_slice])
+    return position, velocity

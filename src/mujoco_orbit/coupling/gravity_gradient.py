@@ -36,31 +36,26 @@ def apply_gravity_gradient_torques(model: MjoModel, data: MjoData) -> None:
 
     The torque on each body is evaluated using that body's inertia tensor
     (rotated to the world frame via ``ximat``) and the body-COM radial
-    direction in the world (LVLH) frame.
+    direction in the world (ECI) frame.
     """
     if not model.use_gravity_gradient:
         return
 
-    orbit = data.orbit
-    fc = data.frame
     mjm = model.mj_model
     mjd = data.mj_data
-
-    R_ref_eci = orbit.R_eci  # km
 
     for body_id in range(1, mjm.nbody):
         if mjm.body_mass[body_id] <= 0.0:
             continue
 
         # Body COM position in ECI (km)
-        r_lvlh_km = mjd.xipos[body_id] * 1e-3
-        r_body_eci = R_ref_eci + fc.C_IL @ r_lvlh_km
+        r_body_eci = mjd.xipos[body_id] * 1e-3
         R_mag = float(np.linalg.norm(r_body_eci))
         if R_mag < 1e-9:
             continue
 
-        # Radial direction in the world (LVLH) frame. The formula is sign invariant.
-        r_hat_lvlh = fc.C_LI @ (r_body_eci / R_mag)
+        # Radial direction in the world (= ECI) frame. The formula is sign invariant.
+        r_hat_world = r_body_eci / R_mag
 
         # Inertia tensor in the world frame via the inertia-frame rotation.
         # ximat is world-from-principal-axes; equals xmat only when body_iquat
@@ -69,6 +64,6 @@ def apply_gravity_gradient_torques(model: MjoModel, data: MjoData) -> None:
         J_world = R_wi @ np.diag(mjm.body_inertia[body_id]) @ R_wi.T
 
         coeff = 3.0 * GM_EARTH / R_mag**3  # 1/s²
-        tau_world = coeff * np.cross(r_hat_lvlh, J_world @ r_hat_lvlh)
+        tau_world = coeff * np.cross(r_hat_world, J_world @ r_hat_world)
 
         data.wrench_buffer[body_id, 3:] += tau_world

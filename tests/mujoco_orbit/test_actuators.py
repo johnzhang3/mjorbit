@@ -203,7 +203,7 @@ class TestMagnetorquer:
         )
         data.actuators.mtq_dipole_cmd[0] = 5.0
         b_test = np.array([0.0, 0.0, 1e-5])
-        data.env.mag_field_eci = data.frame.C_IL @ b_test
+        data.env.mag_field_eci = b_test
 
         data.clear_wrench_buffer()
         _apply_magnetorquers(model, data)
@@ -222,7 +222,7 @@ class TestMagnetorquer:
         )
         data.actuators.mtq_dipole_cmd[0] = 10.0
         b_test = np.array([1e-5, 0.0, 0.0])
-        data.env.mag_field_eci = data.frame.C_IL @ b_test
+        data.env.mag_field_eci = b_test
 
         data.clear_wrench_buffer()
         _apply_magnetorquers(model, data)
