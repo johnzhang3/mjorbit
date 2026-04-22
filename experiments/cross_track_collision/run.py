@@ -1,12 +1,17 @@
-"""Cross-track collision experiment using the mujoco_orbit simulator API.
+"""Offset cross-track collision experiment using the mujoco_orbit simulator API.
 
-Two equal boxes start on the LVLH cross-track axis and collide head-on.  The
-simulation is run continuously with ``mjo_step`` from before impact through the
-post-impact coast.  For interpretation, the plots include two references seeded
-from the simulator state just after contact ends:
+Two equal boxes start with a cross-track closing velocity and a small lateral
+offset.  The lateral offset is still inside the box contact footprint, so the
+boxes initially collide.  The relative state also includes a bounded in-plane CW
+component, so on the next cross-track return the boxes have lateral clearance
+and pass around each other rather than colliding again.
+
+The simulation is run continuously with ``mjo_step`` from before impact through
+one chief orbit.  For interpretation, the plots include two references seeded
+from the simulator state just after the first contact ends:
 
 - a zero-g constant-velocity reference, where the boxes drift apart forever
-- the CW cross-track oscillator, z(t) = z0 cos(n t) + zdot0 / n sin(n t)
+- the full CW relative-motion solution
 
 Figures are saved under ``experiments/cross_track_collision/figures``.
 
@@ -33,9 +38,12 @@ FIGURE_DIR = EXPERIMENT_DIR / "figures"
 ALT_KM = 400.0
 INCLINATION_DEG = 51.6
 TIMESTEP = 0.02
-INITIAL_HALF_SEPARATION_M = 2.0
+INITIAL_RELATIVE_POSITION_M = np.array([0.45, 0.45, 4.0])
+INITIAL_RELATIVE_RADIAL_VELOCITY_M_S = -1.5e-4
 IMPACT_SPEED_M_S = 5.0
-SIM_ORBIT_FRACTION = 1
+BOX_HALF_SIZE_M = 0.3
+CONTACT_FOOTPRINT_M = 2.0 * BOX_HALF_SIZE_M
+SIM_ORBIT_FRACTION = 1.0
 
 
 @dataclass(frozen=True)
@@ -49,10 +57,27 @@ class Trajectory:
     mean_motion: float
 
 
-def cw_cross_track(z0: float, vz0: float, mean_motion: float, dt: np.ndarray) -> np.ndarray:
-    """CW cross-track relative position for elapsed time ``dt``."""
+def cw_relative(
+    pos0: np.ndarray, vel0: np.ndarray, mean_motion: float, dt: np.ndarray
+) -> np.ndarray:
+    """Clohessy-Wiltshire relative position for elapsed time ``dt``."""
     phase = mean_motion * dt
-    return z0 * np.cos(phase) + vz0 / mean_motion * np.sin(phase)
+    cn = np.cos(phase)
+    sn = np.sin(phase)
+
+    x0, y0, z0 = pos0
+    vx0, vy0, vz0 = vel0
+    n = mean_motion
+
+    x = (4.0 - 3.0 * cn) * x0 + sn / n * vx0 + 2.0 / n * (1.0 - cn) * vy0
+    y = (
+        6.0 * (sn - phase) * x0
+        + y0
+        - 2.0 / n * (1.0 - cn) * vx0
+        + (4.0 * sn - 3.0 * phase) / n * vy0
+    )
+    z = z0 * cn + vz0 / n * sn
+    return np.column_stack((x, y, z))
 
 
 def relative_position(data: MjoData) -> np.ndarray:
@@ -65,16 +90,25 @@ def relative_velocity(data: MjoData) -> np.ndarray:
     return data.qvel[6:9].copy() - data.qvel[0:3].copy()
 
 
-def configure_cross_track_collision(data: MjoData) -> None:
-    """Place the two free boxes on the cross-track axis with opposing velocities."""
-    data.qpos[0:3] = [0.0, 0.0, -INITIAL_HALF_SEPARATION_M]
+def configure_cross_track_collision(data: MjoData, mean_motion: float) -> None:
+    """Place the boxes on an offset cross-track collision course."""
+    rel_pos = INITIAL_RELATIVE_POSITION_M
+    rel_vel = np.array(
+        [
+            INITIAL_RELATIVE_RADIAL_VELOCITY_M_S,
+            -2.0 * mean_motion * rel_pos[0],
+            -2.0 * IMPACT_SPEED_M_S,
+        ]
+    )
+
+    data.qpos[0:3] = -0.5 * rel_pos
     data.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]
-    data.qpos[7:10] = [0.0, 0.0, INITIAL_HALF_SEPARATION_M]
+    data.qpos[7:10] = 0.5 * rel_pos
     data.qpos[10:14] = [1.0, 0.0, 0.0, 0.0]
 
     data.qvel[:] = 0.0
-    data.qvel[2] = IMPACT_SPEED_M_S
-    data.qvel[8] = -IMPACT_SPEED_M_S
+    data.qvel[0:3] = -0.5 * rel_vel
+    data.qvel[6:9] = 0.5 * rel_vel
 
 
 def make_orbit_init() -> tuple[OrbitInit, float]:
@@ -109,7 +143,7 @@ def run_orbit_simulation() -> Trajectory:
     orbit_init, mean_motion = make_orbit_init()
     model = make_model()
     data = MjoData(model, orbit=orbit_init)
-    configure_cross_track_collision(data)
+    configure_cross_track_collision(data, mean_motion)
     mjo_forward(model, data)
 
     orbit_period = 2.0 * np.pi / mean_motion
@@ -138,38 +172,64 @@ def run_orbit_simulation() -> Trajectory:
     )
 
 
-def first_post_contact_index(contact_count: np.ndarray) -> int:
-    """Return the first sample after the initial contact interval ends."""
+def contact_intervals(contact_count: np.ndarray) -> list[tuple[int, int]]:
+    """Return inclusive index intervals where contact is active."""
     contact_indices = np.flatnonzero(contact_count > 0)
     if contact_indices.size == 0:
+        return []
+
+    intervals: list[tuple[int, int]] = []
+    start = contact_indices[0]
+    previous = contact_indices[0]
+    for idx in contact_indices[1:]:
+        if idx == previous + 1:
+            previous = idx
+        else:
+            intervals.append((start, previous))
+            start = idx
+            previous = idx
+    intervals.append((start, previous))
+    return intervals
+
+
+def first_post_contact_index(contact_count: np.ndarray) -> int:
+    """Return the first sample after the initial contact interval ends."""
+    intervals = contact_intervals(contact_count)
+    if not intervals:
         raise RuntimeError("No contact was detected in the orbit-coupled simulation.")
 
-    last_initial_contact = contact_indices[0]
-    for idx in contact_indices[1:]:
-        if idx == last_initial_contact + 1:
-            last_initial_contact = idx
-            continue
-        break
-
-    post_contact_idx = last_initial_contact + 1
+    post_contact_idx = intervals[0][1] + 1
     if post_contact_idx >= contact_count.size:
         raise RuntimeError("Contact did not end before the simulation finished.")
     return post_contact_idx
 
 
 def post_contact_references(trajectory: Trajectory, post_idx: int) -> tuple[np.ndarray, np.ndarray]:
-    """Return zero-g and CW cross-track references seeded from the same post-impact state."""
-    zero_g = np.full_like(trajectory.time, np.nan, dtype=float)
-    cw = np.full_like(trajectory.time, np.nan, dtype=float)
+    """Return zero-g and CW references seeded from the same post-impact state."""
+    zero_g = np.full_like(trajectory.rel_pos, np.nan, dtype=float)
+    cw = np.full_like(trajectory.rel_pos, np.nan, dtype=float)
 
     t0 = trajectory.time[post_idx]
-    z0 = trajectory.rel_pos[post_idx, 2]
-    vz0 = trajectory.rel_vel[post_idx, 2]
+    pos0 = trajectory.rel_pos[post_idx]
+    vel0 = trajectory.rel_vel[post_idx]
     dt = trajectory.time[post_idx:] - t0
 
-    zero_g[post_idx:] = z0 + vz0 * dt
-    cw[post_idx:] = cw_cross_track(z0, vz0, trajectory.mean_motion, dt)
+    zero_g[post_idx:] = pos0 + dt[:, None] * vel0
+    cw[post_idx:] = cw_relative(pos0, vel0, trajectory.mean_motion, dt)
     return zero_g, cw
+
+
+def shade_contact_intervals(ax, trajectory: Trajectory, *, label_first: bool = False) -> None:
+    """Shade contact intervals on a time-axis plot."""
+    for interval_idx, (start, end) in enumerate(contact_intervals(trajectory.contact_count)):
+        label = "contact" if label_first and interval_idx == 0 else None
+        ax.axvspan(
+            trajectory.time[start],
+            trajectory.time[min(end + 1, trajectory.time.size - 1)],
+            color="0.85",
+            alpha=0.7,
+            label=label,
+        )
 
 
 def save_cross_track_plot(
@@ -178,16 +238,12 @@ def save_cross_track_plot(
     """Save relative cross-track position vs time."""
     fig, ax = plt.subplots(figsize=(8.0, 4.8), constrained_layout=True)
     ax.plot(trajectory.time, trajectory.rel_pos[:, 2], label="mujoco_orbit")
-    ax.plot(trajectory.time, zero_g, "--", label="zero-g reference")
-    ax.plot(trajectory.time, cw, ":", linewidth=2.2, label="CW reference")
-    ax.axvspan(
-        trajectory.time[np.argmax(trajectory.contact_count > 0)],
-        trajectory.time[post_idx],
-        color="0.85",
-        alpha=0.7,
-        label="contact",
-    )
-    ax.set_title("Cross-track separation after impact")
+    ax.plot(trajectory.time, zero_g[:, 2], "--", label="zero-g reference")
+    ax.plot(trajectory.time, cw[:, 2], ":", linewidth=2.2, label="CW reference")
+    ax.axhline(CONTACT_FOOTPRINT_M, color="0.55", linestyle="-.", linewidth=1.0)
+    ax.axhline(-CONTACT_FOOTPRINT_M, color="0.55", linestyle="-.", linewidth=1.0)
+    shade_contact_intervals(ax, trajectory, label_first=True)
+    ax.set_title("Cross-track separation after offset impact")
     ax.set_xlabel("time [s]")
     ax.set_ylabel("relative z [m]")
     ax.grid(True, alpha=0.3)
@@ -200,7 +256,7 @@ def save_cross_track_plot(
 
 
 def save_phase_plot(trajectory: Trajectory, post_idx: int) -> Path:
-    """Save the cross-track phase plane, where the bounded motion is circular."""
+    """Save the cross-track phase plane, where the bounded z motion is circular."""
     z0 = trajectory.rel_pos[post_idx, 2]
     vz0 = trajectory.rel_vel[post_idx, 2]
     phase_radius = np.hypot(z0, vz0 / trajectory.mean_motion)
@@ -232,13 +288,64 @@ def save_phase_plot(trajectory: Trajectory, post_idx: int) -> Path:
     return path
 
 
+def save_lateral_clearance_plot(trajectory: Trajectory) -> Path:
+    """Save lateral offsets relative to the box contact footprint."""
+    fig, ax = plt.subplots(figsize=(8.0, 4.8), constrained_layout=True)
+    ax.plot(trajectory.time, trajectory.rel_pos[:, 0], label="x radial")
+    ax.plot(trajectory.time, trajectory.rel_pos[:, 1], label="y along-track")
+    ax.axhline(CONTACT_FOOTPRINT_M, color="0.45", linestyle="--", linewidth=1.0)
+    ax.axhline(-CONTACT_FOOTPRINT_M, color="0.45", linestyle="--", linewidth=1.0)
+    shade_contact_intervals(ax, trajectory, label_first=True)
+    ax.set_title("Lateral clearance at cross-track returns")
+    ax.set_xlabel("time [s]")
+    ax.set_ylabel("relative lateral offset [m]")
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best")
+
+    path = FIGURE_DIR / "lateral_clearance.png"
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+    return path
+
+
+def save_relative_trajectory_plot(trajectory: Trajectory, post_idx: int, cw: np.ndarray) -> Path:
+    """Save the 3D relative trajectory after first contact."""
+    fig = plt.figure(figsize=(7.0, 6.2), constrained_layout=True)
+    ax = fig.add_subplot(111, projection="3d")
+    ax.plot(
+        trajectory.rel_pos[post_idx:, 0],
+        trajectory.rel_pos[post_idx:, 1],
+        trajectory.rel_pos[post_idx:, 2],
+        label="mujoco_orbit",
+    )
+    ax.plot(cw[post_idx:, 0], cw[post_idx:, 1], cw[post_idx:, 2], "--", label="CW reference")
+    ax.scatter(
+        [trajectory.rel_pos[post_idx, 0]],
+        [trajectory.rel_pos[post_idx, 1]],
+        [trajectory.rel_pos[post_idx, 2]],
+        s=35,
+        label="post-impact state",
+    )
+    ax.set_title("Post-impact relative trajectory")
+    ax.set_xlabel("x radial [m]")
+    ax.set_ylabel("y along-track [m]")
+    ax.set_zlabel("z cross-track [m]")
+    ax.legend(loc="best")
+
+    path = FIGURE_DIR / "relative_trajectory_3d.png"
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+    return path
+
+
 def save_component_plot(trajectory: Trajectory, post_idx: int) -> Path:
-    """Save all relative position components to show the collision is cross-track."""
+    """Save all relative position components."""
     fig, ax = plt.subplots(figsize=(8.0, 4.8), constrained_layout=True)
     ax.plot(trajectory.time, trajectory.rel_pos[:, 0], label="x radial")
     ax.plot(trajectory.time, trajectory.rel_pos[:, 1], label="y along-track")
     ax.plot(trajectory.time, trajectory.rel_pos[:, 2], label="z cross-track")
     ax.axvline(trajectory.time[post_idx], color="0.35", linestyle="--", label="post-contact")
+    shade_contact_intervals(ax, trajectory)
     ax.set_title("Relative position components")
     ax.set_xlabel("time [s]")
     ax.set_ylabel("relative position [m]")
@@ -261,6 +368,8 @@ def main() -> None:
     paths = [
         save_cross_track_plot(trajectory, post_idx, zero_g, cw),
         save_phase_plot(trajectory, post_idx),
+        save_lateral_clearance_plot(trajectory),
+        save_relative_trajectory_plot(trajectory, post_idx, cw),
         save_component_plot(trajectory, post_idx),
     ]
 
