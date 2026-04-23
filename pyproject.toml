@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["scikit-build-core>=0.9", "mujoco>=3.3"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name = "mujoco-orbit"
@@ -30,12 +30,13 @@ dev = [
     "pyright>=1.1.0",
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/mujoco_orbit", "src/viewer"]
-include = ["src/mujoco_orbit/testdata/*.xml"]
-
-[tool.hatch.build.targets.sdist]
-include = ["src/mujoco_orbit/testdata/*.xml"]
+[tool.scikit-build]
+cmake.source-dir = "cpp"
+cmake.version = ">=3.18"
+wheel.packages = ["src/mujoco_orbit", "src/viewer"]
+# ship XML testdata with the wheel
+wheel.exclude = []
+sdist.include = ["src/mujoco_orbit/testdata/*.xml", "cpp/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
