@@ -14,7 +14,7 @@ Usage:
 
 Controls (browser):
     - Scroll to zoom, drag to orbit the camera
-    - This example renders in ECI, so the pair visibly orbits Earth
+    - This example renders in ECI, so the chief-relative pair visibly orbits Earth
     - Use the local-scale controls to grow/shrink the bodies relative to Earth
     - Use the speed slider to fast-forward through CW drift
 """
@@ -56,10 +56,10 @@ def main() -> None:
 
     # ------------------------------------------------------------------
     # Initial conditions — Body A approaches Body B
-    # Body A: qvel[0:6], Body B: qvel[6:12]
-    # Give Body A a +x (radial) velocity of 1 m/s toward Body B
+    # Body A: qvel[0:6], Body B: qvel[6:12].
+    # Add +x chief-inertial velocity to Body A; initially +x is radial.
     # ------------------------------------------------------------------
-    data.qvel[6] = -0.5  # body_a vx = +1 m/s (radial, toward body_b)
+    data.qvel[0] += 1.0
 
     from mujoco_orbit import mjo_forward
     mjo_forward(model, data)
@@ -91,7 +91,7 @@ def main() -> None:
     print("  diverging CW trajectories.  Speed up with the")
     print("  slider to watch the along-track drift grow.")
     print()
-    print("  Render : ECI (the pair moves around Earth)")
+    print("  Render : ECI (chief-relative state translated along the orbit)")
     print("  Scale  : viewer starts at 10000x local scale")
     print()
 

@@ -3,6 +3,8 @@
 These actuators are modeled outside MuJoCo rigid-body state on purpose:
 - reaction wheels spin far faster than articulated-body timescales
 - magnetorquers and thrusters have no meaningful internal degrees of freedom
+- control moment gyros carry a constant-magnitude rotor momentum whose direction
+  is steered by gimbal angles, which live outside MuJoCo state
 """
 
 from __future__ import annotations
@@ -28,9 +30,23 @@ class ActuatorData:
     # Thrusters — commanded force magnitude
     thr_force_cmd: np.ndarray  # shape (n_thr,) N
 
+    # Control moment gyros
+    cmg_gimbal_angle: np.ndarray  # shape (n_cmg,) rad
+    cmg_gimbal_rate_cmd: np.ndarray  # shape (n_cmg,) rad/s
+    cmg_rotor_momentum: np.ndarray  # shape (n_cmg,) kg·m^2/s (constant per CMG)
+
     @classmethod
-    def zeros(cls, n_rw: int, rw_inertia: np.ndarray, n_mtq: int, n_thr: int) -> "ActuatorData":
+    def zeros(
+        cls,
+        n_rw: int,
+        rw_inertia: np.ndarray,
+        n_mtq: int,
+        n_thr: int,
+        n_cmg: int,
+        cmg_rotor_momentum: np.ndarray,
+    ) -> "ActuatorData":
         inertia = np.asarray(rw_inertia, dtype=float)
+        cmg_h = np.asarray(cmg_rotor_momentum, dtype=float)
         return cls(
             rw_speed=np.zeros(n_rw),
             rw_momentum=np.zeros(n_rw),
@@ -38,6 +54,9 @@ class ActuatorData:
             rw_torque_cmd=np.zeros(n_rw),
             mtq_dipole_cmd=np.zeros(n_mtq),
             thr_force_cmd=np.zeros(n_thr),
+            cmg_gimbal_angle=np.zeros(n_cmg),
+            cmg_gimbal_rate_cmd=np.zeros(n_cmg),
+            cmg_rotor_momentum=cmg_h.copy(),
         )
 
     def update_rw_momentum(self, rw_inertia: np.ndarray | None = None) -> None:

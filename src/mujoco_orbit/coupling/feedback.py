@@ -7,12 +7,11 @@ What feeds back:
   - Thruster forces (translational)
   - Drag forces (translational)
   - SRP forces (translational)
-  - Net gravity/J2 over the distributed mass model (usually near-zero for close bodies)
 
 What does NOT feed back:
   - Reaction wheel torques (internal angular momentum exchange)
   - Magnetorquer torques (no translational component)
-  - Inertial coupling forces (these are fictitious forces that cancel at the system level)
+  - Gravity forces already represented by the reference orbit propagator
 
 Units: N, N·m (SI).
 """
@@ -22,6 +21,7 @@ from __future__ import annotations
 import numpy as np
 
 from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.coupling.inertial import chief_gravity, differential_gravity_force
 
 
 def compute_net_external_wrench(data: MjoData) -> tuple[np.ndarray, np.ndarray]:
@@ -41,12 +41,12 @@ def compute_orbit_feedback_accel(
     data: MjoData,
     net_force_world: np.ndarray,
 ) -> np.ndarray:
-    """Convert net external force in world (LVLH) frame to ECI acceleration for orbit feedback.
+    """Convert net external force in world (ECI) frame to ECI acceleration for orbit feedback.
 
     Args:
         model: compiled model (provides mass)
         data: runtime state (provides frame cache)
-        net_force_world: net external force in LVLH/world frame, N
+        net_force_world: net external force in chief-inertial/world frame, N
 
     Returns:
         acceleration in ECI, km/s^2
@@ -56,10 +56,24 @@ def compute_orbit_feedback_accel(
     if total_mass <= 0.0:
         return np.zeros(3)
 
-    # Force (N) -> acceleration (m/s^2) -> km/s^2
-    a_world = net_force_world / total_mass  # m/s^2
-    a_world_km = a_world * 1e-3  # km/s^2
+    gravity_force = np.zeros(3)
+    g_chief = chief_gravity(data, model)
+    for body_id in range(1, model.nbody):
+        mass = model.body_mass[body_id]
+        if mass <= 0.0:
+            continue
+        gravity_force += differential_gravity_force(
+            model,
+            data,
+            body_id,
+            chief_accel=g_chief,
+        )
 
-    # Rotate from LVLH to ECI
-    a_eci = data.frame.C_IL @ a_world_km
-    return a_eci
+    # Force (N) -> acceleration (m/s^2) -> km/s^2. The wrench buffer includes
+    # chief-relative gravity applied to MuJoCo bodies, while the reference orbit
+    # propagator already applies chief gravity. Subtract differential body gravity
+    # here so only non-gravitational external loads feed back into the chief orbit.
+    non_gravity_force = net_force_world - gravity_force
+    a_feedback_eci = (non_gravity_force / total_mass) * 1e-3
+
+    return a_feedback_eci

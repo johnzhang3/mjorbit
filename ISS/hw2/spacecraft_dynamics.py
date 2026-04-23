@@ -43,6 +43,14 @@ from common import (
 from mujoco_orbit import mjo_forward, mjo_step
 
 np.random.seed(42)
+plt.rcParams.update({
+    "axes.titlesize": 13,
+    "axes.labelsize": 11,
+    "figure.titlesize": 16,
+    "legend.fontsize": 10,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+})
 
 
 # ---------------------------------------------------------------------------
@@ -174,8 +182,8 @@ def main() -> None:
     ax1.set_ylabel("Quaternion component")
     ax1.set_title(f"Attitude Quaternion — Coupled Gyrostat + Orbit Simulation\n"
                   f"Perturbed ISS, 10 RPM about +Z, 1% IC perturbation, T_nut ~ {T_nutation:.1f} s",
-                  fontsize=11)
-    ax1.legend(fontsize=9)
+                  fontsize=14)
+    ax1.legend(fontsize=10)
     ax1.grid(True, alpha=0.3)
     ax1.set_ylim(-1.1, 1.1)
     plt.tight_layout()
@@ -190,7 +198,7 @@ def main() -> None:
     ax2.set_ylabel("Pointing error (deg)")
     ax2.set_title(f"Solar Panel Normal Pointing Error\n"
                   f"Angle between body +Z and sun direction (+X ECI), T_nut ~ {T_nutation:.1f} s",
-                  fontsize=11)
+                  fontsize=14)
     ax2.grid(True, alpha=0.3)
     plt.tight_layout()
     fig2.savefig(plot_dir / "spacecraft_dynamics_pointing.png", dpi=200, bbox_inches="tight")
@@ -206,8 +214,8 @@ def main() -> None:
     ax3.set_xlabel("Time (s)")
     ax3.set_ylabel("omega (rad/s)")
     ax3.set_title("Angular Velocity (Body Frame) — Coupled Simulation\n"
-                  "Nutation period markers shown as dashed lines", fontsize=11)
-    ax3.legend(fontsize=9)
+                  "Nutation period markers shown as dashed lines", fontsize=14)
+    ax3.legend(fontsize=10)
     ax3.grid(True, alpha=0.3)
     plt.tight_layout()
     fig3.savefig(plot_dir / "spacecraft_dynamics_omega.png", dpi=200, bbox_inches="tight")

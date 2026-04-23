@@ -53,24 +53,26 @@ def main() -> None:
     # ----------------------------------------------------------------
     print("--- Part 1: Free Drift (5 s, no control) ---")
     orbit_0 = data.orbit.copy()
-    com_0 = np.average(
+    com_0_world = np.average(
         [mjd.xipos[i] for i in range(1, mjm.nbody)],
         weights=[mjm.body_mass[i] for i in range(1, mjm.nbody)],
         axis=0,
     )
+    com_0 = data.lvlh_position_from_world(com_0_world)
 
     dt = mjm.opt.timestep
     n_steps_1 = int(5.0 / dt)
     for _ in range(n_steps_1):
         mjo_step(model, data)
 
-    com_1 = np.average(
+    com_1_world = np.average(
         [mjd.xipos[i] for i in range(1, mjm.nbody)],
         weights=[mjm.body_mass[i] for i in range(1, mjm.nbody)],
         axis=0,
     )
+    com_1 = data.lvlh_position_from_world(com_1_world)
     com_drift = np.linalg.norm(com_1 - com_0)
-    print(f"  System COM drift: {com_drift:.6e} m")
+    print(f"  System COM drift relative to chief: {com_drift:.6e} m")
     print(
         f"  All states finite: {np.all(np.isfinite(mjd.qpos)) and np.all(np.isfinite(mjd.qvel))}"
     )
@@ -95,11 +97,11 @@ def main() -> None:
         mjo_step(model, data)
         if i % 500 == 0:
             ee_id = model.body_id("ee")
-            ee_pos = mjd.xipos[ee_id].copy()
+            ee_pos = data.lvlh_position_from_world(mjd.xipos[ee_id])
             ee_positions.append(ee_pos)
 
     ee_id = model.body_id("ee")
-    ee_final = mjd.xipos[ee_id].copy()
+    ee_final = data.lvlh_position_from_world(mjd.xipos[ee_id])
     print(
         "  End-effector final pos (LVLH): "
         f"[{ee_final[0]:.4f}, {ee_final[1]:.4f}, {ee_final[2]:.4f}] m"

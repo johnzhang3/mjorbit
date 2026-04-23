@@ -12,6 +12,7 @@ import numpy as np
 
 from mujoco_orbit.core.actuators import ActuatorData
 from mujoco_orbit.core.config import (
+    ControlMomentGyroSpec,
     MagneticBodySpec,
     MagnetorquerSpec,
     OrbitInit,
@@ -75,6 +76,20 @@ class MagnetorquerMetadata:
     body_id: int
     axis_body: np.ndarray
     dipole_limit: float
+
+
+@dataclass(frozen=True)
+class ControlMomentGyroMetadata:
+    """Resolved control moment gyro metadata."""
+
+    body_name: str
+    body_id: int
+    gimbal_axis_body: np.ndarray
+    spin_axis_body_0: np.ndarray
+    torque_axis_body_0: np.ndarray  # gimbal_axis × spin_axis_0 (unit)
+    rotor_momentum: float
+    gimbal_rate_limit: float | None
+    gimbal_angle_limit: float | None
 
 
 @dataclass(frozen=True)
@@ -182,6 +197,44 @@ def _resolve_magnetorquers(
     return resolved
 
 
+def _resolve_cmgs(
+    mj_model: mujoco.MjModel, cmgs: Iterable[ControlMomentGyroSpec]
+) -> list[ControlMomentGyroMetadata]:
+    resolved: list[ControlMomentGyroMetadata] = []
+    for cmg in cmgs:
+        gimbal_axis = _normalized(
+            cmg.gimbal_axis_body, f"CMG '{cmg.body_name}' gimbal axis"
+        )
+        spin_axis_0 = _normalized(
+            cmg.spin_axis_body_0, f"CMG '{cmg.body_name}' spin axis"
+        )
+        dot = float(np.dot(gimbal_axis, spin_axis_0))
+        if abs(dot) > 1e-8:
+            raise ValueError(
+                f"CMG '{cmg.body_name}' spin axis must be orthogonal to gimbal axis "
+                f"(dot product = {dot:.3e})"
+            )
+        torque_axis_0 = np.cross(gimbal_axis, spin_axis_0)
+        if cmg.rotor_momentum <= 0.0:
+            raise ValueError(
+                f"CMG '{cmg.body_name}' rotor_momentum must be positive "
+                f"(got {cmg.rotor_momentum})"
+            )
+        resolved.append(
+            ControlMomentGyroMetadata(
+                body_name=cmg.body_name,
+                body_id=_resolve_body_id(mj_model, cmg.body_name),
+                gimbal_axis_body=gimbal_axis,
+                spin_axis_body_0=spin_axis_0,
+                torque_axis_body_0=torque_axis_0,
+                rotor_momentum=float(cmg.rotor_momentum),
+                gimbal_rate_limit=cmg.gimbal_rate_limit,
+                gimbal_angle_limit=cmg.gimbal_angle_limit,
+            )
+        )
+    return resolved
+
+
 def _resolve_thrusters(
     mj_model: mujoco.MjModel, thrusters: Iterable[ThrusterSpec]
 ) -> list[ThrusterMetadata]:
@@ -212,15 +265,20 @@ class MjoModel:
     reaction_wheels: list[ReactionWheelMetadata]
     magnetorquers: list[MagnetorquerMetadata]
     thrusters: list[ThrusterMetadata]
+    cmgs: list[ControlMomentGyroMetadata]
     sensors: ModelSensorCatalog
     use_j2: bool = True
     use_drag: bool = True
     use_srp: bool = True
     use_magnetic: bool = True
+    use_gravity_gradient: bool = True
     orbit_dt: float | None = None
 
     def __post_init__(self) -> None:
         self.rw_inertia = np.array([wheel.inertia for wheel in self.reaction_wheels], dtype=float)
+        self.cmg_rotor_momentum = np.array(
+            [cmg.rotor_momentum for cmg in self.cmgs], dtype=float
+        )
 
     @classmethod
     def from_xml_path(
@@ -232,12 +290,14 @@ class MjoModel:
         reaction_wheels: Iterable[ReactionWheelSpec] = (),
         magnetorquers: Iterable[MagnetorquerSpec] = (),
         thrusters: Iterable[ThrusterSpec] = (),
+        cmgs: Iterable[ControlMomentGyroSpec] = (),
         mj_timestep: float | None = 0.01,
         orbit_dt: float | None = None,
         use_j2: bool = True,
         use_drag: bool = True,
         use_srp: bool = True,
         use_magnetic: bool = True,
+        use_gravity_gradient: bool = True,
     ) -> "MjoModel":
         """Compile a MuJoCo model plus static orbital coupling metadata."""
         sensor_callback = mujoco.get_mjcb_sensor()
@@ -262,11 +322,13 @@ class MjoModel:
             reaction_wheels=_resolve_reaction_wheels(mj_model, reaction_wheels),
             magnetorquers=_resolve_magnetorquers(mj_model, magnetorquers),
             thrusters=_resolve_thrusters(mj_model, thrusters),
+            cmgs=_resolve_cmgs(mj_model, cmgs),
             sensors=compile_sensor_catalog(mj_model),
             use_j2=use_j2,
             use_drag=use_drag,
             use_srp=use_srp,
             use_magnetic=use_magnetic,
+            use_gravity_gradient=use_gravity_gradient,
             orbit_dt=orbit_dt,
         )
 
@@ -303,6 +365,8 @@ class MjoData:
             model.rw_inertia,
             len(model.magnetorquers),
             len(model.thrusters),
+            len(model.cmgs),
+            model.cmg_rotor_momentum,
         )
         self.actuators.update_rw_momentum(model.rw_inertia)
         self.wrench_buffer = np.zeros((model.nbody, 6))
@@ -312,6 +376,7 @@ class MjoData:
             rng_seed=rng_seed,
         )
         register_sensor_data_namespace(self.sensors)
+        self._initialize_freejoints_in_chief_inertial()
 
         from mujoco_orbit.core.step import mjo_forward
 
@@ -325,8 +390,111 @@ class MjoData:
         self.wrench_buffer[:] = 0.0
         self.xfrc_applied[:] = 0.0
 
+    def world_position_from_lvlh(self, position_lvlh_m: np.ndarray) -> np.ndarray:
+        """Convert a chief-relative LVLH position to MuJoCo world meters.
+
+        The MuJoCo world frame is chief-centered with axes parallel to ECI.
+        """
+        position_lvlh_km = np.asarray(position_lvlh_m, dtype=float) * 1e-3
+        return 1000.0 * (self.frame.C_IL @ position_lvlh_km)
+
+    def world_velocity_from_lvlh(
+        self,
+        position_lvlh_m: np.ndarray,
+        velocity_lvlh_m_s: np.ndarray,
+    ) -> np.ndarray:
+        """Convert chief-relative LVLH velocity to MuJoCo world m/s."""
+        position_lvlh_km = np.asarray(position_lvlh_m, dtype=float) * 1e-3
+        velocity_lvlh_km_s = np.asarray(velocity_lvlh_m_s, dtype=float) * 1e-3
+        relative_eci_km_s = self.frame.C_IL @ (
+            velocity_lvlh_km_s + np.cross(self.frame.omega_lvlh, position_lvlh_km)
+        )
+        return 1000.0 * relative_eci_km_s
+
+    def lvlh_position_from_world(self, position_world_m: np.ndarray) -> np.ndarray:
+        """Convert MuJoCo world meters to chief-relative LVLH meters."""
+        position_world_km = np.asarray(position_world_m, dtype=float) * 1e-3
+        return 1000.0 * (self.frame.C_LI @ position_world_km)
+
+    def lvlh_velocity_from_world(
+        self,
+        position_world_m: np.ndarray,
+        velocity_world_m_s: np.ndarray,
+    ) -> np.ndarray:
+        """Convert MuJoCo world velocity to chief-relative LVLH m/s."""
+        position_lvlh_km = self.lvlh_position_from_world(position_world_m) * 1e-3
+        velocity_world_km_s = np.asarray(velocity_world_m_s, dtype=float) * 1e-3
+        velocity_lvlh_km_s = (
+            self.frame.C_LI @ velocity_world_km_s
+            - np.cross(self.frame.omega_lvlh, position_lvlh_km)
+        )
+        return 1000.0 * velocity_lvlh_km_s
+
+    def eci_position_from_world(self, position_world_m: np.ndarray) -> np.ndarray:
+        """Convert MuJoCo chief-inertial world meters to absolute ECI meters."""
+        position_world_km = np.asarray(position_world_m, dtype=float) * 1e-3
+        return 1000.0 * (self.orbit.R_eci + position_world_km)
+
+    def eci_velocity_from_world(self, velocity_world_m_s: np.ndarray) -> np.ndarray:
+        """Convert MuJoCo chief-inertial world velocity to absolute ECI m/s."""
+        velocity_world_km_s = np.asarray(velocity_world_m_s, dtype=float) * 1e-3
+        return 1000.0 * (self.orbit.V_eci + velocity_world_km_s)
+
+    def world_position_from_eci(self, position_eci_m: np.ndarray) -> np.ndarray:
+        """Convert absolute ECI meters to MuJoCo chief-inertial world meters."""
+        position_eci_km = np.asarray(position_eci_m, dtype=float) * 1e-3
+        return 1000.0 * (position_eci_km - self.orbit.R_eci)
+
+    def world_velocity_from_eci(self, velocity_eci_m_s: np.ndarray) -> np.ndarray:
+        """Convert absolute ECI velocity to MuJoCo chief-inertial world m/s."""
+        velocity_eci_km_s = np.asarray(velocity_eci_m_s, dtype=float) * 1e-3
+        return 1000.0 * (velocity_eci_km_s - self.orbit.V_eci)
+
+    def eci_position_from_lvlh(self, position_lvlh_m: np.ndarray) -> np.ndarray:
+        """Convert a chief-relative LVLH position to absolute ECI meters."""
+        return self.eci_position_from_world(self.world_position_from_lvlh(position_lvlh_m))
+
+    def eci_velocity_from_lvlh(
+        self,
+        position_lvlh_m: np.ndarray,
+        velocity_lvlh_m_s: np.ndarray,
+    ) -> np.ndarray:
+        """Convert chief-relative LVLH velocity to absolute ECI m/s."""
+        return self.eci_velocity_from_world(
+            self.world_velocity_from_lvlh(position_lvlh_m, velocity_lvlh_m_s)
+        )
+
+    def lvlh_position_from_eci(self, position_eci_m: np.ndarray) -> np.ndarray:
+        """Convert absolute ECI meters to chief-relative LVLH meters."""
+        return self.lvlh_position_from_world(self.world_position_from_eci(position_eci_m))
+
+    def lvlh_velocity_from_eci(
+        self,
+        position_eci_m: np.ndarray,
+        velocity_eci_m_s: np.ndarray,
+    ) -> np.ndarray:
+        """Convert absolute ECI velocity to chief-relative LVLH m/s."""
+        position_lvlh_km = self.lvlh_position_from_eci(position_eci_m) * 1e-3
+        velocity_eci_km_s = np.asarray(velocity_eci_m_s, dtype=float) * 1e-3
+        velocity_lvlh_km_s = (
+            self.frame.C_LI @ (velocity_eci_km_s - self.orbit.V_eci)
+            - np.cross(self.frame.omega_lvlh, position_lvlh_km)
+        )
+        return 1000.0 * velocity_lvlh_km_s
+
+    def _initialize_freejoints_in_chief_inertial(self) -> None:
+        """Keep free-joint XML positions as chief-centered inertial offsets.
+
+        The orbit layer stores the chief reference state in km/km/s, while MuJoCo
+        stores local multibody state in SI units. Root free-joint ``pos`` and
+        ``qvel`` values are therefore interpreted directly as relative inertial
+        offsets from the chief, not as absolute ECI coordinates.
+        """
+        return
+
 
 __all__ = [
+    "ControlMomentGyroMetadata",
     "MagneticMetadata",
     "MjoData",
     "MjoModel",

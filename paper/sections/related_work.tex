@@ -1,0 +1,45 @@
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Astrodynamics and Spacecraft Simulation}
+
+Mission-analysis and astrodynamics tools such as GMAT, Orekit, and Basilisk
+provide orbit propagation, environment models, and spacecraft dynamics
+workflows for flight-dynamics analysis and control prototyping
+\cite{gmat,orekit,basilisk}. These systems are natural references for
+orbital fidelity, sensor modeling, and flight software integration. The
+distinguishing goal of \mjorbit{} is different: it aims to make a general
+MuJoCo multibody model, including articulated links and contacts, feel like a
+first-class spacecraft model in orbit rather than a separate robotics
+simulation wrapped around an orbital propagator.
+
+Classical spacecraft attitude and orbital mechanics provide the analytical
+limits used throughout the project. Two-body and J2 propagation, LVLH relative
+motion, gravity-gradient torques, rigid-body Euler equations, gyrostat
+dynamics, and actuator models are standard tools in spacecraft dynamics and
+control \cite{wertz1978spacecraft,wie2008space}. \mjorbit{} does not replace
+these models; instead, it embeds them as per-body and per-actuator wrench
+terms applied to a MuJoCo model.
+
+\subsection{Robotics Physics Engines}
+
+Physics engines such as MuJoCo, Drake, and Gazebo have made articulated
+rigid-body simulation, constraints, actuation, and contact widely accessible
+for robotics research \cite{todorov2012mujoco,drake,gazebo}. MuJoCo is
+particularly attractive for spacecraft robotics because it exposes a compact
+model/data API, supports free bodies and articulated mechanisms, and provides
+efficient contact dynamics. However, MuJoCo itself does not provide an orbital
+reference frame, distributed environmental loads, or actuator models such as
+reaction wheels, magnetorquers, and control moment gyros. \mjorbit{} keeps
+MuJoCo as the dynamics backend while adding these space-specific layers.
+
+\subsection{Positioning of This Work}
+
+The intended contribution is therefore not a new integrator for every
+astrodynamics regime, nor a replacement for high-fidelity mission analysis.
+It is a simulator for research questions where the hard part is the coupling:
+How does an articulated spacecraft move while the chief orbit propagates?
+How do environmental torques and actuator momentum states affect the same
+MuJoCo body state? How do contact events change relative motion without
+leaking internal contact forces into the chief orbit? These are the questions
+the formulation and experiments are designed to make concrete.

@@ -38,12 +38,17 @@ def perturb_inertia(
     J: np.ndarray,
     eigenvalue_sigma: float = 0.03,
     axis_sigma_deg: float = 3.0,
+    rng: np.random.Generator | None = None,
 ) -> np.ndarray:
     """Perturb inertia via eigendecomposition."""
     D_vals, V = np.linalg.eigh(J)
-    d = np.random.randn(3) * eigenvalue_sigma
+    if rng is None:
+        d = np.random.normal(0.0, eigenvalue_sigma, size=3)
+        v = np.random.normal(0.0, np.deg2rad(axis_sigma_deg), size=3)
+    else:
+        d = rng.normal(0.0, eigenvalue_sigma, size=3)
+        v = rng.normal(0.0, np.deg2rad(axis_sigma_deg), size=3)
     D_tilde = np.diag(D_vals * (1.0 + d))
-    v = np.random.randn(3) * np.deg2rad(axis_sigma_deg)
     V_tilde = V @ expm(skew(v))
     return V_tilde @ D_tilde @ V_tilde.T
 

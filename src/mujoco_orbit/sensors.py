@@ -269,7 +269,7 @@ def register_sensor_data_namespace(namespace: SensorDataNamespace) -> None:
 
 def update_sensor_environment(model: MjoModel, data: MjoData) -> None:
     """Update MuJoCo's world-frame magnetic field from the current orbital state."""
-    model.mj_model.opt.magnetic[:] = data.frame.C_LI @ data.env.mag_field_eci
+    model.mj_model.opt.magnetic[:] = data.env.mag_field_eci
 
 
 def _sensor_dispatch(model: mujoco.MjModel, mj_data: mujoco.MjData, stage: int) -> None:
@@ -323,14 +323,14 @@ def _custom_sensor_truth(
     mj_data: mujoco.MjData,
 ) -> np.ndarray:
     if descriptor.orbit_kind == "sun":
-        world_vec = data.frame.C_LI @ data.env.sun_vector_eci
+        world_vec = data.env.sun_vector_eci
     elif descriptor.orbit_kind == "horizon":
         nadir_eci = -data.orbit.R_eci / np.linalg.norm(data.orbit.R_eci)
-        world_vec = data.frame.C_LI @ nadir_eci
+        world_vec = nadir_eci
     elif descriptor.orbit_kind == "star":
         if descriptor.reference_eci is None:
             raise RuntimeError(f"Sensor '{descriptor.name}' is missing its star reference vector")
-        world_vec = data.frame.C_LI @ descriptor.reference_eci
+        world_vec = descriptor.reference_eci
     else:
         raise RuntimeError(f"Unknown custom sensor kind for '{descriptor.name}'")
 

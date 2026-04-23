@@ -1,6 +1,7 @@
 """MuJoCo-style coupled orbital and multibody dynamics."""
 
 from mujoco_orbit.core.config import (
+    ControlMomentGyroSpec,
     MagneticBodySpec,
     MagnetorquerSpec,
     OrbitInit,
@@ -12,6 +13,7 @@ from mujoco_orbit.core.runtime import MjoData, MjoModel
 from mujoco_orbit.core.step import mjo_forward, mjo_step
 
 __all__ = [
+    "ControlMomentGyroSpec",
     "MagneticBodySpec",
     "MagnetorquerSpec",
     "MjoData",

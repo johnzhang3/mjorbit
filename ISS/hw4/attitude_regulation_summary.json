@@ -1,0 +1,270 @@
+{
+  "orbit": {
+    "altitude_km": 408.0,
+    "inclination_deg": 51.6,
+    "period_s": 5563.459296958976,
+    "period_min": 92.72432161598293
+  },
+  "simulation": {
+    "dt_s": 2.0,
+    "random_case_orbits": 2.0,
+    "disturbed_orbits": 3.0,
+    "random_cases": 8
+  },
+  "linearization": {
+    "state": "[small attitude error rad, body rate rad/s]",
+    "A": [
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    ],
+    "B": [
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        0.0
+      ],
+      [
+        7.8125e-09,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        9.345794392523365e-09,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        4.975124378109452e-09
+      ]
+    ],
+    "Q_diagonal": [
+      3.6475626111241604,
+      3.6475626111241604,
+      3.6475626111241604,
+      1313122.5400046974,
+      1313122.5400046974,
+      1313122.5400046974
+    ],
+    "R_diagonal": [
+      1.6e-05,
+      1.6e-05,
+      1.6e-05
+    ],
+    "K": [
+      [
+        477.4648292756862,
+        0.0,
+        0.0,
+        451996.85291478457,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        477.4648292756863,
+        0.0,
+        0.0,
+        429240.7625276174,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        477.46482927567905,
+        0.0,
+        0.0,
+        523460.6194539555
+      ]
+    ],
+    "attitude_scale_deg": 30.0,
+    "rate_scale_deg_s": 0.05,
+    "torque_scale_nm": 250.0
+  },
+  "cmg": {
+    "gimbal_rate_limit_rad_s": 0.05420168067226891,
+    "single_cmg_peak_torque_nm": 258.0,
+    "inscribed_momentum_nms": 8454.462899462138,
+    "body_torque_limit_nm": [
+      300.0,
+      300.0,
+      700.0
+    ]
+  },
+  "random_initial_condition_results": {
+    "cases": [
+      {
+        "settling_time_s": 3260.0,
+        "final_attitude_error_deg": 2.7846198589960555e-06,
+        "max_attitude_error_deg": 15.008650635841938,
+        "rms_pointing_error_deg": 2.592993139674447,
+        "tail_rms_pointing_error_deg": 0.00041052349161696533,
+        "max_torque_cmd_nm": 140.0291536040387,
+        "max_torque_achieved_nm": 140.02915360403873,
+        "max_gimbal_rate_rad_s": 0.054201680672268916,
+        "max_cmg_momentum_norm_nms": 15353.872338692192
+      },
+      {
+        "settling_time_s": 3300.0,
+        "final_attitude_error_deg": 3.726346003283451e-06,
+        "max_attitude_error_deg": 25.71726996681298,
+        "rms_pointing_error_deg": 6.23029232721089,
+        "tail_rms_pointing_error_deg": 0.0005754774130595378,
+        "max_torque_cmd_nm": 221.5110143427423,
+        "max_torque_achieved_nm": 221.51101434274233,
+        "max_gimbal_rate_rad_s": 0.054201680672268916,
+        "max_cmg_momentum_norm_nms": 14851.825633167722
+      },
+      {
+        "settling_time_s": 3710.0,
+        "final_attitude_error_deg": 3.356320146259624e-06,
+        "max_attitude_error_deg": 36.51054565048145,
+        "rms_pointing_error_deg": 10.971985262821605,
+        "tail_rms_pointing_error_deg": 0.0017799316734506087,
+        "max_torque_cmd_nm": 305.0352656188232,
+        "max_torque_achieved_nm": 295.9394642809296,
+        "max_gimbal_rate_rad_s": 0.054201680672268916,
+        "max_cmg_momentum_norm_nms": 15248.25981801342
+      },
+      {
+        "settling_time_s": 6150.0,
+        "final_attitude_error_deg": 2.848847130711906e-05,
+        "max_attitude_error_deg": 47.15015483366094,
+        "rms_pointing_error_deg": 12.012861433847144,
+        "tail_rms_pointing_error_deg": 0.012065195509904867,
+        "max_torque_cmd_nm": 405.2227555390417,
+        "max_torque_achieved_nm": 351.4591860843032,
+        "max_gimbal_rate_rad_s": 0.054201680672268916,
+        "max_cmg_momentum_norm_nms": 15223.122242210999
+      },
+      {
+        "settling_time_s": 7140.0,
+        "final_attitude_error_deg": 0.00039345327749445237,
+        "max_attitude_error_deg": 57.85714285714287,
+        "rms_pointing_error_deg": 1.426006341379788,
+        "tail_rms_pointing_error_deg": 0.0037971625933935003,
+        "max_torque_cmd_nm": 478.50807098727864,
+        "max_torque_achieved_nm": 478.5080709872788,
+        "max_gimbal_rate_rad_s": 0.054201680672268916,
+        "max_cmg_momentum_norm_nms": 15546.023659759192
+      },
+      {
+        "settling_time_s": 7370.0,
+        "final_attitude_error_deg": 0.0007683269092334519,
+        "max_attitude_error_deg": 68.59116826950498,
+        "rms_pointing_error_deg": 20.47472902845274,
+        "tail_rms_pointing_error_deg": 0.21040445277242525,
+        "max_torque_cmd_nm": 455.06120793941034,
+        "max_torque_achieved_nm": 332.09431549547526,
+        "max_gimbal_rate_rad_s": 0.054201680672268916,
+        "max_cmg_momentum_norm_nms": 15437.747698497398
+      },
+      {
+        "settling_time_s": 7290.0,
+        "final_attitude_error_deg": 0.0006058362671977483,
+        "max_attitude_error_deg": 79.2857142857143,
+        "rms_pointing_error_deg": 23.052870246778646,
+        "tail_rms_pointing_error_deg": 0.17929635775753971,
+        "max_torque_cmd_nm": 470.7017915947603,
+        "max_torque_achieved_nm": 408.22684662878515,
+        "max_gimbal_rate_rad_s": 0.054201680672268916,
+        "max_cmg_momentum_norm_nms": 15502.773458207053
+      },
+      {
+        "settling_time_s": 8800.0,
+        "final_attitude_error_deg": 0.01697020690696479,
+        "max_attitude_error_deg": 90.04412652047156,
+        "rms_pointing_error_deg": 25.88816737007362,
+        "tail_rms_pointing_error_deg": 2.2988967095047403,
+        "max_torque_cmd_nm": 637.1488628479902,
+        "max_torque_achieved_nm": 388.1234881364002,
+        "max_gimbal_rate_rad_s": 0.054201680672268916,
+        "max_cmg_momentum_norm_nms": 15540.41655631832
+      }
+    ],
+    "max_initial_error_deg": 90.0,
+    "all_cases_settled": true,
+    "max_settling_time_s": 8800.0,
+    "max_final_attitude_error_deg": 0.01697020690696479,
+    "max_torque_achieved_nm": 478.5080709872788
+  },
+  "disturbed_perfect_state_result": {
+    "settling_time_s": 11960.0,
+    "final_attitude_error_deg": 0.02685385651881964,
+    "max_attitude_error_deg": 2.4494897427831854,
+    "rms_pointing_error_deg": 0.7889998697253877,
+    "tail_rms_pointing_error_deg": 0.06988348395460703,
+    "max_torque_cmd_nm": 20.41241452319317,
+    "max_torque_achieved_nm": 20.412414523193174,
+    "max_gimbal_rate_rad_s": 0.054201680672268916,
+    "max_cmg_momentum_norm_nms": 15210.943913533738
+  },
+  "disturbed_mekf_result": {
+    "settling_time_s": 12870.0,
+    "final_attitude_error_deg": 0.05694012768123082,
+    "max_attitude_error_deg": 2.4494897427831854,
+    "rms_pointing_error_deg": 0.8007280546747465,
+    "tail_rms_pointing_error_deg": 0.09225341934992416,
+    "tail_rms_estimator_error_deg": 0.006110148593510263,
+    "max_estimator_error_deg": 0.01829123872615901,
+    "max_torque_achieved_nm": 20.52667684386408,
+    "max_cmg_momentum_norm_nms": 15211.956087546485
+  }
+}

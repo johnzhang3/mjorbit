@@ -2,7 +2,7 @@
   <compiler angle="radian"/>
   <!-- Spacecraft with a 2-link robotic arm for Phase 9 examples.
        Gravity is disabled at runtime by compile.
-       The orbit layer provides all inertial forces via xfrc_applied.
+       The orbit layer provides ECI gravity and environment forces via xfrc_applied.
        Units: meters, kg (MuJoCo SI). -->
   <option timestep="0.01" gravity="0 0 0"/>
 

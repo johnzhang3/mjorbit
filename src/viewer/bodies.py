@@ -155,18 +155,24 @@ class MuJoCoScene:
         *,
         rotation: np.ndarray | None = None,
         translation: np.ndarray | None = None,
+        scale_origin: np.ndarray | None = None,
     ) -> None:
         """Sync body frame transforms from simulation state."""
         rot = None if rotation is None else np.asarray(rotation, dtype=float)
         trans = None if translation is None else np.asarray(translation, dtype=float)
+        origin = None if scale_origin is None else np.asarray(scale_origin, dtype=float)
         with self._server.atomic():
             for i, frame in enumerate(self._body_frames):
                 body_id = i + 1  # skip worldbody 0
-                pos = self._scale * mjd.xpos[body_id]
+                pos = mjd.xpos[body_id].copy()
                 if rot is not None:
                     pos = rot @ pos
                 if trans is not None:
                     pos = pos + trans
+                if origin is None:
+                    pos = self._scale * pos
+                else:
+                    pos = origin + self._scale * (pos - origin)
                 frame.position = tuple(pos)
 
                 if rot is None:

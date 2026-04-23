@@ -6,7 +6,7 @@
 
        Body frame convention (LVLH-aligned at rest):
          X = along-track (velocity direction)  — roll axis
-         Y = cross-track (orbit-normal)        — pitch axis
+         Y = cross-track truss axis            — pitch axis
          Z = nadir-pointing (local vertical)   — yaw axis
 
        The geometry is purely visual — drag/SRP surfaces are defined

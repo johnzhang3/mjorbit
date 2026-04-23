@@ -38,6 +38,8 @@ def apply_actuator_wrenches(
     """
     _apply_reaction_wheels(model, data)
     command_rw_torques(model, data, data.actuators.rw_torque_cmd, dt)
+    _apply_cmgs(model, data)
+    command_cmg_gimbal_rates(model, data, data.actuators.cmg_gimbal_rate_cmd, dt)
     _apply_magnetorquers(model, data)
     _apply_thrusters(model, data)
 
@@ -155,11 +157,10 @@ def _apply_magnetorquers(model: MjoModel, data: MjoData) -> None:
 
     act = data.actuators
     mjd = data.mj_data
-    fc = data.frame
     env = data.env
 
-    # B field in world (LVLH) frame
-    B_world = fc.C_LI @ env.mag_field_eci
+    # MuJoCo world axes are parallel to ECI, so cached B is already in world axes.
+    B_world = env.mag_field_eci
 
     for i, mtq_cfg in enumerate(model.magnetorquers):
         bid = mtq_cfg.body_id
@@ -171,6 +172,132 @@ def _apply_magnetorquers(model: MjoModel, data: MjoData) -> None:
         B_body = R_body.T @ B_world
 
         tau_body = np.cross(dipole_body, B_body)
+        tau_world = R_body @ tau_body
+
+        data.wrench_buffer[bid, 3:] += tau_world
+
+
+def _cmg_momentum_body(
+    rotor_momentum: float,
+    gimbal_angle: float,
+    spin_axis_0: np.ndarray,
+    torque_axis_0: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Compute rotor momentum vector and torque axis in the body frame.
+
+    Returns:
+        h_body: rotor angular momentum in body frame (kg·m^2/s)
+        torque_axis_body: unit vector ``t̂(θ) = ĝ × ŝ(θ)`` in body frame
+    """
+    c = np.cos(gimbal_angle)
+    s = np.sin(gimbal_angle)
+    spin_axis = c * spin_axis_0 + s * torque_axis_0
+    # torque_axis(θ) = ĝ × ŝ(θ) = c·(ĝ × ŝ0) + s·(ĝ × t̂0) = c·t̂0 − s·ŝ0
+    torque_axis = c * torque_axis_0 - s * spin_axis_0
+    h_body = rotor_momentum * spin_axis
+    return h_body, torque_axis
+
+
+def _apply_cmgs(model: MjoModel, data: MjoData) -> None:
+    """Apply gyroscopic coupling torque from stored CMG rotor momentum.
+
+    For a gyrostat with rotor momentum ``h`` (body frame) on top of a rigid body with
+    inertia ``J``, the Euler equation is::
+
+        J·ω̇ + ω × (J·ω + h) = τ_ext
+
+    MuJoCo integrates ``J·ω̇ + ω × J·ω = τ_ext``, so the extra term ``-ω × h`` must be
+    applied externally. The gimbal-rate-induced output torque is handled separately
+    by ``command_cmg_gimbal_rates``.
+    """
+    if not model.cmgs:
+        return
+
+    act = data.actuators
+    mjd = data.mj_data
+
+    for i, cmg_cfg in enumerate(model.cmgs):
+        bid = cmg_cfg.body_id
+
+        h_body, _ = _cmg_momentum_body(
+            act.cmg_rotor_momentum[i],
+            float(act.cmg_gimbal_angle[i]),
+            cmg_cfg.spin_axis_body_0,
+            cmg_cfg.torque_axis_body_0,
+        )
+
+        R_body = mjd.xmat[bid].reshape(3, 3)
+        w_body = R_body.T @ mjd.cvel[bid, :3]
+
+        tau_body = -np.cross(w_body, h_body)
+        tau_world = R_body @ tau_body
+
+        data.wrench_buffer[bid, 3:] += tau_world
+
+
+def command_cmg_gimbal_rates(
+    model: MjoModel,
+    data: MjoData,
+    gimbal_rate_cmds: np.ndarray,
+    dt: float,
+) -> None:
+    """Apply CMG gimbal-rate commands, integrate gimbal angles, and write body torques.
+
+    The controllable output torque of an SGCMG is ``τ = -h · θ̇ · t̂(θ)`` on the
+    spacecraft body, where ``h`` is the rotor momentum magnitude, ``θ̇`` is the
+    gimbal rate, and ``t̂(θ) = ĝ × ŝ(θ)`` is the (body-frame) torque axis. This
+    function clips the commanded rate, respects gimbal-angle saturation, integrates
+    the gimbal angle with forward Euler, and accumulates the reaction torque into
+    ``data.wrench_buffer``.
+    """
+    if not model.cmgs:
+        return
+
+    act = data.actuators
+    mjd = data.mj_data
+
+    for i, cmg_cfg in enumerate(model.cmgs):
+        bid = cmg_cfg.body_id
+        h_rotor = act.cmg_rotor_momentum[i]
+        if h_rotor <= 0.0:
+            continue
+
+        theta_old = float(act.cmg_gimbal_angle[i])
+
+        theta_dot = float(gimbal_rate_cmds[i])
+        if cmg_cfg.gimbal_rate_limit is not None:
+            theta_dot = float(
+                np.clip(theta_dot, -cmg_cfg.gimbal_rate_limit, cmg_cfg.gimbal_rate_limit)
+            )
+
+        # Gimbal-angle saturation: freeze rate if we're against a hard stop
+        if cmg_cfg.gimbal_angle_limit is not None:
+            limit = cmg_cfg.gimbal_angle_limit
+            if theta_old >= limit and theta_dot > 0:
+                theta_dot = 0.0
+            elif theta_old <= -limit and theta_dot < 0:
+                theta_dot = 0.0
+
+        # Compute torque axis at current gimbal angle
+        _, t_axis_body = _cmg_momentum_body(
+            h_rotor,
+            theta_old,
+            cmg_cfg.spin_axis_body_0,
+            cmg_cfg.torque_axis_body_0,
+        )
+
+        # Integrate gimbal angle (forward Euler)
+        theta_new = theta_old + theta_dot * dt
+        if cmg_cfg.gimbal_angle_limit is not None:
+            theta_new = float(
+                np.clip(theta_new, -cmg_cfg.gimbal_angle_limit, cmg_cfg.gimbal_angle_limit)
+            )
+        act.cmg_gimbal_angle[i] = theta_new
+        theta_dot_effective = (theta_new - theta_old) / dt
+
+        # Reaction torque on body: τ_body = -h · θ̇ · t̂(θ)
+        tau_body = -h_rotor * theta_dot_effective * t_axis_body
+        R_body = mjd.xmat[bid].reshape(3, 3)
         tau_world = R_body @ tau_body
 
         data.wrench_buffer[bid, 3:] += tau_world

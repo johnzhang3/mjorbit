@@ -1,6 +1,6 @@
 <mujoco model="two_bodies">
   <!-- Two free rigid bodies for collision / proximity demos.
-       Gravity is disabled; the orbit layer provides all inertial forces.
+       Gravity is disabled; the orbit layer provides ECI gravity and environment forces.
        Bodies start 4 m apart along the radial (x) axis. -->
   <option timestep="0.002" gravity="0 0 0">
     <flag contact="enable"/>

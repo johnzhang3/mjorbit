@@ -1,11 +1,12 @@
 """Assemble per-body wrenches and write to MjData.xfrc_applied (Phase 8).
 
 Pipeline:
-1. Inertial/gravity forcing for each body
+1. Chief-relative inertial gravity forcing for each body
 2. Surface drag/SRP loads
 3. Magnetic torques (residual dipoles)
-4. External actuator wrenches (RW, MTQ, thrusters — called separately)
-5. Write results into xfrc_applied
+4. Rotational gravity-gradient torques
+5. External actuator wrenches (RW, MTQ, thrusters — called separately)
+6. Write results into xfrc_applied
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from __future__ import annotations
 import numpy as np
 
 from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.coupling.gravity_gradient import apply_gravity_gradient_torques
 from mujoco_orbit.coupling.inertial import apply_inertial_wrenches
 from mujoco_orbit.coupling.magnetic import apply_magnetic_wrenches
 from mujoco_orbit.coupling.surfaces import apply_surface_wrenches
@@ -25,7 +27,7 @@ def assemble_and_apply_wrenches(model: MjoModel, data: MjoData) -> None:
     coupling.actuators and called separately from step, because
     reaction wheel integration needs dt and happens in a specific order.
     """
-    # 1. Inertial / gravity forcing
+    # 1. Chief-relative gravity forcing
     apply_inertial_wrenches(model, data)
 
     # 2. Surface loads (drag + SRP)
@@ -33,6 +35,9 @@ def assemble_and_apply_wrenches(model: MjoModel, data: MjoData) -> None:
 
     # 3. Magnetic residual dipole torques
     apply_magnetic_wrenches(model, data)
+
+    # 4. Rotational gravity-gradient torques (per-body, about body COM)
+    apply_gravity_gradient_torques(model, data)
 
     # Copy assembled buffer to MuJoCo
     # xfrc_applied shape is (nbody, 6): [fx, fy, fz, tx, ty, tz] in world frame, SI

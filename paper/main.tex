@@ -1,0 +1,68 @@
+\documentclass[conference]{IEEEtran}
+
+\usepackage{amsmath,amssymb}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{cite}
+\usepackage{graphicx}
+\usepackage{siunitx}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\graphicspath{{figures/}}
+\urlstyle{same}
+
+\newcommand{\mjorbit}{MuJoCo-Orbit}
+\newcommand{\mj}{MuJoCo}
+\newcommand{\R}{\mathbb{R}}
+
+\title{\mjorbit: A MuJoCo-Style Simulator for Coupled Orbital and Multibody
+Spacecraft Dynamics}
+
+\author{
+\IEEEauthorblockN{John Zhang}
+\IEEEauthorblockA{
+Department / Lab Affiliation\\
+University or Organization\\
+Email: your.email@example.com}
+}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Spacecraft operating in low Earth orbit increasingly combine orbital motion,
+attitude dynamics, articulated mechanisms, contact-rich interactions, sensors,
+and multiple actuator classes. Existing astrodynamics tools provide mature
+orbit and environment models, while robotics engines provide efficient
+rigid-body dynamics and contact simulation, but these capabilities are often
+separated by incompatible state representations and frame conventions. This
+paper introduces \mjorbit, a Python package that couples a MuJoCo multibody
+model to a chief-orbit propagation layer through a MuJoCo-style
+\texttt{MjoModel}/\texttt{MjoData} API. The simulator advances rigid and
+articulated spacecraft in a local LVLH frame, propagates the chief orbit in
+ECI coordinates, and assembles world-frame body wrenches from differential
+gravity, J2 perturbations, drag, solar radiation pressure, magnetic torques,
+gravity-gradient torques, reaction wheels, magnetorquers, control moment
+gyros, and thrusters. A preliminary validation suite compares limiting cases
+against Clohessy-Wiltshire relative motion, two-body and J2 orbital
+propagation, torque-free rigid-body dynamics, gyrostat behavior, and coupled
+articulated examples. The planned experiments will show that \mjorbit can
+serve as a research platform for spacecraft robotics, proximity operations,
+and attitude-control studies that need both orbital forcing and MuJoCo's
+multibody/contact machinery.
+\end{abstract}
+
+\begin{IEEEkeywords}
+spacecraft simulation, multibody dynamics, orbital mechanics, MuJoCo,
+attitude dynamics, contact dynamics
+\end{IEEEkeywords}
+
+\input{sections/introduction}
+\input{sections/related_work}
+\input{sections/formulation}
+\input{sections/experiments}
+\input{sections/conclusion}
+\input{sections/references}
+
+\end{document}

@@ -1,0 +1,48 @@
+\section{Introduction}
+\label{sec:introduction}
+
+Low Earth orbit is becoming a setting for increasingly physical spacecraft
+behaviors: robotic inspection, servicing, deployable structures, on-orbit
+assembly, capture, docking, and contact with targets whose mass properties may
+be uncertain. These tasks are not purely orbital, purely attitude, or purely
+robotic. They require a simulator that can represent a spacecraft as an
+articulated multibody system while also applying the environmental and
+actuator loads that dominate orbital flight.
+
+Astrodynamics simulators typically provide accurate orbit propagation,
+environment models, and flight-dynamics workflows, but they are not designed
+around general contact-rich articulated dynamics. Robotics simulators provide
+fast rigid-body dynamics, constraints, actuation, and contact, but usually
+assume a terrestrial inertial or gravity-fixed world. \mjorbit{} is motivated
+by the gap between these two tool families. The package treats \mj{} as the
+inner multibody dynamics engine and adds an orbital layer that keeps the
+MuJoCo world frame aligned with a local LVLH frame attached to a propagated
+chief orbit.
+
+The current implementation exposes a compact public API:
+\texttt{MjoModel} stores the compiled MuJoCo model and static orbital-coupling
+metadata, \texttt{MjoData} stores one simulation rollout, and
+\texttt{mjo\_forward}/\texttt{mjo\_step} mirror MuJoCo's synchronization and
+stepping pattern. Static metadata is supplied through dataclasses such as
+\texttt{SurfaceSpec}, \texttt{ReactionWheelSpec},
+\texttt{MagnetorquerSpec}, \texttt{ControlMomentGyroSpec}, and
+\texttt{ThrusterSpec}. Runtime commands and sensor measurements live on the
+data object, matching the model/data split familiar to MuJoCo users.
+
+This paper will make four main contributions. First, it describes a
+MuJoCo-compatible state and stepping interface for coupled orbital and
+multibody simulation. Second, it gives the wrench-coupling formulation used
+to apply orbital, environmental, and actuator effects to each body in the
+LVLH frame. Third, it documents implementation details that are easy to get
+wrong in MuJoCo spacecraft simulations, including body-frame angular velocity,
+inertia-frame orientation, and world-frame external torques. Fourth, it
+presents a validation and demonstration suite covering analytical orbital
+limits, attitude dynamics, actuator behavior, articulated motion, and contact.
+
+The remainder of the paper is organized as follows. Section~\ref{sec:related}
+positions \mjorbit{} relative to astrodynamics frameworks and robotics
+physics engines. Section~\ref{sec:formulation} introduces the coupled state,
+frames, forces, and stepping algorithm. Section~\ref{sec:experiments}
+outlines the validation studies and demonstrations planned for the submission.
+Section~\ref{sec:conclusion} summarizes the intended contribution and open
+development items.

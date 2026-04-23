@@ -67,11 +67,20 @@ Do not commit generated caches such as `__pycache__/`, `.pytest_cache/`, or `.ru
 Treat `ISS/` plots, PDFs, and saved data as intentional analysis artifacts rather than
 incidental byproducts.
 
-## MuJoCo Frame Conventions
+## MuJoCo / Orbit Frame Conventions
 
 These conventions are critical for correctness. Getting them wrong causes silent
 energy/momentum non-conservation.
 
+- **`OrbitInit` / `data.orbit`** store the chief/reference orbit in absolute ECI
+  coordinates (`R_eci`, `V_eci`) using km and km/s.
+- **MuJoCo `world`** is the chief-centered local inertial frame in SI units, with origin at
+  the chief and axes parallel to ECI. It is not absolute ECI and not LVLH.
+- **Root free-joint `qpos`/`qvel`** are local inertial offsets from the chief. Do not add
+  `data.orbit.R_eci` or `data.orbit.V_eci` to XML free-joint initial conditions or MuJoCo
+  state unless you are explicitly converting to absolute ECI via helper methods.
+- **LVLH** is a derived rotating frame in `data.frame`. Use `MjoData` conversion helpers for
+  LVLH/world/ECI transforms instead of assuming MuJoCo `world` axes are LVLH axes.
 - **`qvel[3:6]`** for a free joint is angular velocity in the **body frame** (child frame),
   not the world frame.
 - **`xmat`** is the body orientation matrix (world-from-body). Use this for body-frame and

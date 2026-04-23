@@ -7,6 +7,7 @@ from collections.abc import Iterable
 import numpy as np
 
 from mujoco_orbit import (
+    ControlMomentGyroSpec,
     MagneticBodySpec,
     MagnetorquerSpec,
     MjoData,
@@ -39,11 +40,13 @@ def make_model_data(
     use_drag: bool = False,
     use_srp: bool = False,
     use_magnetic: bool = False,
+    use_gravity_gradient: bool = True,
     surfaces: Iterable[SurfaceSpec] = (),
     magnetic_bodies: Iterable[MagneticBodySpec] = (),
     reaction_wheels: Iterable[ReactionWheelSpec] = (),
     magnetorquers: Iterable[MagnetorquerSpec] = (),
     thrusters: Iterable[ThrusterSpec] = (),
+    cmgs: Iterable[ControlMomentGyroSpec] = (),
     rng_seed: int | None = None,
 ) -> tuple[MjoModel, MjoData]:
     """Build one model/data pair for a standard circular LEO test orbit."""
@@ -54,12 +57,39 @@ def make_model_data(
         reaction_wheels=reaction_wheels,
         magnetorquers=magnetorquers,
         thrusters=thrusters,
+        cmgs=cmgs,
         mj_timestep=mj_timestep,
         orbit_dt=orbit_dt,
         use_j2=use_j2,
         use_drag=use_drag,
         use_srp=use_srp,
         use_magnetic=use_magnetic,
+        use_gravity_gradient=use_gravity_gradient,
     )
     data = MjoData(model, orbit=circular_leo_orbit_init(alt_km), rng_seed=rng_seed)
     return model, data
+
+
+def set_freejoint_lvlh_state(
+    data: MjoData,
+    qpos_slice: slice,
+    qvel_slice: slice,
+    position_lvlh_m: Iterable[float],
+    velocity_lvlh_m_s: Iterable[float] = (0.0, 0.0, 0.0),
+) -> None:
+    """Set a free joint from chief-relative LVLH position/velocity."""
+    position = np.asarray(position_lvlh_m, dtype=float)
+    velocity = np.asarray(velocity_lvlh_m_s, dtype=float)
+    data.qpos[qpos_slice] = data.world_position_from_lvlh(position)
+    data.qvel[qvel_slice] = data.world_velocity_from_lvlh(position, velocity)
+
+
+def get_freejoint_lvlh_state(
+    data: MjoData,
+    qpos_slice: slice,
+    qvel_slice: slice,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return a free joint's chief-relative LVLH position/velocity."""
+    position = data.lvlh_position_from_world(data.qpos[qpos_slice])
+    velocity = data.lvlh_velocity_from_world(data.qpos[qpos_slice], data.qvel[qvel_slice])
+    return position, velocity

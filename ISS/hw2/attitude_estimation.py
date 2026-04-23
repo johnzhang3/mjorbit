@@ -54,6 +54,14 @@ from common import (
 from mujoco_orbit import mjo_forward, mjo_step
 
 np.random.seed(42)
+plt.rcParams.update({
+    "axes.titlesize": 13,
+    "axes.labelsize": 11,
+    "figure.titlesize": 16,
+    "legend.fontsize": 9,
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+})
 
 
 # ===================================================================
@@ -431,8 +439,8 @@ def main() -> None:
                label=f"SDP mean = {np.mean(errors_sdp_arcsec):.1f}\"")
     ax.set_xlabel("Attitude error (arcsec)")
     ax.set_ylabel("Density")
-    ax.set_title("Attitude Estimation Error Distribution")
-    ax.legend(fontsize=8)
+    ax.set_title("Attitude Estimation Error Distribution", fontsize=13)
+    ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
 
     # 2. CDF comparison
@@ -444,8 +452,8 @@ def main() -> None:
         ax.plot(sorted_err, cdf * 100, label=label, color=color, linewidth=1.5)
     ax.set_xlabel("Attitude error (arcsec)")
     ax.set_ylabel("Cumulative probability (%)")
-    ax.set_title("CDF of Attitude Estimation Error")
-    ax.legend(fontsize=9)
+    ax.set_title("CDF of Attitude Estimation Error", fontsize=13)
+    ax.legend(fontsize=10)
     ax.grid(True, alpha=0.3)
     ax.set_ylim(0, 100)
 
@@ -455,14 +463,14 @@ def main() -> None:
     times_ms = [time_q / N_MC * 1000, time_sdp / N_MC * 1000]
     bars = ax.bar(methods, times_ms, color=["C0", "C1"], alpha=0.7, edgecolor="black")
     ax.set_ylabel("Time per solve (ms)")
-    ax.set_title("Computational Cost")
+    ax.set_title("Computational Cost", fontsize=13)
     ax.grid(True, alpha=0.3, axis="y")
     for bar, t in zip(bars, times_ms):
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() * 1.02,
-                f"{t:.3f} ms", ha="center", va="bottom", fontsize=9)
+                f"{t:.3f} ms", ha="center", va="bottom", fontsize=10)
 
     fig.suptitle(f"Wahba's Problem: q-method vs SDP (Monte Carlo, N={N_MC})",
-                 fontsize=13, fontweight="bold")
+                 fontsize=16, fontweight="bold")
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     out_path = plot_dir / "attitude_estimation.png"
     fig.savefig(out_path, dpi=200, bbox_inches="tight")

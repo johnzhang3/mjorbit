@@ -1,16 +1,9 @@
-"""Per-body inertial and gravity forcing in the LVLH rotating frame.
+"""Per-body gravity forcing in the chief-centered inertial MuJoCo world frame.
 
-The MuJoCo model lives in a local LVLH frame. Each body's position in the LVLH
-frame represents a relative offset from the chief. We compute the apparent
-acceleration acting on each body in that frame and apply it as a force.
-
-Apparent acceleration in LVLH (rotating frame):
-    a_body_lvlh = C_LI @ (g_eci(r_body_eci) - g_eci(R_ref))
-                  - 2 * omega x v_body_lvlh
-                  - omega_dot x r_body_lvlh
-                  - omega x (omega x r_body_lvlh)
-
-This is the exact formulation — no CW linearization.
+The MuJoCo model lives in SI coordinates relative to the chief, with axes
+parallel to ECI. Each body's absolute ECI position is reconstructed before
+evaluating gravity, and the chief gravitational acceleration is subtracted so
+MuJoCo integrates the relative translational dynamics.
 
 Units convention:
   MuJoCo uses SI (m, s, kg, N).
@@ -29,66 +22,61 @@ import numpy as np
 from mujoco_orbit.core.runtime import MjoData, MjoModel
 from mujoco_orbit.orbit.gravity import total_accel
 
-# MuJoCo world frame = LVLH frame (by construction of the model)
-# Body COM positions in MuJoCo are in meters (SI).
-# Chief reference position is in km.
-# Convert: r_body_lvlh_km = r_body_lvlh_m * 1e-3
-
 _M_TO_KM = 1e-3
 _KM_S2_TO_M_S2 = 1e3  # km/s^2 -> m/s^2
 
 
+def body_eci_position_km(data: MjoData, position_world_m: np.ndarray) -> np.ndarray:
+    """Convert a MuJoCo world position to absolute ECI km."""
+    return data.orbit.R_eci + np.asarray(position_world_m, dtype=float) * _M_TO_KM
+
+
+def body_eci_velocity_km_s(data: MjoData, velocity_world_m_s: np.ndarray) -> np.ndarray:
+    """Convert a MuJoCo world velocity to absolute ECI km/s."""
+    return data.orbit.V_eci + np.asarray(velocity_world_m_s, dtype=float) * _M_TO_KM
+
+
+def chief_gravity(data: MjoData, model: MjoModel) -> np.ndarray:
+    """Return chief/reference gravitational acceleration in km/s^2."""
+    return total_accel(data.orbit.R_eci, use_j2=model.use_j2)
+
+
+def differential_gravity_force(
+    model: MjoModel,
+    data: MjoData,
+    body_id: int,
+    *,
+    chief_accel: np.ndarray | None = None,
+) -> np.ndarray:
+    """Return a body's chief-relative gravity force in ECI-parallel world axes."""
+    mass = model.body_mass[body_id]
+    if mass <= 0.0:
+        return np.zeros(3)
+
+    g_chief = chief_gravity(data, model) if chief_accel is None else chief_accel
+    r_body_eci = body_eci_position_km(data, data.xipos[body_id])
+    g_body = total_accel(r_body_eci, use_j2=model.use_j2)
+    return mass * (g_body - g_chief) * _KM_S2_TO_M_S2
+
+
 def apply_inertial_wrenches(model: MjoModel, data: MjoData) -> None:
-    """Compute per-body apparent accelerations and accumulate forces.
+    """Compute per-body chief-relative gravity accelerations and accumulate forces.
 
     Writes force contributions (N) into ``data.wrench_buffer[:, :3]``.
     Torque contributions are zero for translational forcing.
     """
-    orbit = data.orbit
-    fc = data.frame
     mjm = model.mj_model
-    mjd = data.mj_data
 
-    R_ref = orbit.R_eci  # km
-    g_ref = total_accel(R_ref, use_j2=model.use_j2)  # km/s^2
-
-    omega = fc.omega_lvlh  # rad/s, in LVLH
-    omega_dot = fc.omega_dot_lvlh  # rad/s^2, in LVLH
-    C_LI = fc.C_LI
+    g_chief = chief_gravity(data, model)
 
     for body_id in range(1, mjm.nbody):  # skip world body (id=0)
         mass = mjm.body_mass[body_id]  # kg
         if mass <= 0.0:
             continue
 
-        # Body COM position in MuJoCo world (= LVLH) frame, meters
-        r_m = mjd.xipos[body_id].copy()  # shape (3,) m
-
-        # Convert to km for orbit-layer computation
-        r_lvlh_km = r_m * _M_TO_KM
-
-        # Absolute ECI position of body
-        r_body_eci = R_ref + fc.C_IL @ r_lvlh_km
-
-        # Gravity at body position
-        g_body = total_accel(r_body_eci, use_j2=model.use_j2)  # km/s^2
-
-        # Relative gravity gradient term
-        dg = C_LI @ (g_body - g_ref)  # km/s^2, in LVLH
-
-        # Body COM velocity in LVLH/world frame (from MuJoCo cvel)
-        # cvel[i] is 6D spatial velocity [angular(3), linear(3)] at body COM, in world frame.
-        v_lvlh_m_s = mjd.cvel[body_id, 3:].copy()  # linear velocity, m/s, world frame
-        v_lvlh_km_s = v_lvlh_m_s * 1e-3  # km/s
-
-        # Rotating frame fictitious accelerations (km/s^2)
-        a_coriolis = -2.0 * np.cross(omega, v_lvlh_km_s)
-        a_euler = -np.cross(omega_dot, r_lvlh_km)
-        a_centripetal = -np.cross(omega, np.cross(omega, r_lvlh_km))
-
-        a_total_km_s2 = dg + a_coriolis + a_euler + a_centripetal
-
-        # Convert to m/s^2 and multiply by mass for force in N
-        F_N = mass * a_total_km_s2 * _KM_S2_TO_M_S2
-
-        data.wrench_buffer[body_id, :3] += F_N
+        data.wrench_buffer[body_id, :3] += differential_gravity_force(
+            model,
+            data,
+            body_id,
+            chief_accel=g_chief,
+        )

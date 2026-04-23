@@ -22,6 +22,12 @@ mjo_step(model, data)     # advance one step
 `MjoModel` owns compiled/static state. `MjoData` owns runtime state, orbit state, actuator
 commands, caches, and sensor runtime state.
 
+`OrbitInit` and `data.orbit` store the chief/reference orbit in absolute ECI coordinates
+(`R_eci`, `V_eci`). MuJoCo `world` coordinates are different: they are chief-centered local
+inertial offsets in SI units, with axes parallel to ECI. Root free-joint `qpos`/`qvel`,
+`xpos`, `xmat`, `cvel`, and `xfrc_applied` should be interpreted in that local world frame,
+not as absolute ECI state and not as LVLH state.
+
 ## Project Layout
 
 - `src/mujoco_orbit/` — main package
@@ -71,6 +77,15 @@ MuJoCo uses SI (m, s, kg) internally. Conversions happen at the MuJoCo boundary.
 These conventions are critical for correctness. Getting them wrong causes silent
 energy/momentum non-conservation.
 
+- **MuJoCo `world`** is the chief-centered local inertial frame. The origin follows the
+  chief/reference orbit, and the axes are parallel to ECI. Do not add `data.orbit.R_eci` or
+  `data.orbit.V_eci` into MuJoCo `qpos`/`qvel` or XML free-joint initial conditions.
+- **Absolute ECI** lives in `data.orbit`, environment caches, and helper methods whose names
+  explicitly include `eci`. Use `world_*` helpers for MuJoCo state and `eci_*` helpers only
+  when an absolute inertial quantity is intended.
+- **LVLH** is a derived rotating frame in `data.frame`. Convert through the runtime helpers
+  (`world_position_from_lvlh`, `lvlh_position_from_world`, etc.) rather than treating
+  MuJoCo `world` axes as LVLH axes.
 - **`qvel[3:6]`** for a free joint is angular velocity in the **body frame** (child frame),
   not the world frame.
 - **`xmat`** is the body-frame orientation matrix (world-from-body). Use this for body-frame
