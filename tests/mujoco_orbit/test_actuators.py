@@ -554,6 +554,24 @@ class TestControlMomentGyro:
         assert data.actuators.cmg_gimbal_angle[0] < 0.5
         assert abs(data.wrench_buffer[1, 4]) > 1e-8  # y-torque nonzero
 
+    def test_gimbal_angle_limit_uses_effective_rate_at_crossing(self):
+        model, data = _make_model_data(
+            cmgs=[self._make_default_cmg(gimbal_angle_limit=0.5)]
+        )
+        theta_old = 0.49
+        dt = 0.01
+        h = 4.0
+        data.actuators.cmg_gimbal_angle[0] = theta_old
+        data.clear_wrench_buffer()
+        command_cmg_gimbal_rates(model, data, np.array([10.0]), dt=dt)
+
+        theta_dot_effective = (0.5 - theta_old) / dt
+        t_axis_body = np.array([-np.sin(theta_old), np.cos(theta_old), 0.0])
+        expected = -h * theta_dot_effective * t_axis_body
+
+        np.testing.assert_allclose(data.actuators.cmg_gimbal_angle[0], 0.5)
+        np.testing.assert_allclose(data.wrench_buffer[1, 3:], expected, atol=1e-12)
+
     # ---- gyroscopic coupling --------------------------------------------
 
     def test_gyroscopic_coupling_with_body_rate(self):

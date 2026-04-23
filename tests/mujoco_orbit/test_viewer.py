@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mujoco_orbit import mjo_forward, mjo_step
+from mujoco_orbit import ControlMomentGyroSpec, mjo_forward, mjo_step
 from mujoco_orbit.testdata import FREE_BODY_XML, TWO_BODIES_XML
 from tests.mujoco_orbit._helpers import make_model_data, set_freejoint_lvlh_state
 from viewer import MjOrbitViewer
@@ -93,6 +93,44 @@ def test_viewer_reset_restores_initial_state() -> None:
             atol=1e-8,
         )
         assert viewer.trails[0]._positions == []
+    finally:
+        viewer.server.stop()
+
+
+def test_viewer_reset_restores_cmg_state() -> None:
+    cmg = ControlMomentGyroSpec(
+        body_name="spacecraft",
+        gimbal_axis_body=np.array([0.0, 0.0, 1.0]),
+        spin_axis_body_0=np.array([1.0, 0.0, 0.0]),
+        rotor_momentum=4.0,
+    )
+    model, data = make_model_data(xml_path=FREE_BODY_XML, cmgs=[cmg])
+    data.actuators.cmg_gimbal_angle[0] = 0.2
+    data.actuators.cmg_gimbal_rate_cmd[0] = 0.05
+    data.actuators.cmg_rotor_momentum[0] = 3.5
+
+    initial_angle = data.actuators.cmg_gimbal_angle.copy()
+    initial_rate_cmd = data.actuators.cmg_gimbal_rate_cmd.copy()
+    initial_momentum = data.actuators.cmg_rotor_momentum.copy()
+
+    viewer = MjOrbitViewer(
+        model,
+        data,
+        port=0,
+        show_earth=False,
+        show_axes=False,
+    )
+
+    try:
+        data.actuators.cmg_gimbal_angle[0] = 0.8
+        data.actuators.cmg_gimbal_rate_cmd[0] = -0.25
+        data.actuators.cmg_rotor_momentum[0] = 1.0
+
+        viewer.reset_simulation()
+
+        np.testing.assert_allclose(data.actuators.cmg_gimbal_angle, initial_angle)
+        np.testing.assert_allclose(data.actuators.cmg_gimbal_rate_cmd, initial_rate_cmd)
+        np.testing.assert_allclose(data.actuators.cmg_rotor_momentum, initial_momentum)
     finally:
         viewer.server.stop()
 

@@ -66,6 +66,9 @@ class _ViewerSnapshot:
     rw_torque_cmd: np.ndarray
     mtq_dipole_cmd: np.ndarray
     thr_force_cmd: np.ndarray
+    cmg_gimbal_angle: np.ndarray
+    cmg_gimbal_rate_cmd: np.ndarray
+    cmg_rotor_momentum: np.ndarray
     sensor_biases: dict[str, np.ndarray]
     sensor_rng_state: Any
 
@@ -265,6 +268,9 @@ class MjOrbitViewer:
             rw_torque_cmd=self.data.actuators.rw_torque_cmd.copy(),
             mtq_dipole_cmd=self.data.actuators.mtq_dipole_cmd.copy(),
             thr_force_cmd=self.data.actuators.thr_force_cmd.copy(),
+            cmg_gimbal_angle=self.data.actuators.cmg_gimbal_angle.copy(),
+            cmg_gimbal_rate_cmd=self.data.actuators.cmg_gimbal_rate_cmd.copy(),
+            cmg_rotor_momentum=self.data.actuators.cmg_rotor_momentum.copy(),
             sensor_biases={
                 name: bias.copy() for name, bias in self.data.sensors.biases.items()
             },
@@ -283,6 +289,9 @@ class MjOrbitViewer:
         self.data.actuators.rw_torque_cmd[:] = snapshot.rw_torque_cmd
         self.data.actuators.mtq_dipole_cmd[:] = snapshot.mtq_dipole_cmd
         self.data.actuators.thr_force_cmd[:] = snapshot.thr_force_cmd
+        self.data.actuators.cmg_gimbal_angle[:] = snapshot.cmg_gimbal_angle
+        self.data.actuators.cmg_gimbal_rate_cmd[:] = snapshot.cmg_gimbal_rate_cmd
+        self.data.actuators.cmg_rotor_momentum[:] = snapshot.cmg_rotor_momentum
         self.data.actuators.update_rw_momentum(self.model.rw_inertia)
 
         self.data.sensors.biases = {

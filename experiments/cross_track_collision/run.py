@@ -81,13 +81,17 @@ def cw_relative(
 
 
 def relative_position(data: MjoData) -> np.ndarray:
-    """Return body_b - body_a position in the MuJoCo/LVLH frame."""
-    return data.qpos[7:10].copy() - data.qpos[0:3].copy()
+    """Return body_b - body_a position in the chief-centered LVLH frame."""
+    pos_a = data.lvlh_position_from_world(data.qpos[0:3])
+    pos_b = data.lvlh_position_from_world(data.qpos[7:10])
+    return pos_b - pos_a
 
 
 def relative_velocity(data: MjoData) -> np.ndarray:
-    """Return body_b - body_a translational velocity in the MuJoCo/LVLH frame."""
-    return data.qvel[6:9].copy() - data.qvel[0:3].copy()
+    """Return body_b - body_a translational velocity in the LVLH frame."""
+    vel_a = data.lvlh_velocity_from_world(data.qpos[0:3], data.qvel[0:3])
+    vel_b = data.lvlh_velocity_from_world(data.qpos[7:10], data.qvel[6:9])
+    return vel_b - vel_a
 
 
 def configure_cross_track_collision(data: MjoData, mean_motion: float) -> None:
@@ -100,15 +104,19 @@ def configure_cross_track_collision(data: MjoData, mean_motion: float) -> None:
             -2.0 * IMPACT_SPEED_M_S,
         ]
     )
+    pos_a_lvlh = -0.5 * rel_pos
+    pos_b_lvlh = 0.5 * rel_pos
+    vel_a_lvlh = -0.5 * rel_vel
+    vel_b_lvlh = 0.5 * rel_vel
 
-    data.qpos[0:3] = -0.5 * rel_pos
+    data.qpos[0:3] = data.world_position_from_lvlh(pos_a_lvlh)
     data.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]
-    data.qpos[7:10] = 0.5 * rel_pos
+    data.qpos[7:10] = data.world_position_from_lvlh(pos_b_lvlh)
     data.qpos[10:14] = [1.0, 0.0, 0.0, 0.0]
 
     data.qvel[:] = 0.0
-    data.qvel[0:3] = -0.5 * rel_vel
-    data.qvel[6:9] = 0.5 * rel_vel
+    data.qvel[0:3] = data.world_velocity_from_lvlh(pos_a_lvlh, vel_a_lvlh)
+    data.qvel[6:9] = data.world_velocity_from_lvlh(pos_b_lvlh, vel_b_lvlh)
 
 
 def make_orbit_init() -> tuple[OrbitInit, float]:

@@ -293,9 +293,10 @@ def command_cmg_gimbal_rates(
                 np.clip(theta_new, -cmg_cfg.gimbal_angle_limit, cmg_cfg.gimbal_angle_limit)
             )
         act.cmg_gimbal_angle[i] = theta_new
+        theta_dot_effective = (theta_new - theta_old) / dt
 
         # Reaction torque on body: τ_body = -h · θ̇ · t̂(θ)
-        tau_body = -h_rotor * theta_dot * t_axis_body
+        tau_body = -h_rotor * theta_dot_effective * t_axis_body
         R_body = mjd.xmat[bid].reshape(3, 3)
         tau_world = R_body @ tau_body
 
