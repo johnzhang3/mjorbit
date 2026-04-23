@@ -12,6 +12,22 @@
 
 namespace mujoco_orbit {
 
+struct SurfaceMetadataNative {
+  int body_id;
+  double center_of_pressure_body[3];
+  double normal_body[3];
+  double area;
+  double drag_coeff;
+  double srp_coeff;
+  int use_drag;
+  int use_srp;
+};
+
+struct MagneticMetadataNative {
+  int body_id;
+  double dipole_body[3];
+};
+
 struct OrbitInstance {
   // Chief orbit state (absolute ECI).
   double R_eci[3];   // km
@@ -33,6 +49,16 @@ struct OrbitInstance {
 
   // Config (parsed from XML plugin attributes during init()).
   int use_j2;               // include J2 perturbation in chief gravity
+  int use_drag;
+  int use_srp;
+  int use_magnetic;
+  int use_gravity_gradient;
+
+  int num_surfaces;
+  const SurfaceMetadataNative* surfaces;
+
+  int num_magnetic_bodies;
+  const MagneticMetadataNative* magnetic_bodies;
 };
 
 }  // namespace mujoco_orbit

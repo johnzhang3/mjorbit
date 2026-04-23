@@ -5,7 +5,11 @@ add_executable(test_orbit_core
 
 target_include_directories(test_orbit_core
     PRIVATE
+        ${MUJOCO_INCLUDE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/../include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../plugin
 )
 
-add_test(NAME test_orbit_core COMMAND test_orbit_core)
+target_link_libraries(test_orbit_core PRIVATE ${MUJOCO_SO})
+
+add_test(NAME test_orbit_core COMMAND $<TARGET_FILE:test_orbit_core>)

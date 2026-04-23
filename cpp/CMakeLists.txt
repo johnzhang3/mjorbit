@@ -42,6 +42,7 @@ set(ORBIT_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/lvlh.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/environment.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/elements.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/coupling_passive.cc
 )
 
 add_library(mujoco_orbit_plugin SHARED

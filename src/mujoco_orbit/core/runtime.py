@@ -112,6 +112,26 @@ _ORBIT_PLUGIN_NAME = "mujoco_orbit.orbit"
 _GENERATED_PLUGIN_HOST_NAME = "__mujoco_orbit_plugin_host__"
 
 
+class _CSurfaceMetadata(ctypes.Structure):
+    _fields_ = [
+        ("body_id", ctypes.c_int),
+        ("center_of_pressure_body", ctypes.c_double * 3),
+        ("normal_body", ctypes.c_double * 3),
+        ("area", ctypes.c_double),
+        ("drag_coeff", ctypes.c_double),
+        ("srp_coeff", ctypes.c_double),
+        ("use_drag", ctypes.c_int),
+        ("use_srp", ctypes.c_int),
+    ]
+
+
+class _CMagneticMetadata(ctypes.Structure):
+    _fields_ = [
+        ("body_id", ctypes.c_int),
+        ("dipole_body", ctypes.c_double * 3),
+    ]
+
+
 class _COrbitInstance(ctypes.Structure):
     _fields_ = [
         ("R_eci", ctypes.c_double * 3),
@@ -127,11 +147,26 @@ class _COrbitInstance(ctypes.Structure):
         ("atm_density", ctypes.c_double),
         ("eclipse", ctypes.c_double),
         ("use_j2", ctypes.c_int),
+        ("use_drag", ctypes.c_int),
+        ("use_srp", ctypes.c_int),
+        ("use_magnetic", ctypes.c_int),
+        ("use_gravity_gradient", ctypes.c_int),
+        ("num_surfaces", ctypes.c_int),
+        ("surfaces", ctypes.POINTER(_CSurfaceMetadata)),
+        ("num_magnetic_bodies", ctypes.c_int),
+        ("magnetic_bodies", ctypes.POINTER(_CMagneticMetadata)),
     ]
 
 
 def _native_array_view(buffer, shape: tuple[int, ...]) -> np.ndarray:
     return np.ctypeslib.as_array(buffer).reshape(shape)
+
+
+def _copy_vec3_to_c(src: np.ndarray, dst) -> None:
+    arr = np.asarray(src, dtype=float)
+    dst[0] = float(arr[0])
+    dst[1] = float(arr[1])
+    dst[2] = float(arr[2])
 
 
 class OrbitView:
@@ -558,6 +593,32 @@ def _orbit_instance_from_mj_data(mj_data: mujoco.MjData, instance: int) -> _COrb
     return ctypes.cast(ptr, ctypes.POINTER(_COrbitInstance)).contents
 
 
+def _build_native_surfaces(surfaces: list[SurfaceMetadata]):
+    if not surfaces:
+        return None, None
+    native_array = (_CSurfaceMetadata * len(surfaces))()
+    for idx, surface in enumerate(surfaces):
+        native_array[idx].body_id = int(surface.body_id)
+        _copy_vec3_to_c(surface.center_of_pressure_body, native_array[idx].center_of_pressure_body)
+        _copy_vec3_to_c(surface.normal_body, native_array[idx].normal_body)
+        native_array[idx].area = float(surface.area)
+        native_array[idx].drag_coeff = float(surface.drag_coeff)
+        native_array[idx].srp_coeff = float(surface.srp_coeff)
+        native_array[idx].use_drag = int(surface.use_drag)
+        native_array[idx].use_srp = int(surface.use_srp)
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_CSurfaceMetadata))
+
+
+def _build_native_magnetic_bodies(magnetic_bodies: list[MagneticMetadata]):
+    if not magnetic_bodies:
+        return None, None
+    native_array = (_CMagneticMetadata * len(magnetic_bodies))()
+    for idx, magnetic_body in enumerate(magnetic_bodies):
+        native_array[idx].body_id = int(magnetic_body.body_id)
+        _copy_vec3_to_c(magnetic_body.dipole_body, native_array[idx].dipole_body)
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_CMagneticMetadata))
+
+
 class MjoData:
     """Runtime state for one simulation run."""
 
@@ -565,6 +626,11 @@ class MjoData:
         self.model = model
         self.mj_data = mujoco.MjData(model.mj_model)
         self._orbit_instance = _orbit_instance_from_mj_data(self.mj_data, model.orbit_plugin_instance)
+        self._native_surfaces, self._native_surfaces_ptr = _build_native_surfaces(model.surfaces)
+        self._native_magnetic_bodies, self._native_magnetic_bodies_ptr = _build_native_magnetic_bodies(
+            model.magnetic_bodies
+        )
+        self._bind_native_passive_metadata()
         self.orbit = OrbitView(self._orbit_instance)
         self.frame = FrameCacheView(self._orbit_instance)
         self.env = EnvironmentCacheView(self._orbit_instance)
@@ -595,6 +661,20 @@ class MjoData:
         from mujoco_orbit.core.step import mjo_forward
 
         mjo_forward(model, self)
+
+    def _bind_native_passive_metadata(self) -> None:
+        """Marshal per-model passive-coupling config into the native plugin instance."""
+        inst = self._orbit_instance
+        inst.use_j2 = int(self.model.use_j2)
+        inst.use_drag = int(self.model.use_drag)
+        inst.use_srp = int(self.model.use_srp)
+        inst.use_magnetic = int(self.model.use_magnetic)
+        inst.use_gravity_gradient = int(self.model.use_gravity_gradient)
+
+        inst.num_surfaces = len(self.model.surfaces)
+        inst.surfaces = self._native_surfaces_ptr
+        inst.num_magnetic_bodies = len(self.model.magnetic_bodies)
+        inst.magnetic_bodies = self._native_magnetic_bodies_ptr
 
     def refresh_orbit_caches(self, use_j2: bool) -> None:
         """Recompute frame/environment caches into the native plugin instance."""

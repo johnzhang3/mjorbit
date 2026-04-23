@@ -46,20 +46,33 @@ def _subtract_origin_acceleration(model: MjoModel, data: MjoData, a_origin_eci: 
         data.wrench_buffer[body_id, :3] -= mass * a_origin_m_s2
 
 
+def _dynamics_wrench_from_total(
+    total_wrench: np.ndarray,
+    passive_wrench: np.ndarray,
+) -> np.ndarray:
+    """Return the wrench that still needs to be applied outside the passive plugin."""
+    return total_wrench - passive_wrench
+
+
 def mjo_forward(model: MjoModel, data: MjoData) -> None:
     """Synchronize derived runtime state after direct mutation."""
     _refresh_orbit_caches(model, data)
+    _clear_wrench_buffer(data)
     mujoco.mj_forward(model.mj_model, data.mj_data)
 
     _clear_wrench_buffer(data)
     assemble_and_apply_wrenches(model, data)
+    passive_snapshot = data.wrench_buffer.copy()
     _apply_reaction_wheels(model, data)
     _apply_cmgs(model, data)
     _apply_magnetorquers(model, data)
     _apply_thrusters(model, data)
-    np.copyto(data.xfrc_applied, data.wrench_buffer)
+    total_snapshot = data.wrench_buffer.copy()
+    np.copyto(data.xfrc_applied, _dynamics_wrench_from_total(total_snapshot, passive_snapshot))
 
     mujoco.mj_forward(model.mj_model, data.mj_data)
+    np.copyto(data.wrench_buffer, total_snapshot)
+    np.copyto(data.xfrc_applied, total_snapshot)
 
 
 def mjo_step(model: MjoModel, data: MjoData) -> None:
@@ -69,18 +82,19 @@ def mjo_step(model: MjoModel, data: MjoData) -> None:
 
     _clear_wrench_buffer(data)
     assemble_and_apply_wrenches(model, data)
+    passive_snapshot = data.wrench_buffer.copy()
     _apply_reaction_wheels(model, data)
     command_rw_torques(model, data, data.actuators.rw_torque_cmd, mj_dt)
     _apply_cmgs(model, data)
     command_cmg_gimbal_rates(model, data, data.actuators.cmg_gimbal_rate_cmd, mj_dt)
     _apply_magnetorquers(model, data)
     _apply_thrusters(model, data)
-    np.copyto(data.xfrc_applied, data.wrench_buffer)
 
     net_force, _ = compute_net_external_wrench(data)
     a_feedback = compute_orbit_feedback_accel(model, data, net_force)
     _subtract_origin_acceleration(model, data, a_feedback)
-    np.copyto(data.xfrc_applied, data.wrench_buffer)
+    total_with_origin = data.wrench_buffer.copy()
+    np.copyto(data.xfrc_applied, _dynamics_wrench_from_total(total_with_origin, passive_snapshot))
 
     orbit_next = propagate_rk4(data.orbit, orbit_dt, use_j2=model.use_j2, a_external=a_feedback)
     data.orbit.R_eci[:] = orbit_next.R_eci
@@ -89,6 +103,8 @@ def mjo_step(model: MjoModel, data: MjoData) -> None:
 
     _refresh_orbit_caches(model, data)
     mujoco.mj_step(model.mj_model, data.mj_data)
+    np.copyto(data.wrench_buffer, total_with_origin)
+    np.copyto(data.xfrc_applied, total_with_origin)
 
 
 __all__ = ["mjo_forward", "mjo_step"]

@@ -1,9 +1,9 @@
-// mujoco_orbit.orbit plugin — Phase 1 stub.
+// mujoco_orbit.orbit plugin.
 //
-// Registers a MuJoCo plugin so models that declare
-//   <extension><plugin plugin="mujoco_orbit.orbit"/></extension>
-// load cleanly. All callbacks are no-ops beyond lifecycle bookkeeping.
-// Later phases fill in compute() / advance() with the orbital physics.
+// The Python shim attaches this plugin instance to a body in every compiled
+// model and marshals per-model passive-coupling metadata into the native
+// OrbitInstance. Phase 4 uses the PASSIVE callback to apply chief-relative
+// gravity, drag/SRP, residual magnetic torque, and gravity-gradient torque.
 
 #include <cstdint>
 #include <cstdlib>
@@ -14,6 +14,7 @@
 #include <mujoco/mjplugin.h>
 #include <mujoco/mujoco.h>
 
+#include "mujoco_orbit/coupling.h"
 #include "orbit_instance.h"
 
 namespace {
@@ -39,6 +40,10 @@ int Init(const mjModel* m, mjData* d, int instance) {
 
   // Defaults — Python shim / XML attributes override these later.
   inst->use_j2 = 1;
+  inst->use_drag = 1;
+  inst->use_srp = 1;
+  inst->use_magnetic = 1;
+  inst->use_gravity_gradient = 1;
 
   const char* use_j2_attr = mj_getPluginConfig(m, instance, "use_j2");
   if (use_j2_attr && use_j2_attr[0] != '\0') {
@@ -70,14 +75,34 @@ void Copy(mjData* dest, const mjModel* /*m*/, const mjData* src, int instance) {
 void Reset(const mjModel* /*m*/, mjtNum* /*plugin_state*/, void* plugin_data, int /*instance*/) {
   auto* inst = reinterpret_cast<mujoco_orbit::OrbitInstance*>(plugin_data);
   if (!inst) return;
-  // Preserve config (use_j2) across mj_resetData. Zero the runtime caches.
+  // Preserve shim-populated config/metadata across mj_resetData. Only the
+  // runtime chief orbit + derived caches should be reset to zero.
   const int use_j2 = inst->use_j2;
+  const int use_drag = inst->use_drag;
+  const int use_srp = inst->use_srp;
+  const int use_magnetic = inst->use_magnetic;
+  const int use_gravity_gradient = inst->use_gravity_gradient;
+  const int num_surfaces = inst->num_surfaces;
+  const auto* surfaces = inst->surfaces;
+  const int num_magnetic_bodies = inst->num_magnetic_bodies;
+  const auto* magnetic_bodies = inst->magnetic_bodies;
   std::memset(inst, 0, sizeof(*inst));
   inst->use_j2 = use_j2;
+  inst->use_drag = use_drag;
+  inst->use_srp = use_srp;
+  inst->use_magnetic = use_magnetic;
+  inst->use_gravity_gradient = use_gravity_gradient;
+  inst->num_surfaces = num_surfaces;
+  inst->surfaces = surfaces;
+  inst->num_magnetic_bodies = num_magnetic_bodies;
+  inst->magnetic_bodies = magnetic_bodies;
 }
 
-void Compute(const mjModel* /*m*/, mjData* /*d*/, int /*instance*/, int /*capability_bit*/) {
-  // Phase 1 stub: no forces applied. Phase 4 fills this in.
+void Compute(const mjModel* m, mjData* d, int instance, int capability_bit) {
+  if (capability_bit != mjPLUGIN_PASSIVE) {
+    return;
+  }
+  mujoco_orbit::apply_passive_wrenches(m, d, GetInstance(d, instance));
 }
 
 void Advance(const mjModel* /*m*/, mjData* /*d*/, int /*instance*/) {
