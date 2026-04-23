@@ -4,8 +4,13 @@
 
 from __future__ import annotations
 
+import ctypes
 from dataclasses import dataclass
+import os
+import pathlib
+import tempfile
 from typing import Iterable
+import xml.etree.ElementTree as ET
 
 import mujoco
 import numpy as np
@@ -103,6 +108,111 @@ class ThrusterMetadata:
     force_limit: float
 
 
+_ORBIT_PLUGIN_NAME = "mujoco_orbit.orbit"
+_GENERATED_PLUGIN_HOST_NAME = "__mujoco_orbit_plugin_host__"
+
+
+class _COrbitInstance(ctypes.Structure):
+    _fields_ = [
+        ("R_eci", ctypes.c_double * 3),
+        ("V_eci", ctypes.c_double * 3),
+        ("t", ctypes.c_double),
+        ("C_LI", ctypes.c_double * 9),
+        ("C_IL", ctypes.c_double * 9),
+        ("omega_lvlh", ctypes.c_double * 3),
+        ("omega_dot_lvlh", ctypes.c_double * 3),
+        ("sun_vector_eci", ctypes.c_double * 3),
+        ("mag_field_eci", ctypes.c_double * 3),
+        ("atmosphere_omega_eci", ctypes.c_double * 3),
+        ("atm_density", ctypes.c_double),
+        ("eclipse", ctypes.c_double),
+        ("use_j2", ctypes.c_int),
+    ]
+
+
+def _native_array_view(buffer, shape: tuple[int, ...]) -> np.ndarray:
+    return np.ctypeslib.as_array(buffer).reshape(shape)
+
+
+class OrbitView:
+    """NumPy-backed view into the native OrbitInstance chief state."""
+
+    __slots__ = ("R_eci", "V_eci", "_inst")
+
+    def __init__(self, inst: _COrbitInstance) -> None:
+        self._inst = inst
+        self.R_eci = _native_array_view(inst.R_eci, (3,))
+        self.V_eci = _native_array_view(inst.V_eci, (3,))
+
+    @property
+    def t(self) -> float:
+        return float(self._inst.t)
+
+    @t.setter
+    def t(self, value: float) -> None:
+        self._inst.t = float(value)
+
+    def copy(self) -> OrbitState:
+        return OrbitState(self.R_eci.copy(), self.V_eci.copy(), self.t)
+
+
+class FrameCacheView:
+    """NumPy-backed view into the native OrbitInstance frame cache."""
+
+    __slots__ = ("C_IL", "C_LI", "omega_dot_lvlh", "omega_lvlh")
+
+    def __init__(self, inst: _COrbitInstance) -> None:
+        self.C_LI = _native_array_view(inst.C_LI, (3, 3))
+        self.C_IL = _native_array_view(inst.C_IL, (3, 3))
+        self.omega_lvlh = _native_array_view(inst.omega_lvlh, (3,))
+        self.omega_dot_lvlh = _native_array_view(inst.omega_dot_lvlh, (3,))
+
+    def copy(self) -> FrameCache:
+        return FrameCache(
+            C_LI=self.C_LI.copy(),
+            C_IL=self.C_IL.copy(),
+            omega_lvlh=self.omega_lvlh.copy(),
+            omega_dot_lvlh=self.omega_dot_lvlh.copy(),
+        )
+
+
+class EnvironmentCacheView:
+    """NumPy-backed view into the native OrbitInstance environment cache."""
+
+    __slots__ = ("atmosphere_omega_eci", "mag_field_eci", "sun_vector_eci", "_inst")
+
+    def __init__(self, inst: _COrbitInstance) -> None:
+        self._inst = inst
+        self.sun_vector_eci = _native_array_view(inst.sun_vector_eci, (3,))
+        self.mag_field_eci = _native_array_view(inst.mag_field_eci, (3,))
+        self.atmosphere_omega_eci = _native_array_view(inst.atmosphere_omega_eci, (3,))
+
+    @property
+    def eclipse(self) -> float:
+        return float(self._inst.eclipse)
+
+    @eclipse.setter
+    def eclipse(self, value: float) -> None:
+        self._inst.eclipse = float(value)
+
+    @property
+    def atm_density(self) -> float:
+        return float(self._inst.atm_density)
+
+    @atm_density.setter
+    def atm_density(self, value: float) -> None:
+        self._inst.atm_density = float(value)
+
+    def copy(self) -> EnvironmentCache:
+        return EnvironmentCache(
+            sun_vector_eci=self.sun_vector_eci.copy(),
+            eclipse=self.eclipse,
+            mag_field_eci=self.mag_field_eci.copy(),
+            atmosphere_omega_eci=self.atmosphere_omega_eci.copy(),
+            atm_density=self.atm_density,
+        )
+
+
 def _normalized(vec: np.ndarray, label: str) -> np.ndarray:
     arr = np.asarray(vec, dtype=float)
     norm = np.linalg.norm(arr)
@@ -116,6 +226,88 @@ def _resolve_body_id(mj_model: mujoco.MjModel, body_name: str) -> int:
     if body_id < 0:
         raise ValueError(f"Body '{body_name}' not found in MuJoCo model")
     return body_id
+
+
+def _iter_body_elements(worldbody: ET.Element | None):
+    if worldbody is None:
+        return
+    for body in worldbody.iter("body"):
+        yield body
+
+
+def _find_orbit_plugin_host_body(root: ET.Element) -> ET.Element | None:
+    worldbody = root.find("worldbody")
+    for body in _iter_body_elements(worldbody):
+        for plugin in body.findall("plugin"):
+            if plugin.get("plugin") == _ORBIT_PLUGIN_NAME:
+                return body
+    return None
+
+
+def _ensure_plugin_host_name(body: ET.Element) -> str:
+    body_name = body.get("name")
+    if body_name:
+        return body_name
+    body.set("name", _GENERATED_PLUGIN_HOST_NAME)
+    return _GENERATED_PLUGIN_HOST_NAME
+
+
+def _prepare_xml_with_orbit_plugin(xml_path: str, use_j2: bool) -> tuple[str, str]:
+    src_path = pathlib.Path(xml_path)
+    tree = ET.parse(src_path)
+    root = tree.getroot()
+
+    extension = root.find("extension")
+    if extension is None:
+        extension = ET.Element("extension")
+        worldbody = root.find("worldbody")
+        if worldbody is None:
+            raise ValueError("MuJoCo model must define a <worldbody> to host the orbit plugin")
+        children = list(root)
+        insert_at = children.index(worldbody)
+        root.insert(insert_at, extension)
+
+    if not any(plugin.get("plugin") == _ORBIT_PLUGIN_NAME for plugin in extension.findall("plugin")):
+        extension.append(ET.Element("plugin", {"plugin": _ORBIT_PLUGIN_NAME}))
+
+    plugin_body = _find_orbit_plugin_host_body(root)
+    if plugin_body is None:
+        worldbody = root.find("worldbody")
+        if worldbody is None:
+            raise ValueError("MuJoCo model must define a <worldbody> to host the orbit plugin")
+        plugin_body = next(_iter_body_elements(worldbody), None)
+        if plugin_body is None:
+            raise ValueError("MuJoCo model must contain at least one <body> for the orbit plugin")
+        ET.SubElement(plugin_body, "plugin", {"plugin": _ORBIT_PLUGIN_NAME})
+
+    plugin_body_name = _ensure_plugin_host_name(plugin_body)
+    plugin_node = next(
+        plugin
+        for plugin in plugin_body.findall("plugin")
+        if plugin.get("plugin") == _ORBIT_PLUGIN_NAME
+    )
+
+    config = next(
+        (cfg for cfg in plugin_node.findall("config") if cfg.get("key") == "use_j2"),
+        None,
+    )
+    value = "true" if use_j2 else "false"
+    if config is None:
+        ET.SubElement(plugin_node, "config", {"key": "use_j2", "value": value})
+    else:
+        config.set("value", value)
+
+    with tempfile.NamedTemporaryFile(
+        mode="wb",
+        suffix=".xml",
+        prefix=".mujoco_orbit_",
+        dir=src_path.parent,
+        delete=False,
+    ) as tmp:
+        tree.write(tmp, encoding="utf-8", xml_declaration=False)
+        temp_path = tmp.name
+
+    return temp_path, plugin_body_name
 
 
 def _resolve_surfaces(
@@ -260,6 +452,7 @@ class MjoModel:
     """Compiled, mostly-static state shared across runs."""
 
     mj_model: mujoco.MjModel
+    orbit_plugin_instance: int
     surfaces: list[SurfaceMetadata]
     magnetic_bodies: list[MagneticMetadata]
     reaction_wheels: list[ReactionWheelMetadata]
@@ -300,11 +493,15 @@ class MjoModel:
         use_gravity_gradient: bool = True,
     ) -> "MjoModel":
         """Compile a MuJoCo model plus static orbital coupling metadata."""
+        temp_xml_path, plugin_body_name = _prepare_xml_with_orbit_plugin(xml_path, use_j2)
         sensor_callback = mujoco.get_mjcb_sensor()
         if sensor_callback is not None:
             mujoco.set_mjcb_sensor(None)
         try:
-            mj_model = mujoco.MjModel.from_xml_path(xml_path)
+            try:
+                mj_model = mujoco.MjModel.from_xml_path(temp_xml_path)
+            finally:
+                os.unlink(temp_xml_path)
         finally:
             if sensor_callback is not None:
                 mujoco.set_mjcb_sensor(sensor_callback)
@@ -315,8 +512,15 @@ class MjoModel:
         # Orbital dynamics supply the gravity model.
         mj_model.opt.gravity[:] = 0.0
 
+        orbit_plugin_instance = int(mj_model.body_plugin[_resolve_body_id(mj_model, plugin_body_name)])
+        if orbit_plugin_instance < 0:
+            raise RuntimeError(
+                f"Failed to attach {_ORBIT_PLUGIN_NAME} to body '{plugin_body_name}'"
+            )
+
         return cls(
             mj_model=mj_model,
+            orbit_plugin_instance=orbit_plugin_instance,
             surfaces=_resolve_surfaces(mj_model, surfaces),
             magnetic_bodies=_resolve_magnetic_bodies(mj_model, magnetic_bodies),
             reaction_wheels=_resolve_reaction_wheels(mj_model, reaction_wheels),
@@ -347,19 +551,29 @@ class MjoModel:
         return descriptor
 
 
+def _orbit_instance_from_mj_data(mj_data: mujoco.MjData, instance: int) -> _COrbitInstance:
+    ptr = int(mj_data.plugin_data[instance])
+    if ptr == 0:
+        raise RuntimeError(f"{_ORBIT_PLUGIN_NAME} instance {instance} is not initialized")
+    return ctypes.cast(ptr, ctypes.POINTER(_COrbitInstance)).contents
+
+
 class MjoData:
     """Runtime state for one simulation run."""
 
     def __init__(self, model: MjoModel, *, orbit: OrbitInit, rng_seed: int | None = None) -> None:
         self.model = model
         self.mj_data = mujoco.MjData(model.mj_model)
-        self.orbit = OrbitState(
-            R_eci=np.asarray(orbit.R_eci, dtype=float).copy(),
-            V_eci=np.asarray(orbit.V_eci, dtype=float).copy(),
-            t=orbit.t,
-        )
-        self.frame: FrameCache = update_frame_cache(self.orbit, use_j2=model.use_j2)
-        self.env: EnvironmentCache = update_environment_cache(self.orbit, self.frame)
+        self._orbit_instance = _orbit_instance_from_mj_data(self.mj_data, model.orbit_plugin_instance)
+        self.orbit = OrbitView(self._orbit_instance)
+        self.frame = FrameCacheView(self._orbit_instance)
+        self.env = EnvironmentCacheView(self._orbit_instance)
+
+        self.orbit.R_eci[:] = np.asarray(orbit.R_eci, dtype=float)
+        self.orbit.V_eci[:] = np.asarray(orbit.V_eci, dtype=float)
+        self.orbit.t = orbit.t
+        self.refresh_orbit_caches(model.use_j2)
+
         self.actuators = ActuatorData.zeros(
             len(model.reaction_wheels),
             model.rw_inertia,
@@ -381,6 +595,21 @@ class MjoData:
         from mujoco_orbit.core.step import mjo_forward
 
         mjo_forward(model, self)
+
+    def refresh_orbit_caches(self, use_j2: bool) -> None:
+        """Recompute frame/environment caches into the native plugin instance."""
+        frame_cache = update_frame_cache(self.orbit, use_j2=use_j2)
+        self.frame.C_LI[:] = frame_cache.C_LI
+        self.frame.C_IL[:] = frame_cache.C_IL
+        self.frame.omega_lvlh[:] = frame_cache.omega_lvlh
+        self.frame.omega_dot_lvlh[:] = frame_cache.omega_dot_lvlh
+
+        env_cache = update_environment_cache(self.orbit, self.frame)
+        self.env.sun_vector_eci[:] = env_cache.sun_vector_eci
+        self.env.mag_field_eci[:] = env_cache.mag_field_eci
+        self.env.atmosphere_omega_eci[:] = env_cache.atmosphere_omega_eci
+        self.env.atm_density = env_cache.atm_density
+        self.env.eclipse = env_cache.eclipse
 
     def __getattr__(self, name: str):  # pragma: no cover - trivial delegation
         return getattr(self.mj_data, name)

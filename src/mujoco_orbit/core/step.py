@@ -18,8 +18,6 @@ from mujoco_orbit.coupling.actuators import (
 )
 from mujoco_orbit.coupling.apply import assemble_and_apply_wrenches
 from mujoco_orbit.coupling.feedback import compute_net_external_wrench, compute_orbit_feedback_accel
-from mujoco_orbit.orbit.environment import update_environment_cache
-from mujoco_orbit.orbit.lvlh import update_frame_cache
 from mujoco_orbit.orbit.propagator import propagate_rk4
 from mujoco_orbit.sensors import update_sensor_environment
 
@@ -30,8 +28,7 @@ def _clear_wrench_buffer(data: MjoData) -> None:
 
 
 def _refresh_orbit_caches(model: MjoModel, data: MjoData) -> None:
-    data.frame = update_frame_cache(data.orbit, use_j2=model.use_j2)
-    data.env = update_environment_cache(data.orbit, data.frame)
+    data.refresh_orbit_caches(model.use_j2)
     data.actuators.update_rw_momentum(model.rw_inertia)
     update_sensor_environment(model, data)
 

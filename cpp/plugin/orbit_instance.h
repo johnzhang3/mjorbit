@@ -25,9 +25,11 @@ struct OrbitInstance {
   double omega_dot_lvlh[3]; // LVLH angular acceleration, rad/s^2
 
   // Environment cache.
-  double sun_eci[3];        // unit vector to Sun in ECI
-  double B_world[3];        // magnetic field at chief, T
-  int eclipse;              // 0/1
+  double sun_vector_eci[3];      // unit vector to Sun in ECI
+  double mag_field_eci[3];       // magnetic field at chief, T
+  double atmosphere_omega_eci[3];  // Earth rotation vector, rad/s
+  double atm_density;            // kg/m^3
+  double eclipse;                // 0.0 shadow, 1.0 full sun
 
   // Config (parsed from XML plugin attributes during init()).
   int use_j2;               // include J2 perturbation in chief gravity

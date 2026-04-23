@@ -38,6 +38,7 @@ def test_model_and_data_expose_mujoco_fields():
     data = MjoData(model, orbit=_orbit_init())
 
     assert model.nbody >= 2
+    assert model.mj_model.nplugin == 1
     np.testing.assert_allclose(model.opt.gravity, [0.0, 0.0, 0.0])
     assert data.qpos.shape[0] == model.nq
     assert data.qvel.shape[0] == model.nv
@@ -55,6 +56,9 @@ def test_mjo_forward_syncs_derived_state():
         use_magnetic=False,
     )
     data = MjoData(model, orbit=_orbit_init())
+    orbit_position_view = data.orbit.R_eci
+    frame_view = data.frame.C_LI
+    env_view = data.env.mag_field_eci
 
     data.qpos[:3] = [2.0, -1.0, 0.5]
     data.qvel[:3] = [0.1, 0.0, -0.05]
@@ -66,6 +70,9 @@ def test_mjo_forward_syncs_derived_state():
     np.testing.assert_allclose(data.xfrc_applied, data.wrench_buffer)
     assert np.all(np.isfinite(data.xipos))
     assert data.orbit.t == 12.0
+    assert data.orbit.R_eci is orbit_position_view
+    assert data.frame.C_LI is frame_view
+    assert data.env.mag_field_eci is env_view
 
 
 def test_sensor_lookup_and_measurement_use_canonical_sensordata():
