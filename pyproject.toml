@@ -48,5 +48,8 @@ line-length = 100
 select = ["E", "F", "I"]
 
 [tool.pyright]
-pythonVersion = "3.11"
 include = ["src"]
+extraPaths = ["src"]
+pythonVersion = "3.12"
+venv = ".venv"
+venvPath = "."

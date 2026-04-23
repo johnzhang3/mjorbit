@@ -20,6 +20,10 @@ def _load_native_plugin() -> None:
     import site as _site
     import sysconfig as _sysconfig
 
+    load_plugin_library = getattr(_mujoco, "mj_loadPluginLibrary", None)
+    if not callable(load_plugin_library):
+        return
+
     candidates = [_os.path.join(_os.path.dirname(__file__), "plugins")]
     for base in _site.getsitepackages() + [_sysconfig.get_paths()["purelib"]]:
         candidates.append(_os.path.join(base, "mujoco_orbit", "plugins"))
@@ -33,14 +37,14 @@ def _load_native_plugin() -> None:
             if fname.startswith("mujoco_orbit_plugin") and (
                 fname.endswith(".so") or fname.endswith(".dylib") or fname.endswith(".dll")
             ):
-                _mujoco.mj_loadPluginLibrary(_os.path.join(plugins_dir, fname))
+                load_plugin_library(_os.path.join(plugins_dir, fname))
                 return
 
 
 _load_native_plugin()
 
 
-from mujoco_orbit.core.config import (
+from mujoco_orbit.core.config import (  # noqa: E402
     ControlMomentGyroSpec,
     MagneticBodySpec,
     MagnetorquerSpec,
@@ -49,8 +53,8 @@ from mujoco_orbit.core.config import (
     SurfaceSpec,
     ThrusterSpec,
 )
-from mujoco_orbit.core.runtime import MjoData, MjoModel
-from mujoco_orbit.core.step import mjo_forward, mjo_step
+from mujoco_orbit.core.runtime import MjoData, MjoModel  # noqa: E402
+from mujoco_orbit.core.step import mjo_forward, mjo_step  # noqa: E402
 
 __all__ = [
     "ControlMomentGyroSpec",
