@@ -30,3 +30,5 @@ build/
 *.synctex.gz
 *.toc
 .DS_Store
+
+/Testing/

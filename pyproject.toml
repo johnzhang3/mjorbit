@@ -32,7 +32,7 @@ dev = [
 
 [tool.scikit-build]
 cmake.source-dir = "cpp"
-cmake.version = ">=3.18"
+cmake.version = ">=3.16"
 wheel.packages = ["src/mujoco_orbit", "src/viewer"]
 # ship XML testdata with the wheel
 wheel.exclude = []
