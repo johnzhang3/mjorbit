@@ -8,7 +8,8 @@
 
 namespace mujoco_orbit {
 
-void apply_passive_wrenches(const mjModel* m, mjData* d, const OrbitInstance* inst);
+void apply_passive_wrenches(const mjModel* m, mjData* d, OrbitInstance* inst);
+void advance_actuators(const mjModel* m, OrbitInstance* inst);
 
 }  // namespace mujoco_orbit
 

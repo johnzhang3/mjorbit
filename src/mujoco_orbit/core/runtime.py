@@ -5,12 +5,12 @@
 from __future__ import annotations
 
 import ctypes
-from dataclasses import dataclass
 import os
 import pathlib
 import tempfile
-from typing import Iterable
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from typing import Iterable
 
 import mujoco
 import numpy as np
@@ -132,6 +132,49 @@ class _CMagneticMetadata(ctypes.Structure):
     ]
 
 
+class _CReactionWheelMetadata(ctypes.Structure):
+    _fields_ = [
+        ("body_id", ctypes.c_int),
+        ("axis_body", ctypes.c_double * 3),
+        ("inertia", ctypes.c_double),
+        ("speed_limit", ctypes.c_double),
+        ("torque_limit", ctypes.c_double),
+        ("has_speed_limit", ctypes.c_int),
+        ("has_torque_limit", ctypes.c_int),
+    ]
+
+
+class _CMagnetorquerMetadata(ctypes.Structure):
+    _fields_ = [
+        ("body_id", ctypes.c_int),
+        ("axis_body", ctypes.c_double * 3),
+        ("dipole_limit", ctypes.c_double),
+    ]
+
+
+class _CControlMomentGyroMetadata(ctypes.Structure):
+    _fields_ = [
+        ("body_id", ctypes.c_int),
+        ("gimbal_axis_body", ctypes.c_double * 3),
+        ("spin_axis_body_0", ctypes.c_double * 3),
+        ("torque_axis_body_0", ctypes.c_double * 3),
+        ("rotor_momentum", ctypes.c_double),
+        ("gimbal_rate_limit", ctypes.c_double),
+        ("gimbal_angle_limit", ctypes.c_double),
+        ("has_gimbal_rate_limit", ctypes.c_int),
+        ("has_gimbal_angle_limit", ctypes.c_int),
+    ]
+
+
+class _CThrusterMetadata(ctypes.Structure):
+    _fields_ = [
+        ("body_id", ctypes.c_int),
+        ("position_body", ctypes.c_double * 3),
+        ("direction_body", ctypes.c_double * 3),
+        ("force_limit", ctypes.c_double),
+    ]
+
+
 class _COrbitInstance(ctypes.Structure):
     _fields_ = [
         ("R_eci", ctypes.c_double * 3),
@@ -146,15 +189,36 @@ class _COrbitInstance(ctypes.Structure):
         ("atmosphere_omega_eci", ctypes.c_double * 3),
         ("atm_density", ctypes.c_double),
         ("eclipse", ctypes.c_double),
+        ("feedback_force_world", ctypes.c_double * 3),
+        ("feedback_accel_eci", ctypes.c_double * 3),
         ("use_j2", ctypes.c_int),
         ("use_drag", ctypes.c_int),
         ("use_srp", ctypes.c_int),
         ("use_magnetic", ctypes.c_int),
         ("use_gravity_gradient", ctypes.c_int),
+        ("orbit_dt", ctypes.c_double),
         ("num_surfaces", ctypes.c_int),
         ("surfaces", ctypes.POINTER(_CSurfaceMetadata)),
         ("num_magnetic_bodies", ctypes.c_int),
         ("magnetic_bodies", ctypes.POINTER(_CMagneticMetadata)),
+        ("num_reaction_wheels", ctypes.c_int),
+        ("reaction_wheels", ctypes.POINTER(_CReactionWheelMetadata)),
+        ("rw_speed", ctypes.POINTER(ctypes.c_double)),
+        ("rw_momentum", ctypes.POINTER(ctypes.c_double)),
+        ("rw_torque_cmd", ctypes.POINTER(ctypes.c_double)),
+        ("num_magnetorquers", ctypes.c_int),
+        ("magnetorquers", ctypes.POINTER(_CMagnetorquerMetadata)),
+        ("mtq_dipole_cmd", ctypes.POINTER(ctypes.c_double)),
+        ("num_thrusters", ctypes.c_int),
+        ("thrusters", ctypes.POINTER(_CThrusterMetadata)),
+        ("thr_force_cmd", ctypes.POINTER(ctypes.c_double)),
+        ("num_cmgs", ctypes.c_int),
+        ("cmgs", ctypes.POINTER(_CControlMomentGyroMetadata)),
+        ("cmg_gimbal_angle", ctypes.POINTER(ctypes.c_double)),
+        ("cmg_gimbal_rate_cmd", ctypes.POINTER(ctypes.c_double)),
+        ("cmg_rotor_momentum", ctypes.POINTER(ctypes.c_double)),
+        ("wrench_buffer", ctypes.POINTER(ctypes.c_double)),
+        ("wrench_body_count", ctypes.c_int),
     ]
 
 
@@ -302,7 +366,10 @@ def _prepare_xml_with_orbit_plugin(xml_path: str, use_j2: bool) -> tuple[str, st
         insert_at = children.index(worldbody)
         root.insert(insert_at, extension)
 
-    if not any(plugin.get("plugin") == _ORBIT_PLUGIN_NAME for plugin in extension.findall("plugin")):
+    has_orbit_plugin = any(
+        plugin.get("plugin") == _ORBIT_PLUGIN_NAME for plugin in extension.findall("plugin")
+    )
+    if not has_orbit_plugin:
         extension.append(ET.Element("plugin", {"plugin": _ORBIT_PLUGIN_NAME}))
 
     plugin_body = _find_orbit_plugin_host_body(root)
@@ -547,7 +614,8 @@ class MjoModel:
         # Orbital dynamics supply the gravity model.
         mj_model.opt.gravity[:] = 0.0
 
-        orbit_plugin_instance = int(mj_model.body_plugin[_resolve_body_id(mj_model, plugin_body_name)])
+        orbit_plugin_body_id = _resolve_body_id(mj_model, plugin_body_name)
+        orbit_plugin_instance = int(mj_model.body_plugin[orbit_plugin_body_id])
         if orbit_plugin_instance < 0:
             raise RuntimeError(
                 f"Failed to attach {_ORBIT_PLUGIN_NAME} to body '{plugin_body_name}'"
@@ -619,17 +687,137 @@ def _build_native_magnetic_bodies(magnetic_bodies: list[MagneticMetadata]):
     return native_array, ctypes.cast(native_array, ctypes.POINTER(_CMagneticMetadata))
 
 
+def _build_native_reaction_wheels(reaction_wheels: list[ReactionWheelMetadata]):
+    if not reaction_wheels:
+        return None, None
+    native_array = (_CReactionWheelMetadata * len(reaction_wheels))()
+    for idx, reaction_wheel in enumerate(reaction_wheels):
+        native_array[idx].body_id = int(reaction_wheel.body_id)
+        _copy_vec3_to_c(reaction_wheel.axis_body, native_array[idx].axis_body)
+        native_array[idx].inertia = float(reaction_wheel.inertia)
+        native_array[idx].has_speed_limit = int(reaction_wheel.speed_limit is not None)
+        native_array[idx].speed_limit = (
+            0.0 if reaction_wheel.speed_limit is None else float(reaction_wheel.speed_limit)
+        )
+        native_array[idx].has_torque_limit = int(reaction_wheel.torque_limit is not None)
+        native_array[idx].torque_limit = (
+            0.0 if reaction_wheel.torque_limit is None else float(reaction_wheel.torque_limit)
+        )
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_CReactionWheelMetadata))
+
+
+def _build_native_magnetorquers(magnetorquers: list[MagnetorquerMetadata]):
+    if not magnetorquers:
+        return None, None
+    native_array = (_CMagnetorquerMetadata * len(magnetorquers))()
+    for idx, magnetorquer in enumerate(magnetorquers):
+        native_array[idx].body_id = int(magnetorquer.body_id)
+        _copy_vec3_to_c(magnetorquer.axis_body, native_array[idx].axis_body)
+        native_array[idx].dipole_limit = float(magnetorquer.dipole_limit)
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_CMagnetorquerMetadata))
+
+
+def _build_native_thrusters(thrusters: list[ThrusterMetadata]):
+    if not thrusters:
+        return None, None
+    native_array = (_CThrusterMetadata * len(thrusters))()
+    for idx, thruster in enumerate(thrusters):
+        native_array[idx].body_id = int(thruster.body_id)
+        _copy_vec3_to_c(thruster.position_body, native_array[idx].position_body)
+        _copy_vec3_to_c(thruster.direction_body, native_array[idx].direction_body)
+        native_array[idx].force_limit = float(thruster.force_limit)
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_CThrusterMetadata))
+
+
+def _build_native_cmgs(cmgs: list[ControlMomentGyroMetadata]):
+    if not cmgs:
+        return None, None
+    native_array = (_CControlMomentGyroMetadata * len(cmgs))()
+    for idx, cmg in enumerate(cmgs):
+        native_array[idx].body_id = int(cmg.body_id)
+        _copy_vec3_to_c(cmg.gimbal_axis_body, native_array[idx].gimbal_axis_body)
+        _copy_vec3_to_c(cmg.spin_axis_body_0, native_array[idx].spin_axis_body_0)
+        _copy_vec3_to_c(cmg.torque_axis_body_0, native_array[idx].torque_axis_body_0)
+        native_array[idx].rotor_momentum = float(cmg.rotor_momentum)
+        native_array[idx].has_gimbal_rate_limit = int(cmg.gimbal_rate_limit is not None)
+        native_array[idx].gimbal_rate_limit = (
+            0.0 if cmg.gimbal_rate_limit is None else float(cmg.gimbal_rate_limit)
+        )
+        native_array[idx].has_gimbal_angle_limit = int(cmg.gimbal_angle_limit is not None)
+        native_array[idx].gimbal_angle_limit = (
+            0.0 if cmg.gimbal_angle_limit is None else float(cmg.gimbal_angle_limit)
+        )
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_CControlMomentGyroMetadata))
+
+
+def _build_native_double_buffer(values_or_size):
+    if isinstance(values_or_size, int):
+        values = np.zeros(values_or_size, dtype=float)
+    else:
+        values = np.asarray(values_or_size, dtype=float)
+    if values.size == 0:
+        return None, None, np.zeros(0)
+    native_array = (ctypes.c_double * int(values.size))(*[float(v) for v in values])
+    ptr = ctypes.cast(native_array, ctypes.POINTER(ctypes.c_double))
+    view = np.ctypeslib.as_array(native_array)
+    return native_array, ptr, view
+
+
 class MjoData:
     """Runtime state for one simulation run."""
 
     def __init__(self, model: MjoModel, *, orbit: OrbitInit, rng_seed: int | None = None) -> None:
         self.model = model
         self.mj_data = mujoco.MjData(model.mj_model)
-        self._orbit_instance = _orbit_instance_from_mj_data(self.mj_data, model.orbit_plugin_instance)
-        self._native_surfaces, self._native_surfaces_ptr = _build_native_surfaces(model.surfaces)
-        self._native_magnetic_bodies, self._native_magnetic_bodies_ptr = _build_native_magnetic_bodies(
-            model.magnetic_bodies
+        self._orbit_instance = _orbit_instance_from_mj_data(
+            self.mj_data, model.orbit_plugin_instance
         )
+        self._native_surfaces, self._native_surfaces_ptr = _build_native_surfaces(model.surfaces)
+        self._native_magnetic_bodies, self._native_magnetic_bodies_ptr = (
+            _build_native_magnetic_bodies(model.magnetic_bodies)
+        )
+        self._native_reaction_wheels, self._native_reaction_wheels_ptr = (
+            _build_native_reaction_wheels(model.reaction_wheels)
+        )
+        self._native_magnetorquers, self._native_magnetorquers_ptr = _build_native_magnetorquers(
+            model.magnetorquers
+        )
+        self._native_thrusters, self._native_thrusters_ptr = _build_native_thrusters(
+            model.thrusters
+        )
+        self._native_cmgs, self._native_cmgs_ptr = _build_native_cmgs(model.cmgs)
+
+        self._native_rw_speed, self._native_rw_speed_ptr, rw_speed = _build_native_double_buffer(
+            len(model.reaction_wheels)
+        )
+        self._native_rw_momentum, self._native_rw_momentum_ptr, rw_momentum = (
+            _build_native_double_buffer(len(model.reaction_wheels))
+        )
+        self._native_rw_inertia, _, rw_inertia = _build_native_double_buffer(model.rw_inertia)
+        self._native_rw_torque_cmd, self._native_rw_torque_cmd_ptr, rw_torque_cmd = (
+            _build_native_double_buffer(len(model.reaction_wheels))
+        )
+        self._native_mtq_dipole_cmd, self._native_mtq_dipole_cmd_ptr, mtq_dipole_cmd = (
+            _build_native_double_buffer(len(model.magnetorquers))
+        )
+        self._native_thr_force_cmd, self._native_thr_force_cmd_ptr, thr_force_cmd = (
+            _build_native_double_buffer(len(model.thrusters))
+        )
+        self._native_cmg_gimbal_angle, self._native_cmg_gimbal_angle_ptr, cmg_gimbal_angle = (
+            _build_native_double_buffer(len(model.cmgs))
+        )
+        (
+            self._native_cmg_gimbal_rate_cmd,
+            self._native_cmg_gimbal_rate_cmd_ptr,
+            cmg_gimbal_rate_cmd,
+        ) = _build_native_double_buffer(len(model.cmgs))
+        self._native_cmg_rotor_momentum, self._native_cmg_rotor_momentum_ptr, cmg_rotor_momentum = (
+            _build_native_double_buffer(model.cmg_rotor_momentum)
+        )
+        self._native_wrench_buffer, self._native_wrench_buffer_ptr, wrench_buffer = (
+            _build_native_double_buffer(model.nbody * 6)
+        )
+
         self._bind_native_passive_metadata()
         self.orbit = OrbitView(self._orbit_instance)
         self.frame = FrameCacheView(self._orbit_instance)
@@ -640,16 +828,19 @@ class MjoData:
         self.orbit.t = orbit.t
         self.refresh_orbit_caches(model.use_j2)
 
-        self.actuators = ActuatorData.zeros(
-            len(model.reaction_wheels),
-            model.rw_inertia,
-            len(model.magnetorquers),
-            len(model.thrusters),
-            len(model.cmgs),
-            model.cmg_rotor_momentum,
+        self.actuators = ActuatorData(
+            rw_speed=rw_speed,
+            rw_momentum=rw_momentum,
+            rw_inertia=rw_inertia,
+            rw_torque_cmd=rw_torque_cmd,
+            mtq_dipole_cmd=mtq_dipole_cmd,
+            thr_force_cmd=thr_force_cmd,
+            cmg_gimbal_angle=cmg_gimbal_angle,
+            cmg_gimbal_rate_cmd=cmg_gimbal_rate_cmd,
+            cmg_rotor_momentum=cmg_rotor_momentum,
         )
         self.actuators.update_rw_momentum(model.rw_inertia)
-        self.wrench_buffer = np.zeros((model.nbody, 6))
+        self.wrench_buffer = wrench_buffer.reshape(model.nbody, 6)
         self.sensors: SensorDataNamespace = create_sensor_data_namespace(
             model,
             self,
@@ -670,21 +861,46 @@ class MjoData:
         inst.use_srp = int(self.model.use_srp)
         inst.use_magnetic = int(self.model.use_magnetic)
         inst.use_gravity_gradient = int(self.model.use_gravity_gradient)
+        inst.orbit_dt = 0.0 if self.model.orbit_dt is None else float(self.model.orbit_dt)
 
         inst.num_surfaces = len(self.model.surfaces)
         inst.surfaces = self._native_surfaces_ptr
         inst.num_magnetic_bodies = len(self.model.magnetic_bodies)
         inst.magnetic_bodies = self._native_magnetic_bodies_ptr
 
+        inst.num_reaction_wheels = len(self.model.reaction_wheels)
+        inst.reaction_wheels = self._native_reaction_wheels_ptr
+        inst.rw_speed = self._native_rw_speed_ptr
+        inst.rw_momentum = self._native_rw_momentum_ptr
+        inst.rw_torque_cmd = self._native_rw_torque_cmd_ptr
+
+        inst.num_magnetorquers = len(self.model.magnetorquers)
+        inst.magnetorquers = self._native_magnetorquers_ptr
+        inst.mtq_dipole_cmd = self._native_mtq_dipole_cmd_ptr
+
+        inst.num_thrusters = len(self.model.thrusters)
+        inst.thrusters = self._native_thrusters_ptr
+        inst.thr_force_cmd = self._native_thr_force_cmd_ptr
+
+        inst.num_cmgs = len(self.model.cmgs)
+        inst.cmgs = self._native_cmgs_ptr
+        inst.cmg_gimbal_angle = self._native_cmg_gimbal_angle_ptr
+        inst.cmg_gimbal_rate_cmd = self._native_cmg_gimbal_rate_cmd_ptr
+        inst.cmg_rotor_momentum = self._native_cmg_rotor_momentum_ptr
+
+        inst.wrench_buffer = self._native_wrench_buffer_ptr
+        inst.wrench_body_count = self.model.nbody
+
     def refresh_orbit_caches(self, use_j2: bool) -> None:
         """Recompute frame/environment caches into the native plugin instance."""
-        frame_cache = update_frame_cache(self.orbit, use_j2=use_j2)
+        orbit_state = self.orbit.copy()
+        frame_cache = update_frame_cache(orbit_state, use_j2=use_j2)
         self.frame.C_LI[:] = frame_cache.C_LI
         self.frame.C_IL[:] = frame_cache.C_IL
         self.frame.omega_lvlh[:] = frame_cache.omega_lvlh
         self.frame.omega_dot_lvlh[:] = frame_cache.omega_dot_lvlh
 
-        env_cache = update_environment_cache(self.orbit, self.frame)
+        env_cache = update_environment_cache(orbit_state, frame_cache)
         self.env.sun_vector_eci[:] = env_cache.sun_vector_eci
         self.env.mag_field_eci[:] = env_cache.mag_field_eci
         self.env.atmosphere_omega_eci[:] = env_cache.atmosphere_omega_eci

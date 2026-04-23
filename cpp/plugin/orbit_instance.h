@@ -28,6 +28,41 @@ struct MagneticMetadataNative {
   double dipole_body[3];
 };
 
+struct ReactionWheelMetadataNative {
+  int body_id;
+  double axis_body[3];
+  double inertia;
+  double speed_limit;
+  double torque_limit;
+  int has_speed_limit;
+  int has_torque_limit;
+};
+
+struct MagnetorquerMetadataNative {
+  int body_id;
+  double axis_body[3];
+  double dipole_limit;
+};
+
+struct ControlMomentGyroMetadataNative {
+  int body_id;
+  double gimbal_axis_body[3];
+  double spin_axis_body_0[3];
+  double torque_axis_body_0[3];
+  double rotor_momentum;
+  double gimbal_rate_limit;
+  double gimbal_angle_limit;
+  int has_gimbal_rate_limit;
+  int has_gimbal_angle_limit;
+};
+
+struct ThrusterMetadataNative {
+  int body_id;
+  double position_body[3];
+  double direction_body[3];
+  double force_limit;
+};
+
 struct OrbitInstance {
   // Chief orbit state (absolute ECI).
   double R_eci[3];   // km
@@ -47,18 +82,48 @@ struct OrbitInstance {
   double atm_density;            // kg/m^3
   double eclipse;                // 0.0 shadow, 1.0 full sun
 
+  // Non-gravitational translational loads accumulated by passive(), N.
+  double feedback_force_world[3];
+  // Last chief-orbit feedback acceleration computed by passive(), km/s^2.
+  double feedback_accel_eci[3];
+
   // Config (parsed from XML plugin attributes during init()).
   int use_j2;               // include J2 perturbation in chief gravity
   int use_drag;
   int use_srp;
   int use_magnetic;
   int use_gravity_gradient;
+  double orbit_dt;           // s; <= 0 uses mjModel.opt.timestep
 
   int num_surfaces;
   const SurfaceMetadataNative* surfaces;
 
   int num_magnetic_bodies;
   const MagneticMetadataNative* magnetic_bodies;
+
+  int num_reaction_wheels;
+  const ReactionWheelMetadataNative* reaction_wheels;
+  double* rw_speed;
+  double* rw_momentum;
+  double* rw_torque_cmd;
+
+  int num_magnetorquers;
+  const MagnetorquerMetadataNative* magnetorquers;
+  double* mtq_dipole_cmd;
+
+  int num_thrusters;
+  const ThrusterMetadataNative* thrusters;
+  double* thr_force_cmd;
+
+  int num_cmgs;
+  const ControlMomentGyroMetadataNative* cmgs;
+  double* cmg_gimbal_angle;
+  double* cmg_gimbal_rate_cmd;
+  double* cmg_rotor_momentum;
+
+  // Optional Python-facing wrench snapshot, shape (wrench_body_count, 6).
+  double* wrench_buffer;
+  int wrench_body_count;
 };
 
 }  // namespace mujoco_orbit

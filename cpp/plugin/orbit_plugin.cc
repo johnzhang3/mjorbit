@@ -15,6 +15,9 @@
 #include <mujoco/mujoco.h>
 
 #include "mujoco_orbit/coupling.h"
+#include "mujoco_orbit/environment.h"
+#include "mujoco_orbit/lvlh.h"
+#include "mujoco_orbit/propagator.h"
 #include "orbit_instance.h"
 
 namespace {
@@ -72,30 +75,66 @@ void Copy(mjData* dest, const mjModel* /*m*/, const mjData* src, int instance) {
   dest->plugin_data[instance] = reinterpret_cast<uintptr_t>(dest_inst);
 }
 
+void RefreshCaches(mujoco_orbit::OrbitInstance* inst) {
+  mujoco_orbit::OrbitState orbit{};
+  std::memcpy(orbit.R_eci, inst->R_eci, sizeof(orbit.R_eci));
+  std::memcpy(orbit.V_eci, inst->V_eci, sizeof(orbit.V_eci));
+  orbit.t = inst->t;
+
+  mujoco_orbit::FrameCache frame{};
+  mujoco_orbit::update_frame_cache(orbit, &frame, inst->use_j2 != 0);
+  std::memcpy(inst->C_LI, frame.C_LI, sizeof(inst->C_LI));
+  std::memcpy(inst->C_IL, frame.C_IL, sizeof(inst->C_IL));
+  std::memcpy(inst->omega_lvlh, frame.omega_lvlh, sizeof(inst->omega_lvlh));
+  std::memcpy(inst->omega_dot_lvlh, frame.omega_dot_lvlh, sizeof(inst->omega_dot_lvlh));
+
+  mujoco_orbit::EnvironmentCache env{};
+  mujoco_orbit::update_environment_cache(orbit, frame, &env);
+  std::memcpy(inst->sun_vector_eci, env.sun_vector_eci, sizeof(inst->sun_vector_eci));
+  std::memcpy(inst->mag_field_eci, env.mag_field_eci, sizeof(inst->mag_field_eci));
+  std::memcpy(
+      inst->atmosphere_omega_eci,
+      env.atmosphere_omega_eci,
+      sizeof(inst->atmosphere_omega_eci));
+  inst->atm_density = env.atm_density;
+  inst->eclipse = env.eclipse;
+}
+
 void Reset(const mjModel* /*m*/, mjtNum* /*plugin_state*/, void* plugin_data, int /*instance*/) {
   auto* inst = reinterpret_cast<mujoco_orbit::OrbitInstance*>(plugin_data);
   if (!inst) return;
   // Preserve shim-populated config/metadata across mj_resetData. Only the
   // runtime chief orbit + derived caches should be reset to zero.
-  const int use_j2 = inst->use_j2;
-  const int use_drag = inst->use_drag;
-  const int use_srp = inst->use_srp;
-  const int use_magnetic = inst->use_magnetic;
-  const int use_gravity_gradient = inst->use_gravity_gradient;
-  const int num_surfaces = inst->num_surfaces;
-  const auto* surfaces = inst->surfaces;
-  const int num_magnetic_bodies = inst->num_magnetic_bodies;
-  const auto* magnetic_bodies = inst->magnetic_bodies;
+  const auto preserved = *inst;
   std::memset(inst, 0, sizeof(*inst));
-  inst->use_j2 = use_j2;
-  inst->use_drag = use_drag;
-  inst->use_srp = use_srp;
-  inst->use_magnetic = use_magnetic;
-  inst->use_gravity_gradient = use_gravity_gradient;
-  inst->num_surfaces = num_surfaces;
-  inst->surfaces = surfaces;
-  inst->num_magnetic_bodies = num_magnetic_bodies;
-  inst->magnetic_bodies = magnetic_bodies;
+  inst->use_j2 = preserved.use_j2;
+  inst->use_drag = preserved.use_drag;
+  inst->use_srp = preserved.use_srp;
+  inst->use_magnetic = preserved.use_magnetic;
+  inst->use_gravity_gradient = preserved.use_gravity_gradient;
+  inst->orbit_dt = preserved.orbit_dt;
+  inst->num_surfaces = preserved.num_surfaces;
+  inst->surfaces = preserved.surfaces;
+  inst->num_magnetic_bodies = preserved.num_magnetic_bodies;
+  inst->magnetic_bodies = preserved.magnetic_bodies;
+  inst->num_reaction_wheels = preserved.num_reaction_wheels;
+  inst->reaction_wheels = preserved.reaction_wheels;
+  inst->rw_speed = preserved.rw_speed;
+  inst->rw_momentum = preserved.rw_momentum;
+  inst->rw_torque_cmd = preserved.rw_torque_cmd;
+  inst->num_magnetorquers = preserved.num_magnetorquers;
+  inst->magnetorquers = preserved.magnetorquers;
+  inst->mtq_dipole_cmd = preserved.mtq_dipole_cmd;
+  inst->num_thrusters = preserved.num_thrusters;
+  inst->thrusters = preserved.thrusters;
+  inst->thr_force_cmd = preserved.thr_force_cmd;
+  inst->num_cmgs = preserved.num_cmgs;
+  inst->cmgs = preserved.cmgs;
+  inst->cmg_gimbal_angle = preserved.cmg_gimbal_angle;
+  inst->cmg_gimbal_rate_cmd = preserved.cmg_gimbal_rate_cmd;
+  inst->cmg_rotor_momentum = preserved.cmg_rotor_momentum;
+  inst->wrench_buffer = preserved.wrench_buffer;
+  inst->wrench_body_count = preserved.wrench_body_count;
 }
 
 void Compute(const mjModel* m, mjData* d, int instance, int capability_bit) {
@@ -105,8 +144,24 @@ void Compute(const mjModel* m, mjData* d, int instance, int capability_bit) {
   mujoco_orbit::apply_passive_wrenches(m, d, GetInstance(d, instance));
 }
 
-void Advance(const mjModel* /*m*/, mjData* /*d*/, int /*instance*/) {
-  // Phase 1 stub: no orbit propagation. Phase 5 fills this in.
+void Advance(const mjModel* m, mjData* d, int instance) {
+  auto* inst = GetInstance(d, instance);
+  if (!inst) return;
+
+  mujoco_orbit::advance_actuators(m, inst);
+
+  const double dt = inst->orbit_dt > 0.0 ? inst->orbit_dt : m->opt.timestep;
+  mujoco_orbit::propagate_rk4(
+      inst->R_eci,
+      inst->V_eci,
+      inst->t,
+      dt,
+      inst->R_eci,
+      inst->V_eci,
+      &inst->t,
+      inst->use_j2 != 0,
+      inst->feedback_accel_eci);
+  RefreshCaches(inst);
 }
 
 void RegisterPlugin() {
