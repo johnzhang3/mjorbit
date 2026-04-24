@@ -18,10 +18,26 @@
 #include "mujoco_orbit/sensors_plugin.h"
 #include "orbit_instance.h"
 
+extern "C" int mjo_rollout(
+    const mjModel* m,
+    mjData* d,
+    int orbit_plugin_instance,
+    int nbatch,
+    int nstep,
+    unsigned int control_spec,
+    int mjo_state_size,
+    int mjo_control_size,
+    const mjtNum* initial_state,
+    const mjtNum* initial_warmstart,
+    const mjtNum* control,
+    mjtNum* state,
+    mjtNum* sensordata);
+
 namespace {
 
 constexpr int kWorkers = 8;
 constexpr int kSteps = 1000;
+constexpr int kRolloutSteps = 128;
 
 const char kThreadedXml[] = R"xml(
 <mujoco model="threaded_plugin">
@@ -77,6 +93,9 @@ struct WorkerData {
   DataPtr data;
   std::array<mujoco_orbit::OrbitSensorDescriptorNative, 1> sensors{};
   Result result;
+  int rollout_status = 0;
+  std::vector<double> rollout_state;
+  std::vector<double> rollout_sensordata;
 };
 
 std::string write_xml_file() {
@@ -100,12 +119,16 @@ ModelPtr load_model(const std::string& path) {
   return ModelPtr(model);
 }
 
-mujoco_orbit::OrbitInstance* orbit_instance(const mjModel* model, mjData* data) {
+int orbit_plugin_instance(const mjModel* model) {
   const int body_id = mj_name2id(model, mjOBJ_BODY, "spacecraft");
   if (body_id < 0) {
-    return nullptr;
+    return -1;
   }
-  const int instance = model->body_plugin[body_id];
+  return model->body_plugin[body_id];
+}
+
+mujoco_orbit::OrbitInstance* orbit_instance(const mjModel* model, mjData* data) {
+  const int instance = orbit_plugin_instance(model);
   if (instance < 0) {
     return nullptr;
   }
@@ -189,6 +212,53 @@ void run_steps(const mjModel* model, WorkerData* worker) {
   worker->result = capture_result(model, worker->data.get());
 }
 
+int mjo_state_size(const mjModel* model) {
+  return mj_stateSize(model, mjSTATE_FULLPHYSICS) + 7;
+}
+
+int mjo_control_size(const mjModel* model) {
+  return mj_stateSize(model, mjSTATE_CTRL);
+}
+
+std::vector<double> pack_mjo_state(const mjModel* model, mjData* data) {
+  const int full_state_size = mj_stateSize(model, mjSTATE_FULLPHYSICS);
+  std::vector<double> state(mjo_state_size(model), 0.0);
+  mj_getState(model, data, state.data(), mjSTATE_FULLPHYSICS);
+
+  auto* inst = orbit_instance(model, data);
+  if (!inst) {
+    return state;
+  }
+  double* tail = state.data() + full_state_size;
+  std::copy(inst->R_eci, inst->R_eci + 3, tail);
+  tail += 3;
+  std::copy(inst->V_eci, inst->V_eci + 3, tail);
+  tail += 3;
+  *tail = inst->t;
+  return state;
+}
+
+void run_native_rollout(const mjModel* model, WorkerData* worker) {
+  std::vector<double> initial_state = pack_mjo_state(model, worker->data.get());
+  worker->rollout_state.assign(kRolloutSteps * mjo_state_size(model), 0.0);
+  worker->rollout_sensordata.assign(kRolloutSteps * model->nsensordata, 0.0);
+  worker->rollout_status = mjo_rollout(
+      model,
+      worker->data.get(),
+      orbit_plugin_instance(model),
+      1,
+      kRolloutSteps,
+      mjSTATE_CTRL,
+      mjo_state_size(model),
+      mjo_control_size(model),
+      initial_state.data(),
+      nullptr,
+      nullptr,
+      worker->rollout_state.data(),
+      worker->rollout_sensordata.data());
+  worker->result = capture_result(model, worker->data.get());
+}
+
 bool vector_equal(const std::vector<double>& a, const std::vector<double>& b) {
   return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
 }
@@ -200,6 +270,13 @@ bool result_equal(const Result& a, const Result& b) {
          a.R_eci == b.R_eci &&
          a.V_eci == b.V_eci &&
          a.t == b.t;
+}
+
+bool rollout_equal(const WorkerData& a, const WorkerData& b) {
+  return a.rollout_status == b.rollout_status &&
+         vector_equal(a.rollout_state, b.rollout_state) &&
+         vector_equal(a.rollout_sensordata, b.rollout_sensordata) &&
+         result_equal(a.result, b.result);
 }
 
 bool plugin_instances_are_distinct(const mjModel* model, const std::vector<WorkerData>& workers) {
@@ -223,29 +300,20 @@ bool plugin_instances_are_distinct(const mjModel* model, const std::vector<Worke
   return true;
 }
 
-}  // namespace
-
-int main() {
-  const std::string xml_path = write_xml_file();
-  ModelPtr model = load_model(xml_path);
-  std::remove(xml_path.c_str());
-  if (!model) {
-    return 1;
-  }
-
+int run_threaded_step_test(const mjModel* model) {
   WorkerData expected;
-  if (!init_worker(model.get(), &expected)) {
+  if (!init_worker(model, &expected)) {
     return 1;
   }
-  run_steps(model.get(), &expected);
+  run_steps(model, &expected);
 
   std::vector<WorkerData> workers(kWorkers);
   for (auto& worker : workers) {
-    if (!init_worker(model.get(), &worker)) {
+    if (!init_worker(model, &worker)) {
       return 1;
     }
   }
-  if (!plugin_instances_are_distinct(model.get(), workers)) {
+  if (!plugin_instances_are_distinct(model, workers)) {
     std::cerr << "workers unexpectedly share orbit plugin state\n";
     return 1;
   }
@@ -253,7 +321,7 @@ int main() {
   std::vector<std::thread> threads;
   threads.reserve(workers.size());
   for (auto& worker : workers) {
-    threads.emplace_back(run_steps, model.get(), &worker);
+    threads.emplace_back(run_steps, model, &worker);
   }
   for (auto& thread : threads) {
     thread.join();
@@ -261,11 +329,87 @@ int main() {
 
   for (const auto& worker : workers) {
     if (!result_equal(worker.result, expected.result)) {
-      std::cerr << "threaded rollout diverged from sequential baseline\n";
+      std::cerr << "threaded mj_step rollout diverged from sequential baseline\n";
       return 1;
     }
   }
 
-  std::cout << "threaded plugin rollouts matched sequential baseline\n";
+  std::cout << "threaded mj_step rollouts matched sequential baseline\n";
   return 0;
+}
+
+int run_threaded_rollout_test(const mjModel* model) {
+  WorkerData expected;
+  if (!init_worker(model, &expected)) {
+    return 1;
+  }
+  run_native_rollout(model, &expected);
+  if (expected.rollout_status != 0) {
+    std::cerr << "sequential mjo_rollout failed with status " << expected.rollout_status
+              << "\n";
+    return 1;
+  }
+
+  std::vector<WorkerData> workers(kWorkers);
+  for (auto& worker : workers) {
+    if (!init_worker(model, &worker)) {
+      return 1;
+    }
+  }
+  if (!plugin_instances_are_distinct(model, workers)) {
+    std::cerr << "rollout workers unexpectedly share orbit plugin state\n";
+    return 1;
+  }
+
+  std::vector<std::thread> threads;
+  threads.reserve(workers.size());
+  for (auto& worker : workers) {
+    threads.emplace_back(run_native_rollout, model, &worker);
+  }
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  for (const auto& worker : workers) {
+    if (worker.rollout_status != 0) {
+      std::cerr << "threaded mjo_rollout failed with status " << worker.rollout_status
+                << "\n";
+      return 1;
+    }
+    if (!rollout_equal(worker, expected)) {
+      std::cerr << "threaded mjo_rollout diverged from sequential baseline\n";
+      return 1;
+    }
+  }
+
+  std::cout << "threaded mjo_rollout calls matched sequential baseline\n";
+  return 0;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+  const std::string xml_path = write_xml_file();
+  ModelPtr model = load_model(xml_path);
+  std::remove(xml_path.c_str());
+  if (!model) {
+    return 1;
+  }
+
+  if (argc > 1) {
+    const std::string mode = argv[1];
+    if (mode == "--step-only") {
+      return run_threaded_step_test(model.get());
+    }
+    if (mode == "--rollout-only") {
+      return run_threaded_rollout_test(model.get());
+    }
+    std::cerr << "unknown mode: " << mode << "\n";
+    return 1;
+  }
+
+  if (run_threaded_step_test(model.get()) != 0) {
+    return 1;
+  }
+  return run_threaded_rollout_test(model.get());
 }

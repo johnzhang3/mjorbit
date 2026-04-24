@@ -33,4 +33,5 @@ target_link_libraries(test_threaded_plugin PRIVATE ${MUJOCO_LIBRARY} Threads::Th
 mujoco_orbit_enable_tsan(test_threaded_plugin)
 mujoco_orbit_fix_macos_mujoco_id(test_threaded_plugin)
 
-add_test(NAME test_threaded_plugin COMMAND $<TARGET_FILE:test_threaded_plugin>)
+add_test(NAME test_threaded_plugin COMMAND $<TARGET_FILE:test_threaded_plugin> --step-only)
+add_test(NAME test_threaded_rollout COMMAND $<TARGET_FILE:test_threaded_plugin> --rollout-only)
