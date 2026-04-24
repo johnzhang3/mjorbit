@@ -5,7 +5,32 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+option(MUJOCO_ORBIT_ENABLE_TSAN "Build C++ tests with ThreadSanitizer" OFF)
+
 enable_testing()
+find_package(Threads REQUIRED)
+
+if(MUJOCO_ORBIT_ENABLE_TSAN)
+    include(CheckCXXSourceCompiles)
+    set(CMAKE_REQUIRED_FLAGS "-fsanitize=thread")
+    check_cxx_source_compiles("int main() { return 0; }" MUJOCO_ORBIT_TSAN_AVAILABLE)
+    unset(CMAKE_REQUIRED_FLAGS)
+    if(NOT MUJOCO_ORBIT_TSAN_AVAILABLE)
+        message(FATAL_ERROR "MUJOCO_ORBIT_ENABLE_TSAN=ON, but this compiler cannot link a ThreadSanitizer binary")
+    endif()
+endif()
+
+function(mujoco_orbit_enable_tsan target)
+    if(NOT MUJOCO_ORBIT_ENABLE_TSAN)
+        return()
+    endif()
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(${target} PRIVATE -fsanitize=thread -fno-omit-frame-pointer -g)
+        target_link_options(${target} PRIVATE -fsanitize=thread)
+    else()
+        message(WARNING "ThreadSanitizer is not configured for compiler ${CMAKE_CXX_COMPILER_ID}")
+    endif()
+endfunction()
 
 # Locate MuJoCo via the installed Python package. Wheel layout:
 #   <site-packages>/mujoco/include/mujoco/*.h
@@ -59,6 +84,7 @@ target_include_directories(mujoco_orbit_plugin
 )
 
 target_link_libraries(mujoco_orbit_plugin PRIVATE ${MUJOCO_SO})
+mujoco_orbit_enable_tsan(mujoco_orbit_plugin)
 set_target_properties(mujoco_orbit_plugin PROPERTIES
     PREFIX ""                       # so file is "mujoco_orbit_plugin.so", not "libmujoco_orbit_plugin.so"
     OUTPUT_NAME "mujoco_orbit_plugin"

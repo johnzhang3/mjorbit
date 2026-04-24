@@ -32,3 +32,4 @@ build/
 .DS_Store
 
 /Testing/
+build-tsan/

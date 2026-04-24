@@ -33,7 +33,11 @@ mujoco_orbit::OrbitInstance* GetInstance(mjData* d, int instance) {
 }
 
 int NState(const mjModel* /*m*/, int /*instance*/) {
-  // No mjtNum-managed state; we hold everything behind plugin_data.
+  // Runtime state is per-mjData plugin_data so threaded rollouts can share one
+  // immutable mjModel while keeping independent OrbitInstance objects. If we
+  // later need mj_getState/mj_setState to pack orbit state for MuJoCo rollout,
+  // this should grow into mjtNum-managed plugin_state instead of adding a
+  // separate threading framework.
   return 0;
 }
 
