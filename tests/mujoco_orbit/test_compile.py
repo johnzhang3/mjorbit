@@ -1,5 +1,6 @@
 """Model/data construction tests for the MuJoCo-style API."""
 
+import mujoco
 import numpy as np
 import pytest
 
@@ -53,6 +54,12 @@ class TestPhase0:
 
 
 class TestPhase3:
+    def test_orbit_plugin_auto_attached(self):
+        model, _ = _make_model_data()
+        host_body = model.body_id("spacecraft")
+        assert model.mj_model.nplugin == 1
+        assert model.orbit_plugin_instance == int(model.mj_model.body_plugin[host_body])
+
     def test_timestep_override(self):
         model, _ = _make_model_data(mj_timestep=0.01)
         assert model.opt.timestep == 0.01
@@ -110,6 +117,22 @@ class TestPhase3:
         data.clear_wrench_buffer()
         np.testing.assert_allclose(data.wrench_buffer, 0.0)
         np.testing.assert_allclose(data.xfrc_applied, 0.0)
+
+    def test_mj_resetdata_resets_native_orbit_instance(self):
+        model, data = _make_model_data()
+        data.orbit.R_eci[:] = [7000.0, 1.0, -2.0]
+        data.orbit.V_eci[:] = [0.0, 7.5, 0.1]
+        data.orbit.t = 123.0
+        data.frame.C_LI[:] = np.eye(3)
+        data.env.mag_field_eci[:] = [1.0, 2.0, 3.0]
+
+        mujoco.mj_resetData(model.mj_model, data.mj_data)
+
+        np.testing.assert_allclose(data.orbit.R_eci, 0.0)
+        np.testing.assert_allclose(data.orbit.V_eci, 0.0)
+        assert data.orbit.t == 0.0
+        np.testing.assert_allclose(data.frame.C_LI, 0.0)
+        np.testing.assert_allclose(data.env.mag_field_eci, 0.0)
 
 
 class TestPhase3SurfaceMetadata:

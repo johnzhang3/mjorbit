@@ -7,8 +7,9 @@
 - `src/mujoco_orbit/core/runtime.py` defines `MjoModel` and `MjoData`.
 - `src/mujoco_orbit/core/step.py` defines `mjo_forward` and `mjo_step`.
 - `src/mujoco_orbit/core/actuators.py` holds runtime actuator-state containers.
-- `src/mujoco_orbit/orbit/` contains propagation, gravity, LVLH, and environment models.
-- `src/mujoco_orbit/coupling/` assembles external wrenches from environment and actuators.
+- `src/cpp/` contains the native MuJoCo plugin and C++ orbit implementation.
+- `src/mujoco_orbit/orbit/` contains Python reference/analysis orbit helpers.
+- `src/mujoco_orbit/coupling/` contains Python reference/analysis coupling helpers.
 - `src/mujoco_orbit/sensors.py` contains sensor catalogs, callbacks, and measurement helpers.
 - `src/mujoco_orbit/testdata/` contains XML fixtures used by tests and examples.
 - `src/viewer/` contains the browser viewer integration.
@@ -17,16 +18,18 @@
 - `tests/mujoco_orbit/` mirrors the production package; shared setup lives in `_helpers.py`.
 
 ## Build, Test, and Development Commands
-Use `uv` for environment management and command execution.
+Use `pixi` for environment management and command execution.
 
-- `uv sync --dev`: install the package plus test, lint, and type-check tools.
-- `uv sync --dev --extra report`: add report/analysis dependencies for `ISS/`.
-- `uv run pytest -q`: run the full test suite.
-- `uv run pytest tests/mujoco_orbit/test_api_model_data.py -q`: run the public API tests.
-- `uv run ruff check .`: run linting and import-order checks.
-- `uv run pyright`: run static type checks.
-- `uv run python examples/free_drift.py`: run a minimal API example.
-- `uv run python ISS/hw2/spacecraft_dynamics.py`: run an ISS analysis script.
+- `pixi install`: install the default Python 3.12 dev environment and editable package.
+- `pixi install -e py311`: install the Python 3.11 dev environment.
+- `pixi install -e report`: add report/analysis dependencies for `ISS/`.
+- `pixi run test`: run the full test suite.
+- `pixi run test-api`: run the public API tests.
+- `pixi run lint`: run linting and import-order checks.
+- `pixi run typecheck`: run static type checks.
+- `pixi run cpp-test`: configure, build, and test the native C++ plugin.
+- `pixi run example-free-drift`: run a minimal API example.
+- `pixi run iss-hw2`: run an ISS analysis script.
 
 ## Coding Style & Naming Conventions
 Follow existing Python style: 4-space indentation, explicit type hints, and small focused
@@ -47,7 +50,7 @@ nominal behavior and validation errors.
 
 If you touch the runtime API, stepping, sensors, or coupling code, update
 `tests/mujoco_orbit/test_api_model_data.py` and the relevant subsystem tests. Run
-`uv run pytest -q` before submitting. If you touch `ISS/` analysis scripts, run the affected
+`pixi run test` before submitting. If you touch `ISS/` analysis scripts, run the affected
 script directly and keep generated plots or PDFs intentional.
 
 ## Commit & Pull Request Guidelines

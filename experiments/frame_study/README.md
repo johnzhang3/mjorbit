@@ -32,7 +32,7 @@ local dynamics frequency without changing the orbit propagation step.
 Run:
 
 ```bash
-uv run python experiments/frame_study/run.py
+pixi run python experiments/frame_study/run.py
 ```
 
 The table reports ECI position error against an independent RK4 two-body

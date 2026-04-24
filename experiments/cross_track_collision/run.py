@@ -16,7 +16,7 @@ from the simulator state just after the first contact ends:
 Figures are saved under ``experiments/cross_track_collision/figures``.
 
 Usage:
-    uv run python experiments/cross_track_collision/run.py
+    pixi run python experiments/cross_track_collision/run.py
 """
 
 from __future__ import annotations

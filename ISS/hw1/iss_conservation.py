@@ -9,7 +9,7 @@ Runs for 3 full orbits (~277 min) with the ISS spinning at 10 RPM about
 the major axis (Z).
 
 Usage:
-    uv run python ISS/hw1/iss_conservation.py
+    pixi run python ISS/hw1/iss_conservation.py
 """
 
 from __future__ import annotations

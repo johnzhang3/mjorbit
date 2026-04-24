@@ -9,6 +9,7 @@ build/
 .eggs/
 *.egg
 .venv/
+.pixi/
 .uv/
 .ruff_cache/
 .mypy_cache/
@@ -30,3 +31,6 @@ build/
 *.synctex.gz
 *.toc
 .DS_Store
+
+/Testing/
+build-tsan/

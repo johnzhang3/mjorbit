@@ -25,7 +25,7 @@ All parameters are justified from published sensor datasheets (cited below).
 Monte Carlo validation (N = 10 000) demonstrates correct error statistics.
 
 Usage:
-    uv run python ISS/hw3/sensors_revisited.py
+    pixi run python ISS/hw3/sensors_revisited.py
 """
 
 from __future__ import annotations

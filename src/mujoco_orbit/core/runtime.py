@@ -4,6 +4,11 @@
 
 from __future__ import annotations
 
+import ctypes
+import os
+import pathlib
+import tempfile
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -20,15 +25,13 @@ from mujoco_orbit.core.config import (
     SurfaceSpec,
     ThrusterSpec,
 )
-from mujoco_orbit.orbit.environment import update_environment_cache
-from mujoco_orbit.orbit.lvlh import update_frame_cache
 from mujoco_orbit.orbit.state import EnvironmentCache, FrameCache, OrbitState
 from mujoco_orbit.sensors import (
+    _MAGNETOMETER_SENSOR_TYPE,
     ModelSensorCatalog,
     SensorDataNamespace,
     compile_sensor_catalog,
     create_sensor_data_namespace,
-    register_sensor_data_namespace,
 )
 
 
@@ -103,6 +106,234 @@ class ThrusterMetadata:
     force_limit: float
 
 
+_ORBIT_PLUGIN_NAME = "mujoco_orbit.orbit"
+_GENERATED_PLUGIN_HOST_NAME = "__mujoco_orbit_plugin_host__"
+
+
+class _CSurfaceMetadata(ctypes.Structure):
+    _fields_ = [
+        ("body_id", ctypes.c_int),
+        ("center_of_pressure_body", ctypes.c_double * 3),
+        ("normal_body", ctypes.c_double * 3),
+        ("area", ctypes.c_double),
+        ("drag_coeff", ctypes.c_double),
+        ("srp_coeff", ctypes.c_double),
+        ("use_drag", ctypes.c_int),
+        ("use_srp", ctypes.c_int),
+    ]
+
+
+class _CMagneticMetadata(ctypes.Structure):
+    _fields_ = [
+        ("body_id", ctypes.c_int),
+        ("dipole_body", ctypes.c_double * 3),
+    ]
+
+
+class _CReactionWheelMetadata(ctypes.Structure):
+    _fields_ = [
+        ("body_id", ctypes.c_int),
+        ("axis_body", ctypes.c_double * 3),
+        ("inertia", ctypes.c_double),
+        ("speed_limit", ctypes.c_double),
+        ("torque_limit", ctypes.c_double),
+        ("has_speed_limit", ctypes.c_int),
+        ("has_torque_limit", ctypes.c_int),
+    ]
+
+
+class _CMagnetorquerMetadata(ctypes.Structure):
+    _fields_ = [
+        ("body_id", ctypes.c_int),
+        ("axis_body", ctypes.c_double * 3),
+        ("dipole_limit", ctypes.c_double),
+    ]
+
+
+class _CControlMomentGyroMetadata(ctypes.Structure):
+    _fields_ = [
+        ("body_id", ctypes.c_int),
+        ("gimbal_axis_body", ctypes.c_double * 3),
+        ("spin_axis_body_0", ctypes.c_double * 3),
+        ("torque_axis_body_0", ctypes.c_double * 3),
+        ("rotor_momentum", ctypes.c_double),
+        ("gimbal_rate_limit", ctypes.c_double),
+        ("gimbal_angle_limit", ctypes.c_double),
+        ("has_gimbal_rate_limit", ctypes.c_int),
+        ("has_gimbal_angle_limit", ctypes.c_int),
+    ]
+
+
+class _CThrusterMetadata(ctypes.Structure):
+    _fields_ = [
+        ("body_id", ctypes.c_int),
+        ("position_body", ctypes.c_double * 3),
+        ("direction_body", ctypes.c_double * 3),
+        ("force_limit", ctypes.c_double),
+    ]
+
+
+class _COrbitSensorDescriptor(ctypes.Structure):
+    _fields_ = [
+        ("sensor_id", ctypes.c_int),
+        ("kind", ctypes.c_int),
+        ("site_id", ctypes.c_int),
+        ("adr", ctypes.c_int),
+        ("dim", ctypes.c_int),
+        ("reference_eci", ctypes.c_double * 3),
+    ]
+
+
+_ORBIT_SENSOR_KIND_SUN = 1
+_ORBIT_SENSOR_KIND_HORIZON = 2
+_ORBIT_SENSOR_KIND_STAR = 3
+_ORBIT_SENSOR_KIND_MAGNETOMETER = 4
+_ORBIT_SENSOR_KIND_BY_NAME = {
+    "sun": _ORBIT_SENSOR_KIND_SUN,
+    "horizon": _ORBIT_SENSOR_KIND_HORIZON,
+    "star": _ORBIT_SENSOR_KIND_STAR,
+}
+
+
+class _COrbitInstance(ctypes.Structure):
+    _fields_ = [
+        ("R_eci", ctypes.c_double * 3),
+        ("V_eci", ctypes.c_double * 3),
+        ("t", ctypes.c_double),
+        ("C_LI", ctypes.c_double * 9),
+        ("C_IL", ctypes.c_double * 9),
+        ("omega_lvlh", ctypes.c_double * 3),
+        ("omega_dot_lvlh", ctypes.c_double * 3),
+        ("sun_vector_eci", ctypes.c_double * 3),
+        ("mag_field_eci", ctypes.c_double * 3),
+        ("atmosphere_omega_eci", ctypes.c_double * 3),
+        ("atm_density", ctypes.c_double),
+        ("eclipse", ctypes.c_double),
+        ("feedback_force_world", ctypes.c_double * 3),
+        ("feedback_accel_eci", ctypes.c_double * 3),
+        ("use_j2", ctypes.c_int),
+        ("use_drag", ctypes.c_int),
+        ("use_srp", ctypes.c_int),
+        ("use_magnetic", ctypes.c_int),
+        ("use_gravity_gradient", ctypes.c_int),
+        ("orbit_dt", ctypes.c_double),
+        ("num_surfaces", ctypes.c_int),
+        ("surfaces", ctypes.POINTER(_CSurfaceMetadata)),
+        ("num_magnetic_bodies", ctypes.c_int),
+        ("magnetic_bodies", ctypes.POINTER(_CMagneticMetadata)),
+        ("num_reaction_wheels", ctypes.c_int),
+        ("reaction_wheels", ctypes.POINTER(_CReactionWheelMetadata)),
+        ("rw_speed", ctypes.POINTER(ctypes.c_double)),
+        ("rw_momentum", ctypes.POINTER(ctypes.c_double)),
+        ("rw_torque_cmd", ctypes.POINTER(ctypes.c_double)),
+        ("num_magnetorquers", ctypes.c_int),
+        ("magnetorquers", ctypes.POINTER(_CMagnetorquerMetadata)),
+        ("mtq_dipole_cmd", ctypes.POINTER(ctypes.c_double)),
+        ("num_thrusters", ctypes.c_int),
+        ("thrusters", ctypes.POINTER(_CThrusterMetadata)),
+        ("thr_force_cmd", ctypes.POINTER(ctypes.c_double)),
+        ("num_cmgs", ctypes.c_int),
+        ("cmgs", ctypes.POINTER(_CControlMomentGyroMetadata)),
+        ("cmg_gimbal_angle", ctypes.POINTER(ctypes.c_double)),
+        ("cmg_gimbal_rate_cmd", ctypes.POINTER(ctypes.c_double)),
+        ("cmg_rotor_momentum", ctypes.POINTER(ctypes.c_double)),
+        ("wrench_buffer", ctypes.POINTER(ctypes.c_double)),
+        ("wrench_body_count", ctypes.c_int),
+        ("num_orbit_sensors", ctypes.c_int),
+        ("orbit_sensors", ctypes.POINTER(_COrbitSensorDescriptor)),
+    ]
+
+
+def _native_array_view(buffer, shape: tuple[int, ...]) -> np.ndarray:
+    return np.ctypeslib.as_array(buffer).reshape(shape)
+
+
+def _copy_vec3_to_c(src: np.ndarray, dst) -> None:
+    arr = np.asarray(src, dtype=float)
+    dst[0] = float(arr[0])
+    dst[1] = float(arr[1])
+    dst[2] = float(arr[2])
+
+
+class OrbitView:
+    """NumPy-backed view into the native OrbitInstance chief state."""
+
+    __slots__ = ("R_eci", "V_eci", "_inst")
+
+    def __init__(self, inst: _COrbitInstance) -> None:
+        self._inst = inst
+        self.R_eci = _native_array_view(inst.R_eci, (3,))
+        self.V_eci = _native_array_view(inst.V_eci, (3,))
+
+    @property
+    def t(self) -> float:
+        return float(self._inst.t)
+
+    @t.setter
+    def t(self, value: float) -> None:
+        self._inst.t = float(value)
+
+    def copy(self) -> OrbitState:
+        return OrbitState(self.R_eci.copy(), self.V_eci.copy(), self.t)
+
+
+class FrameCacheView:
+    """NumPy-backed view into the native OrbitInstance frame cache."""
+
+    __slots__ = ("C_IL", "C_LI", "omega_dot_lvlh", "omega_lvlh")
+
+    def __init__(self, inst: _COrbitInstance) -> None:
+        self.C_LI = _native_array_view(inst.C_LI, (3, 3))
+        self.C_IL = _native_array_view(inst.C_IL, (3, 3))
+        self.omega_lvlh = _native_array_view(inst.omega_lvlh, (3,))
+        self.omega_dot_lvlh = _native_array_view(inst.omega_dot_lvlh, (3,))
+
+    def copy(self) -> FrameCache:
+        return FrameCache(
+            C_LI=self.C_LI.copy(),
+            C_IL=self.C_IL.copy(),
+            omega_lvlh=self.omega_lvlh.copy(),
+            omega_dot_lvlh=self.omega_dot_lvlh.copy(),
+        )
+
+
+class EnvironmentCacheView:
+    """NumPy-backed view into the native OrbitInstance environment cache."""
+
+    __slots__ = ("atmosphere_omega_eci", "mag_field_eci", "sun_vector_eci", "_inst")
+
+    def __init__(self, inst: _COrbitInstance) -> None:
+        self._inst = inst
+        self.sun_vector_eci = _native_array_view(inst.sun_vector_eci, (3,))
+        self.mag_field_eci = _native_array_view(inst.mag_field_eci, (3,))
+        self.atmosphere_omega_eci = _native_array_view(inst.atmosphere_omega_eci, (3,))
+
+    @property
+    def eclipse(self) -> float:
+        return float(self._inst.eclipse)
+
+    @eclipse.setter
+    def eclipse(self, value: float) -> None:
+        self._inst.eclipse = float(value)
+
+    @property
+    def atm_density(self) -> float:
+        return float(self._inst.atm_density)
+
+    @atm_density.setter
+    def atm_density(self, value: float) -> None:
+        self._inst.atm_density = float(value)
+
+    def copy(self) -> EnvironmentCache:
+        return EnvironmentCache(
+            sun_vector_eci=self.sun_vector_eci.copy(),
+            eclipse=self.eclipse,
+            mag_field_eci=self.mag_field_eci.copy(),
+            atmosphere_omega_eci=self.atmosphere_omega_eci.copy(),
+            atm_density=self.atm_density,
+        )
+
+
 def _normalized(vec: np.ndarray, label: str) -> np.ndarray:
     arr = np.asarray(vec, dtype=float)
     norm = np.linalg.norm(arr)
@@ -116,6 +347,91 @@ def _resolve_body_id(mj_model: mujoco.MjModel, body_name: str) -> int:
     if body_id < 0:
         raise ValueError(f"Body '{body_name}' not found in MuJoCo model")
     return body_id
+
+
+def _iter_body_elements(worldbody: ET.Element | None):
+    if worldbody is None:
+        return
+    for body in worldbody.iter("body"):
+        yield body
+
+
+def _find_orbit_plugin_host_body(root: ET.Element) -> ET.Element | None:
+    worldbody = root.find("worldbody")
+    for body in _iter_body_elements(worldbody):
+        for plugin in body.findall("plugin"):
+            if plugin.get("plugin") == _ORBIT_PLUGIN_NAME:
+                return body
+    return None
+
+
+def _ensure_plugin_host_name(body: ET.Element) -> str:
+    body_name = body.get("name")
+    if body_name:
+        return body_name
+    body.set("name", _GENERATED_PLUGIN_HOST_NAME)
+    return _GENERATED_PLUGIN_HOST_NAME
+
+
+def _prepare_xml_with_orbit_plugin(xml_path: str, use_j2: bool) -> tuple[str, str]:
+    src_path = pathlib.Path(xml_path)
+    tree = ET.parse(src_path)
+    root = tree.getroot()
+
+    extension = root.find("extension")
+    if extension is None:
+        extension = ET.Element("extension")
+        worldbody = root.find("worldbody")
+        if worldbody is None:
+            raise ValueError("MuJoCo model must define a <worldbody> to host the orbit plugin")
+        children = list(root)
+        insert_at = children.index(worldbody)
+        root.insert(insert_at, extension)
+
+    has_orbit_plugin = any(
+        plugin.get("plugin") == _ORBIT_PLUGIN_NAME for plugin in extension.findall("plugin")
+    )
+    if not has_orbit_plugin:
+        extension.append(ET.Element("plugin", {"plugin": _ORBIT_PLUGIN_NAME}))
+
+    plugin_body = _find_orbit_plugin_host_body(root)
+    if plugin_body is None:
+        worldbody = root.find("worldbody")
+        if worldbody is None:
+            raise ValueError("MuJoCo model must define a <worldbody> to host the orbit plugin")
+        plugin_body = next(_iter_body_elements(worldbody), None)
+        if plugin_body is None:
+            raise ValueError("MuJoCo model must contain at least one <body> for the orbit plugin")
+        ET.SubElement(plugin_body, "plugin", {"plugin": _ORBIT_PLUGIN_NAME})
+
+    plugin_body_name = _ensure_plugin_host_name(plugin_body)
+    plugin_node = next(
+        plugin
+        for plugin in plugin_body.findall("plugin")
+        if plugin.get("plugin") == _ORBIT_PLUGIN_NAME
+    )
+
+    config = next(
+        (cfg for cfg in plugin_node.findall("config") if cfg.get("key") == "use_j2"),
+        None,
+    )
+    value = "true" if use_j2 else "false"
+    if config is None:
+        ET.SubElement(plugin_node, "config", {"key": "use_j2", "value": value})
+    else:
+        config.set("value", value)
+
+    with tempfile.NamedTemporaryFile(
+        mode="wb",
+        suffix=".xml",
+        prefix=".mujoco_orbit_",
+        dir=src_path.parent,
+        delete=False,
+    ) as tmp:
+        tree.write(tmp, encoding="utf-8", xml_declaration=False)
+        temp_path = tmp.name
+
+    return temp_path, plugin_body_name
 
 
 def _resolve_surfaces(
@@ -260,6 +576,7 @@ class MjoModel:
     """Compiled, mostly-static state shared across runs."""
 
     mj_model: mujoco.MjModel
+    orbit_plugin_instance: int
     surfaces: list[SurfaceMetadata]
     magnetic_bodies: list[MagneticMetadata]
     reaction_wheels: list[ReactionWheelMetadata]
@@ -300,14 +617,11 @@ class MjoModel:
         use_gravity_gradient: bool = True,
     ) -> "MjoModel":
         """Compile a MuJoCo model plus static orbital coupling metadata."""
-        sensor_callback = mujoco.get_mjcb_sensor()
-        if sensor_callback is not None:
-            mujoco.set_mjcb_sensor(None)
+        temp_xml_path, plugin_body_name = _prepare_xml_with_orbit_plugin(xml_path, use_j2)
         try:
-            mj_model = mujoco.MjModel.from_xml_path(xml_path)
+            mj_model = mujoco.MjModel.from_xml_path(temp_xml_path)
         finally:
-            if sensor_callback is not None:
-                mujoco.set_mjcb_sensor(sensor_callback)
+            os.unlink(temp_xml_path)
 
         if mj_timestep is not None:
             mj_model.opt.timestep = mj_timestep
@@ -315,8 +629,16 @@ class MjoModel:
         # Orbital dynamics supply the gravity model.
         mj_model.opt.gravity[:] = 0.0
 
+        orbit_plugin_body_id = _resolve_body_id(mj_model, plugin_body_name)
+        orbit_plugin_instance = int(mj_model.body_plugin[orbit_plugin_body_id])
+        if orbit_plugin_instance < 0:
+            raise RuntimeError(
+                f"Failed to attach {_ORBIT_PLUGIN_NAME} to body '{plugin_body_name}'"
+            )
+
         return cls(
             mj_model=mj_model,
+            orbit_plugin_instance=orbit_plugin_instance,
             surfaces=_resolve_surfaces(mj_model, surfaces),
             magnetic_bodies=_resolve_magnetic_bodies(mj_model, magnetic_bodies),
             reaction_wheels=_resolve_reaction_wheels(mj_model, reaction_wheels),
@@ -347,40 +669,298 @@ class MjoModel:
         return descriptor
 
 
+def _orbit_instance_from_mj_data(mj_data: mujoco.MjData, instance: int) -> _COrbitInstance:
+    ptr = int(mj_data.plugin_data[instance])
+    if ptr == 0:
+        raise RuntimeError(f"{_ORBIT_PLUGIN_NAME} instance {instance} is not initialized")
+    return ctypes.cast(ptr, ctypes.POINTER(_COrbitInstance)).contents
+
+
+def _build_native_surfaces(surfaces: list[SurfaceMetadata]):
+    if not surfaces:
+        return None, None
+    native_array = (_CSurfaceMetadata * len(surfaces))()
+    for idx, surface in enumerate(surfaces):
+        native_array[idx].body_id = int(surface.body_id)
+        _copy_vec3_to_c(surface.center_of_pressure_body, native_array[idx].center_of_pressure_body)
+        _copy_vec3_to_c(surface.normal_body, native_array[idx].normal_body)
+        native_array[idx].area = float(surface.area)
+        native_array[idx].drag_coeff = float(surface.drag_coeff)
+        native_array[idx].srp_coeff = float(surface.srp_coeff)
+        native_array[idx].use_drag = int(surface.use_drag)
+        native_array[idx].use_srp = int(surface.use_srp)
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_CSurfaceMetadata))
+
+
+def _build_native_magnetic_bodies(magnetic_bodies: list[MagneticMetadata]):
+    if not magnetic_bodies:
+        return None, None
+    native_array = (_CMagneticMetadata * len(magnetic_bodies))()
+    for idx, magnetic_body in enumerate(magnetic_bodies):
+        native_array[idx].body_id = int(magnetic_body.body_id)
+        _copy_vec3_to_c(magnetic_body.dipole_body, native_array[idx].dipole_body)
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_CMagneticMetadata))
+
+
+def _build_native_reaction_wheels(reaction_wheels: list[ReactionWheelMetadata]):
+    if not reaction_wheels:
+        return None, None
+    native_array = (_CReactionWheelMetadata * len(reaction_wheels))()
+    for idx, reaction_wheel in enumerate(reaction_wheels):
+        native_array[idx].body_id = int(reaction_wheel.body_id)
+        _copy_vec3_to_c(reaction_wheel.axis_body, native_array[idx].axis_body)
+        native_array[idx].inertia = float(reaction_wheel.inertia)
+        native_array[idx].has_speed_limit = int(reaction_wheel.speed_limit is not None)
+        native_array[idx].speed_limit = (
+            0.0 if reaction_wheel.speed_limit is None else float(reaction_wheel.speed_limit)
+        )
+        native_array[idx].has_torque_limit = int(reaction_wheel.torque_limit is not None)
+        native_array[idx].torque_limit = (
+            0.0 if reaction_wheel.torque_limit is None else float(reaction_wheel.torque_limit)
+        )
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_CReactionWheelMetadata))
+
+
+def _build_native_magnetorquers(magnetorquers: list[MagnetorquerMetadata]):
+    if not magnetorquers:
+        return None, None
+    native_array = (_CMagnetorquerMetadata * len(magnetorquers))()
+    for idx, magnetorquer in enumerate(magnetorquers):
+        native_array[idx].body_id = int(magnetorquer.body_id)
+        _copy_vec3_to_c(magnetorquer.axis_body, native_array[idx].axis_body)
+        native_array[idx].dipole_limit = float(magnetorquer.dipole_limit)
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_CMagnetorquerMetadata))
+
+
+def _build_native_thrusters(thrusters: list[ThrusterMetadata]):
+    if not thrusters:
+        return None, None
+    native_array = (_CThrusterMetadata * len(thrusters))()
+    for idx, thruster in enumerate(thrusters):
+        native_array[idx].body_id = int(thruster.body_id)
+        _copy_vec3_to_c(thruster.position_body, native_array[idx].position_body)
+        _copy_vec3_to_c(thruster.direction_body, native_array[idx].direction_body)
+        native_array[idx].force_limit = float(thruster.force_limit)
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_CThrusterMetadata))
+
+
+def _build_native_cmgs(cmgs: list[ControlMomentGyroMetadata]):
+    if not cmgs:
+        return None, None
+    native_array = (_CControlMomentGyroMetadata * len(cmgs))()
+    for idx, cmg in enumerate(cmgs):
+        native_array[idx].body_id = int(cmg.body_id)
+        _copy_vec3_to_c(cmg.gimbal_axis_body, native_array[idx].gimbal_axis_body)
+        _copy_vec3_to_c(cmg.spin_axis_body_0, native_array[idx].spin_axis_body_0)
+        _copy_vec3_to_c(cmg.torque_axis_body_0, native_array[idx].torque_axis_body_0)
+        native_array[idx].rotor_momentum = float(cmg.rotor_momentum)
+        native_array[idx].has_gimbal_rate_limit = int(cmg.gimbal_rate_limit is not None)
+        native_array[idx].gimbal_rate_limit = (
+            0.0 if cmg.gimbal_rate_limit is None else float(cmg.gimbal_rate_limit)
+        )
+        native_array[idx].has_gimbal_angle_limit = int(cmg.gimbal_angle_limit is not None)
+        native_array[idx].gimbal_angle_limit = (
+            0.0 if cmg.gimbal_angle_limit is None else float(cmg.gimbal_angle_limit)
+        )
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_CControlMomentGyroMetadata))
+
+
+def _build_native_orbit_sensors(mj_model: mujoco.MjModel, catalog: ModelSensorCatalog):
+    entries: list[tuple[int, int, int, int, int, np.ndarray]] = []
+
+    for descriptor in catalog.custom_descriptors:
+        kind = _ORBIT_SENSOR_KIND_BY_NAME.get(descriptor.orbit_kind or "")
+        if kind is None:
+            continue
+        reference = (
+            np.asarray(descriptor.reference_eci, dtype=float)
+            if descriptor.reference_eci is not None
+            else np.zeros(3)
+        )
+        entries.append(
+            (
+                int(descriptor.sensor_id),
+                int(kind),
+                int(descriptor.objid),
+                int(descriptor.adr),
+                int(descriptor.dim),
+                reference,
+            )
+        )
+
+    for descriptor in catalog.descriptors:
+        if descriptor.sensor_type != _MAGNETOMETER_SENSOR_TYPE:
+            continue
+        entries.append(
+            (
+                int(descriptor.sensor_id),
+                _ORBIT_SENSOR_KIND_MAGNETOMETER,
+                int(descriptor.objid),
+                int(descriptor.adr),
+                int(descriptor.dim),
+                np.zeros(3),
+            )
+        )
+
+    if not entries:
+        return None, None
+    native_array = (_COrbitSensorDescriptor * len(entries))()
+    for idx, (sensor_id, kind, site_id, adr, dim, reference) in enumerate(entries):
+        native_array[idx].sensor_id = sensor_id
+        native_array[idx].kind = kind
+        native_array[idx].site_id = site_id
+        native_array[idx].adr = adr
+        native_array[idx].dim = dim
+        _copy_vec3_to_c(reference, native_array[idx].reference_eci)
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_COrbitSensorDescriptor))
+
+
+def _build_native_double_buffer(values_or_size):
+    if isinstance(values_or_size, int):
+        values = np.zeros(values_or_size, dtype=float)
+    else:
+        values = np.asarray(values_or_size, dtype=float)
+    if values.size == 0:
+        return None, None, np.zeros(0)
+    native_array = (ctypes.c_double * int(values.size))(*[float(v) for v in values])
+    ptr = ctypes.cast(native_array, ctypes.POINTER(ctypes.c_double))
+    view = np.ctypeslib.as_array(native_array)
+    return native_array, ptr, view
+
+
 class MjoData:
     """Runtime state for one simulation run."""
 
     def __init__(self, model: MjoModel, *, orbit: OrbitInit, rng_seed: int | None = None) -> None:
         self.model = model
         self.mj_data = mujoco.MjData(model.mj_model)
-        self.orbit = OrbitState(
-            R_eci=np.asarray(orbit.R_eci, dtype=float).copy(),
-            V_eci=np.asarray(orbit.V_eci, dtype=float).copy(),
-            t=orbit.t,
+        self._orbit_instance = _orbit_instance_from_mj_data(
+            self.mj_data, model.orbit_plugin_instance
         )
-        self.frame: FrameCache = update_frame_cache(self.orbit, use_j2=model.use_j2)
-        self.env: EnvironmentCache = update_environment_cache(self.orbit, self.frame)
-        self.actuators = ActuatorData.zeros(
-            len(model.reaction_wheels),
-            model.rw_inertia,
-            len(model.magnetorquers),
-            len(model.thrusters),
-            len(model.cmgs),
-            model.cmg_rotor_momentum,
+        self._native_surfaces, self._native_surfaces_ptr = _build_native_surfaces(model.surfaces)
+        self._native_magnetic_bodies, self._native_magnetic_bodies_ptr = (
+            _build_native_magnetic_bodies(model.magnetic_bodies)
+        )
+        self._native_reaction_wheels, self._native_reaction_wheels_ptr = (
+            _build_native_reaction_wheels(model.reaction_wheels)
+        )
+        self._native_magnetorquers, self._native_magnetorquers_ptr = _build_native_magnetorquers(
+            model.magnetorquers
+        )
+        self._native_thrusters, self._native_thrusters_ptr = _build_native_thrusters(
+            model.thrusters
+        )
+        self._native_cmgs, self._native_cmgs_ptr = _build_native_cmgs(model.cmgs)
+
+        self._native_rw_speed, self._native_rw_speed_ptr, rw_speed = _build_native_double_buffer(
+            len(model.reaction_wheels)
+        )
+        self._native_rw_momentum, self._native_rw_momentum_ptr, rw_momentum = (
+            _build_native_double_buffer(len(model.reaction_wheels))
+        )
+        self._native_rw_inertia, _, rw_inertia = _build_native_double_buffer(model.rw_inertia)
+        self._native_rw_torque_cmd, self._native_rw_torque_cmd_ptr, rw_torque_cmd = (
+            _build_native_double_buffer(len(model.reaction_wheels))
+        )
+        self._native_mtq_dipole_cmd, self._native_mtq_dipole_cmd_ptr, mtq_dipole_cmd = (
+            _build_native_double_buffer(len(model.magnetorquers))
+        )
+        self._native_thr_force_cmd, self._native_thr_force_cmd_ptr, thr_force_cmd = (
+            _build_native_double_buffer(len(model.thrusters))
+        )
+        self._native_cmg_gimbal_angle, self._native_cmg_gimbal_angle_ptr, cmg_gimbal_angle = (
+            _build_native_double_buffer(len(model.cmgs))
+        )
+        (
+            self._native_cmg_gimbal_rate_cmd,
+            self._native_cmg_gimbal_rate_cmd_ptr,
+            cmg_gimbal_rate_cmd,
+        ) = _build_native_double_buffer(len(model.cmgs))
+        self._native_cmg_rotor_momentum, self._native_cmg_rotor_momentum_ptr, cmg_rotor_momentum = (
+            _build_native_double_buffer(model.cmg_rotor_momentum)
+        )
+        self._native_wrench_buffer, self._native_wrench_buffer_ptr, wrench_buffer = (
+            _build_native_double_buffer(model.nbody * 6)
+        )
+        self._native_orbit_sensors, self._native_orbit_sensors_ptr = (
+            _build_native_orbit_sensors(model.mj_model, model.sensors)
+        )
+
+        self._bind_native_passive_metadata()
+        self.orbit = OrbitView(self._orbit_instance)
+        self.frame = FrameCacheView(self._orbit_instance)
+        self.env = EnvironmentCacheView(self._orbit_instance)
+
+        self.orbit.R_eci[:] = np.asarray(orbit.R_eci, dtype=float)
+        self.orbit.V_eci[:] = np.asarray(orbit.V_eci, dtype=float)
+        self.orbit.t = orbit.t
+
+        self.actuators = ActuatorData(
+            rw_speed=rw_speed,
+            rw_momentum=rw_momentum,
+            rw_inertia=rw_inertia,
+            rw_torque_cmd=rw_torque_cmd,
+            mtq_dipole_cmd=mtq_dipole_cmd,
+            thr_force_cmd=thr_force_cmd,
+            cmg_gimbal_angle=cmg_gimbal_angle,
+            cmg_gimbal_rate_cmd=cmg_gimbal_rate_cmd,
+            cmg_rotor_momentum=cmg_rotor_momentum,
         )
         self.actuators.update_rw_momentum(model.rw_inertia)
-        self.wrench_buffer = np.zeros((model.nbody, 6))
+        self.wrench_buffer = wrench_buffer.reshape(model.nbody, 6)
         self.sensors: SensorDataNamespace = create_sensor_data_namespace(
             model,
             self,
             rng_seed=rng_seed,
         )
-        register_sensor_data_namespace(self.sensors)
         self._initialize_freejoints_in_chief_inertial()
 
         from mujoco_orbit.core.step import mjo_forward
 
         mjo_forward(model, self)
+
+    def _bind_native_passive_metadata(self) -> None:
+        """Marshal per-model passive-coupling config into the native plugin instance."""
+        inst = self._orbit_instance
+        inst.use_j2 = int(self.model.use_j2)
+        inst.use_drag = int(self.model.use_drag)
+        inst.use_srp = int(self.model.use_srp)
+        inst.use_magnetic = int(self.model.use_magnetic)
+        inst.use_gravity_gradient = int(self.model.use_gravity_gradient)
+        inst.orbit_dt = 0.0 if self.model.orbit_dt is None else float(self.model.orbit_dt)
+
+        inst.num_surfaces = len(self.model.surfaces)
+        inst.surfaces = self._native_surfaces_ptr
+        inst.num_magnetic_bodies = len(self.model.magnetic_bodies)
+        inst.magnetic_bodies = self._native_magnetic_bodies_ptr
+
+        inst.num_reaction_wheels = len(self.model.reaction_wheels)
+        inst.reaction_wheels = self._native_reaction_wheels_ptr
+        inst.rw_speed = self._native_rw_speed_ptr
+        inst.rw_momentum = self._native_rw_momentum_ptr
+        inst.rw_torque_cmd = self._native_rw_torque_cmd_ptr
+
+        inst.num_magnetorquers = len(self.model.magnetorquers)
+        inst.magnetorquers = self._native_magnetorquers_ptr
+        inst.mtq_dipole_cmd = self._native_mtq_dipole_cmd_ptr
+
+        inst.num_thrusters = len(self.model.thrusters)
+        inst.thrusters = self._native_thrusters_ptr
+        inst.thr_force_cmd = self._native_thr_force_cmd_ptr
+
+        inst.num_cmgs = len(self.model.cmgs)
+        inst.cmgs = self._native_cmgs_ptr
+        inst.cmg_gimbal_angle = self._native_cmg_gimbal_angle_ptr
+        inst.cmg_gimbal_rate_cmd = self._native_cmg_gimbal_rate_cmd_ptr
+        inst.cmg_rotor_momentum = self._native_cmg_rotor_momentum_ptr
+
+        inst.wrench_buffer = self._native_wrench_buffer_ptr
+        inst.wrench_body_count = self.model.nbody
+
+        inst.num_orbit_sensors = (
+            0 if self._native_orbit_sensors is None else len(self._native_orbit_sensors)
+        )
+        inst.orbit_sensors = self._native_orbit_sensors_ptr
 
     def __getattr__(self, name: str):  # pragma: no cover - trivial delegation
         return getattr(self.mj_data, name)

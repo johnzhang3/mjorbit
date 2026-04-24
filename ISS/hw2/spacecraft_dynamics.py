@@ -15,7 +15,7 @@ Plots:
   - Solar panel normal pointing error (degrees)
 
 Usage:
-    uv run python ISS/hw2/spacecraft_dynamics.py
+    pixi run python ISS/hw2/spacecraft_dynamics.py
 """
 
 from __future__ import annotations

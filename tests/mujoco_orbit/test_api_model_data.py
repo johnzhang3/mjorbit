@@ -38,6 +38,7 @@ def test_model_and_data_expose_mujoco_fields():
     data = MjoData(model, orbit=_orbit_init())
 
     assert model.nbody >= 2
+    assert model.mj_model.nplugin == 1
     np.testing.assert_allclose(model.opt.gravity, [0.0, 0.0, 0.0])
     assert data.qpos.shape[0] == model.nq
     assert data.qvel.shape[0] == model.nv
@@ -55,17 +56,35 @@ def test_mjo_forward_syncs_derived_state():
         use_magnetic=False,
     )
     data = MjoData(model, orbit=_orbit_init())
+    orbit_position_view = data.orbit.R_eci
+    frame_view = data.frame.C_LI
+    env_view = data.env.mag_field_eci
 
     data.qpos[:3] = [2.0, -1.0, 0.5]
     data.qvel[:3] = [0.1, 0.0, -0.05]
     data.orbit.t = 12.0
+    a = R_EARTH + 400.0
+    R_eci, V_eci = keplerian_to_cartesian(
+        a=a,
+        e=0.0,
+        inc=np.deg2rad(51.6),
+        raan=0.0,
+        argp=0.0,
+        nu=np.deg2rad(30.0),
+    )
+    data.orbit.R_eci[:] = R_eci
+    data.orbit.V_eci[:] = V_eci
 
     mjo_forward(model, data)
 
-    np.testing.assert_allclose(model.opt.magnetic, data.env.mag_field_eci)
     np.testing.assert_allclose(data.xfrc_applied, data.wrench_buffer)
     assert np.all(np.isfinite(data.xipos))
     assert data.orbit.t == 12.0
+    assert data.orbit.R_eci is orbit_position_view
+    assert data.frame.C_LI is frame_view
+    assert data.env.mag_field_eci is env_view
+    np.testing.assert_allclose(data.frame.C_LI[0], R_eci / np.linalg.norm(R_eci), atol=1e-14)
+    assert abs(np.linalg.norm(data.env.sun_vector_eci) - 1.0) < 1e-12
 
 
 def test_sensor_lookup_and_measurement_use_canonical_sensordata():

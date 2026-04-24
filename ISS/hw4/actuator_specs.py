@@ -23,7 +23,7 @@ CMG cluster being mounted on the top-side truss (Z1) with the symmetry
 axis of the pyramid pointing toward the main body of the station.
 
 Usage:
-    uv run python ISS/hw4/actuator_specs.py
+    pixi run python ISS/hw4/actuator_specs.py
 """
 
 from __future__ import annotations

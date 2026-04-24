@@ -10,6 +10,7 @@ so the system visibly orbits Earth. Units are **metres** (MuJoCo SI).
 from __future__ import annotations
 
 import copy
+import socket
 import time
 from dataclasses import dataclass
 from typing import Any, Callable, Literal, Optional, Sequence
@@ -54,6 +55,18 @@ _LOCAL_SCALE_OPTIONS = [
     10000.0,
 ]
 _DEFAULT_LOCAL_SCENE_SCALE = 1.0
+
+
+def _assert_socket_bindable(host: str, port: int) -> None:
+    bind_host = host if host not in ("", "0.0.0.0") else "127.0.0.1"
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((bind_host, port))
+    except OSError as exc:
+        raise RuntimeError(
+            f"MjOrbitViewer cannot start a local viser server on {host}:{port}. "
+            "Local socket bind is unavailable in this environment."
+        ) from exc
 
 
 @dataclass
@@ -125,6 +138,7 @@ class MjOrbitViewer:
         self._render_frame = render_frame
 
         # ---- viser server ---------------------------------------------------
+        _assert_socket_bindable(host, port)
         self.server = viser.ViserServer(host=host, port=port)
         self.server.scene.set_up_direction("+z")
         self._local_scene = self.server.scene.add_frame("/local_scene", show_axes=False)

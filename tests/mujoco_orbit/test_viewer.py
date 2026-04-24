@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import functools
+import socket
+
 import numpy as np
 import pytest
 
@@ -9,6 +12,21 @@ from tests.mujoco_orbit._helpers import make_model_data, set_freejoint_lvlh_stat
 from viewer import MjOrbitViewer
 from viewer.contacts import contact_force_segments
 from viewer.earth import BodyTrail
+
+
+@functools.lru_cache(maxsize=1)
+def _viewer_server_skip_reason() -> str | None:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+    except OSError as exc:
+        return f"viewer tests require local socket bind: {exc}"
+    return None
+
+
+def _require_viewer_server() -> None:
+    if reason := _viewer_server_skip_reason():
+        pytest.skip(reason)
 
 
 def test_contact_force_segments_for_collision() -> None:
@@ -40,6 +58,7 @@ def test_contact_force_segments_for_collision() -> None:
 
 
 def test_viewer_reset_restores_initial_state() -> None:
+    _require_viewer_server()
     model, data = make_model_data(xml_path=FREE_BODY_XML)
     data.qvel[0] += 1.25
     mjo_forward(model, data)
@@ -98,6 +117,7 @@ def test_viewer_reset_restores_initial_state() -> None:
 
 
 def test_viewer_reset_restores_cmg_state() -> None:
+    _require_viewer_server()
     cmg = ControlMomentGyroSpec(
         body_name="spacecraft",
         gimbal_axis_body=np.array([0.0, 0.0, 1.0]),
@@ -136,6 +156,7 @@ def test_viewer_reset_restores_cmg_state() -> None:
 
 
 def test_body_trail_renders_through_current_position() -> None:
+    _require_viewer_server()
     import viser
 
     server = viser.ViserServer(port=0)
@@ -150,6 +171,7 @@ def test_body_trail_renders_through_current_position() -> None:
 
 
 def test_viewer_eci_render_positions_bodies_around_earth() -> None:
+    _require_viewer_server()
     model, data = make_model_data(xml_path=FREE_BODY_XML)
     viewer = MjOrbitViewer(
         model,

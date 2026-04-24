@@ -32,8 +32,9 @@ not as absolute ECI state and not as LVLH state.
 
 - `src/mujoco_orbit/` — main package
 - `src/mujoco_orbit/core/` — public specs, model/data wrappers, stepping
-- `src/mujoco_orbit/orbit/` — orbital propagation, gravity, LVLH, environment
-- `src/mujoco_orbit/coupling/` — external wrench assembly and actuator/environment coupling
+- `src/cpp/` — native MuJoCo plugin and C++ orbit implementation
+- `src/mujoco_orbit/orbit/` — Python reference/analysis orbit helpers
+- `src/mujoco_orbit/coupling/` — Python reference/analysis coupling helpers
 - `src/mujoco_orbit/sensors.py` — sensor catalogs, callback plumbing, measurement helpers
 - `src/mujoco_orbit/testdata/` — bundled XML assets
 - `src/viewer/` — browser viewer integration
@@ -44,19 +45,20 @@ not as absolute ECI state and not as LVLH state.
 ## Development
 
 ```bash
-uv sync --dev
-uv sync --dev --extra report
-uv run pytest -q
-uv run ruff check .
-uv run pyright
+pixi install
+pixi install -e report
+pixi run test
+pixi run lint
+pixi run typecheck
+pixi run cpp-test
 ```
 
 Useful entrypoints:
 
 ```bash
-uv run python examples/free_drift.py
-uv run python examples/arm_reach.py
-uv run python ISS/hw2/spacecraft_dynamics.py
+pixi run example-free-drift
+pixi run python examples/arm_reach.py
+pixi run iss-hw2
 ```
 
 ## Units
