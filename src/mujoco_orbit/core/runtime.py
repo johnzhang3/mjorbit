@@ -25,8 +25,6 @@ from mujoco_orbit.core.config import (
     SurfaceSpec,
     ThrusterSpec,
 )
-from mujoco_orbit.orbit.environment import update_environment_cache
-from mujoco_orbit.orbit.lvlh import update_frame_cache
 from mujoco_orbit.orbit.state import EnvironmentCache, FrameCache, OrbitState
 from mujoco_orbit.sensors import (
     _MAGNETOMETER_SENSOR_TYPE,
@@ -896,7 +894,6 @@ class MjoData:
         self.orbit.R_eci[:] = np.asarray(orbit.R_eci, dtype=float)
         self.orbit.V_eci[:] = np.asarray(orbit.V_eci, dtype=float)
         self.orbit.t = orbit.t
-        self.refresh_orbit_caches(model.use_j2)
 
         self.actuators = ActuatorData(
             rw_speed=rw_speed,
@@ -964,22 +961,6 @@ class MjoData:
             0 if self._native_orbit_sensors is None else len(self._native_orbit_sensors)
         )
         inst.orbit_sensors = self._native_orbit_sensors_ptr
-
-    def refresh_orbit_caches(self, use_j2: bool) -> None:
-        """Recompute frame/environment caches into the native plugin instance."""
-        orbit_state = self.orbit.copy()
-        frame_cache = update_frame_cache(orbit_state, use_j2=use_j2)
-        self.frame.C_LI[:] = frame_cache.C_LI
-        self.frame.C_IL[:] = frame_cache.C_IL
-        self.frame.omega_lvlh[:] = frame_cache.omega_lvlh
-        self.frame.omega_dot_lvlh[:] = frame_cache.omega_dot_lvlh
-
-        env_cache = update_environment_cache(orbit_state, frame_cache)
-        self.env.sun_vector_eci[:] = env_cache.sun_vector_eci
-        self.env.mag_field_eci[:] = env_cache.mag_field_eci
-        self.env.atmosphere_omega_eci[:] = env_cache.atmosphere_omega_eci
-        self.env.atm_density = env_cache.atm_density
-        self.env.eclipse = env_cache.eclipse
 
     def __getattr__(self, name: str):  # pragma: no cover - trivial delegation
         return getattr(self.mj_data, name)

@@ -14,14 +14,8 @@ def _clear_wrench_buffer(data: MjoData) -> None:
     data.xfrc_applied[:] = 0.0
 
 
-def _refresh_orbit_caches(model: MjoModel, data: MjoData) -> None:
-    data.refresh_orbit_caches(model.use_j2)
-    data.actuators.update_rw_momentum(model.rw_inertia)
-
-
 def mjo_forward(model: MjoModel, data: MjoData) -> None:
     """Synchronize derived runtime state after direct mutation."""
-    _refresh_orbit_caches(model, data)
     _clear_wrench_buffer(data)
     mujoco.mj_forward(model.mj_model, data.mj_data)
     data.xfrc_applied[:] = data.wrench_buffer

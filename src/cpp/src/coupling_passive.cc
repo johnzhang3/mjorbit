@@ -328,6 +328,9 @@ void apply_reaction_wheel_wrenches(const mjModel* m, mjData* d, OrbitInstance* i
 
     const double speed = inst->rw_speed ? inst->rw_speed[idx] : 0.0;
     const double inertia = rw.inertia;
+    if (inst->rw_momentum) {
+      inst->rw_momentum[idx] = speed * inertia;
+    }
     double R_body[9];
     xmat_to_double(d, body_id, R_body);
     double w_world[3];

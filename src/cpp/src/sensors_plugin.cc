@@ -10,6 +10,8 @@
 #include <mujoco/mjplugin.h>
 #include <mujoco/mujoco.h>
 
+#include "mujoco_orbit/orbit_cache.h"
+
 namespace mujoco_orbit {
 
 namespace {
@@ -61,9 +63,12 @@ void orbit_sensor_callback(const mjModel* m, mjData* d, int stage) {
   if (instance < 0) {
     return;
   }
-  auto* inst = reinterpret_cast<const OrbitInstance*>(d->plugin_data[instance]);
+  auto* inst = reinterpret_cast<OrbitInstance*>(d->plugin_data[instance]);
   if (!inst) {
     return;
+  }
+  if (stage == kPosStage) {
+    refresh_orbit_caches(inst);
   }
   compute_orbit_sensor_truth(m, d, inst, stage);
 }

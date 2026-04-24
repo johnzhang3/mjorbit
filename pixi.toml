@@ -36,13 +36,14 @@ py312 = ["dev", "py312"]
 report = ["dev", "py312", "report"]
 
 [tasks]
-test = "pytest -q"
-test-api = "pytest tests/mujoco_orbit/test_api_model_data.py -q"
+sync-package = "python -m pip install -e . --no-deps --force-reinstall"
+test = { cmd = "pytest -q", depends-on = ["sync-package"] }
+test-api = { cmd = "pytest tests/mujoco_orbit/test_api_model_data.py -q", depends-on = ["sync-package"] }
 lint = "ruff check ."
 typecheck = "pyright --pythonpath $(python -c 'import sys; print(sys.executable)')"
 check = { depends-on = ["lint", "typecheck", "test"] }
-example-free-drift = "python examples/free_drift.py"
-iss-hw2 = "python ISS/hw2/spacecraft_dynamics.py"
+example-free-drift = { cmd = "python examples/free_drift.py", depends-on = ["sync-package"] }
+iss-hw2 = { cmd = "python ISS/hw2/spacecraft_dynamics.py", depends-on = ["sync-package"] }
 cpp-configure = "cmake -S src/cpp -B build/cpp -DPython_EXECUTABLE=$(python -c 'import sys; print(sys.executable)') -DCMAKE_BUILD_TYPE=Release"
 cpp-build = { cmd = "cmake --build build/cpp -j", depends-on = ["cpp-configure"] }
 cpp-test = { cmd = "ctest --test-dir build/cpp --output-on-failure", depends-on = ["cpp-build"] }
