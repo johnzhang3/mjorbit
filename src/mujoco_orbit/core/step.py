@@ -7,7 +7,6 @@ from __future__ import annotations
 import mujoco
 
 from mujoco_orbit.core.runtime import MjoData, MjoModel
-from mujoco_orbit.sensors import update_sensor_environment
 
 
 def _clear_wrench_buffer(data: MjoData) -> None:
@@ -18,7 +17,6 @@ def _clear_wrench_buffer(data: MjoData) -> None:
 def _refresh_orbit_caches(model: MjoModel, data: MjoData) -> None:
     data.refresh_orbit_caches(model.use_j2)
     data.actuators.update_rw_momentum(model.rw_inertia)
-    update_sensor_environment(model, data)
 
 
 def mjo_forward(model: MjoModel, data: MjoData) -> None:
@@ -33,7 +31,6 @@ def mjo_step(model: MjoModel, data: MjoData) -> None:
     """Advance one fully coupled simulation step in-place."""
     _clear_wrench_buffer(data)
     mujoco.mj_step(model.mj_model, data.mj_data)
-    update_sensor_environment(model, data)
     data.xfrc_applied[:] = data.wrench_buffer
 
 

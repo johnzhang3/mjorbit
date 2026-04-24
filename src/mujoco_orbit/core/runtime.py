@@ -29,11 +29,11 @@ from mujoco_orbit.orbit.environment import update_environment_cache
 from mujoco_orbit.orbit.lvlh import update_frame_cache
 from mujoco_orbit.orbit.state import EnvironmentCache, FrameCache, OrbitState
 from mujoco_orbit.sensors import (
+    _MAGNETOMETER_SENSOR_TYPE,
     ModelSensorCatalog,
     SensorDataNamespace,
     compile_sensor_catalog,
     create_sensor_data_namespace,
-    register_sensor_data_namespace,
 )
 
 
@@ -175,6 +175,28 @@ class _CThrusterMetadata(ctypes.Structure):
     ]
 
 
+class _COrbitSensorDescriptor(ctypes.Structure):
+    _fields_ = [
+        ("sensor_id", ctypes.c_int),
+        ("kind", ctypes.c_int),
+        ("site_id", ctypes.c_int),
+        ("adr", ctypes.c_int),
+        ("dim", ctypes.c_int),
+        ("reference_eci", ctypes.c_double * 3),
+    ]
+
+
+_ORBIT_SENSOR_KIND_SUN = 1
+_ORBIT_SENSOR_KIND_HORIZON = 2
+_ORBIT_SENSOR_KIND_STAR = 3
+_ORBIT_SENSOR_KIND_MAGNETOMETER = 4
+_ORBIT_SENSOR_KIND_BY_NAME = {
+    "sun": _ORBIT_SENSOR_KIND_SUN,
+    "horizon": _ORBIT_SENSOR_KIND_HORIZON,
+    "star": _ORBIT_SENSOR_KIND_STAR,
+}
+
+
 class _COrbitInstance(ctypes.Structure):
     _fields_ = [
         ("R_eci", ctypes.c_double * 3),
@@ -219,6 +241,8 @@ class _COrbitInstance(ctypes.Structure):
         ("cmg_rotor_momentum", ctypes.POINTER(ctypes.c_double)),
         ("wrench_buffer", ctypes.POINTER(ctypes.c_double)),
         ("wrench_body_count", ctypes.c_int),
+        ("num_orbit_sensors", ctypes.c_int),
+        ("orbit_sensors", ctypes.POINTER(_COrbitSensorDescriptor)),
     ]
 
 
@@ -596,17 +620,10 @@ class MjoModel:
     ) -> "MjoModel":
         """Compile a MuJoCo model plus static orbital coupling metadata."""
         temp_xml_path, plugin_body_name = _prepare_xml_with_orbit_plugin(xml_path, use_j2)
-        sensor_callback = mujoco.get_mjcb_sensor()
-        if sensor_callback is not None:
-            mujoco.set_mjcb_sensor(None)
         try:
-            try:
-                mj_model = mujoco.MjModel.from_xml_path(temp_xml_path)
-            finally:
-                os.unlink(temp_xml_path)
+            mj_model = mujoco.MjModel.from_xml_path(temp_xml_path)
         finally:
-            if sensor_callback is not None:
-                mujoco.set_mjcb_sensor(sensor_callback)
+            os.unlink(temp_xml_path)
 
         if mj_timestep is not None:
             mj_model.opt.timestep = mj_timestep
@@ -750,6 +767,56 @@ def _build_native_cmgs(cmgs: list[ControlMomentGyroMetadata]):
     return native_array, ctypes.cast(native_array, ctypes.POINTER(_CControlMomentGyroMetadata))
 
 
+def _build_native_orbit_sensors(mj_model: mujoco.MjModel, catalog: ModelSensorCatalog):
+    entries: list[tuple[int, int, int, int, int, np.ndarray]] = []
+
+    for descriptor in catalog.custom_descriptors:
+        kind = _ORBIT_SENSOR_KIND_BY_NAME.get(descriptor.orbit_kind or "")
+        if kind is None:
+            continue
+        reference = (
+            np.asarray(descriptor.reference_eci, dtype=float)
+            if descriptor.reference_eci is not None
+            else np.zeros(3)
+        )
+        entries.append(
+            (
+                int(descriptor.sensor_id),
+                int(kind),
+                int(descriptor.objid),
+                int(descriptor.adr),
+                int(descriptor.dim),
+                reference,
+            )
+        )
+
+    for descriptor in catalog.descriptors:
+        if descriptor.sensor_type != _MAGNETOMETER_SENSOR_TYPE:
+            continue
+        entries.append(
+            (
+                int(descriptor.sensor_id),
+                _ORBIT_SENSOR_KIND_MAGNETOMETER,
+                int(descriptor.objid),
+                int(descriptor.adr),
+                int(descriptor.dim),
+                np.zeros(3),
+            )
+        )
+
+    if not entries:
+        return None, None
+    native_array = (_COrbitSensorDescriptor * len(entries))()
+    for idx, (sensor_id, kind, site_id, adr, dim, reference) in enumerate(entries):
+        native_array[idx].sensor_id = sensor_id
+        native_array[idx].kind = kind
+        native_array[idx].site_id = site_id
+        native_array[idx].adr = adr
+        native_array[idx].dim = dim
+        _copy_vec3_to_c(reference, native_array[idx].reference_eci)
+    return native_array, ctypes.cast(native_array, ctypes.POINTER(_COrbitSensorDescriptor))
+
+
 def _build_native_double_buffer(values_or_size):
     if isinstance(values_or_size, int):
         values = np.zeros(values_or_size, dtype=float)
@@ -817,6 +884,9 @@ class MjoData:
         self._native_wrench_buffer, self._native_wrench_buffer_ptr, wrench_buffer = (
             _build_native_double_buffer(model.nbody * 6)
         )
+        self._native_orbit_sensors, self._native_orbit_sensors_ptr = (
+            _build_native_orbit_sensors(model.mj_model, model.sensors)
+        )
 
         self._bind_native_passive_metadata()
         self.orbit = OrbitView(self._orbit_instance)
@@ -846,7 +916,6 @@ class MjoData:
             self,
             rng_seed=rng_seed,
         )
-        register_sensor_data_namespace(self.sensors)
         self._initialize_freejoints_in_chief_inertial()
 
         from mujoco_orbit.core.step import mjo_forward
@@ -890,6 +959,11 @@ class MjoData:
 
         inst.wrench_buffer = self._native_wrench_buffer_ptr
         inst.wrench_body_count = self.model.nbody
+
+        inst.num_orbit_sensors = (
+            0 if self._native_orbit_sensors is None else len(self._native_orbit_sensors)
+        )
+        inst.orbit_sensors = self._native_orbit_sensors_ptr
 
     def refresh_orbit_caches(self, use_j2: bool) -> None:
         """Recompute frame/environment caches into the native plugin instance."""

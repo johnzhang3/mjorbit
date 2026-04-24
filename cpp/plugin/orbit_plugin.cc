@@ -18,6 +18,7 @@
 #include "mujoco_orbit/environment.h"
 #include "mujoco_orbit/lvlh.h"
 #include "mujoco_orbit/propagator.h"
+#include "mujoco_orbit/sensors_plugin.h"
 #include "orbit_instance.h"
 
 namespace {
@@ -55,6 +56,12 @@ int Init(const mjModel* m, mjData* d, int instance) {
   }
 
   d->plugin_data[instance] = reinterpret_cast<uintptr_t>(inst);
+
+  // Install the global mjcb_sensor hook once, now that the plugin owns at
+  // least one instance on this mjData. Doing this here (not at .so load time)
+  // avoids Python's MjoModel.from_xml_path stomping our callback via the
+  // mjcb_sensor save/restore dance.
+  mujoco_orbit::ensure_sensor_callback_installed();
   return 0;
 }
 
@@ -135,6 +142,8 @@ void Reset(const mjModel* /*m*/, mjtNum* /*plugin_state*/, void* plugin_data, in
   inst->cmg_rotor_momentum = preserved.cmg_rotor_momentum;
   inst->wrench_buffer = preserved.wrench_buffer;
   inst->wrench_body_count = preserved.wrench_body_count;
+  inst->num_orbit_sensors = preserved.num_orbit_sensors;
+  inst->orbit_sensors = preserved.orbit_sensors;
 }
 
 void Compute(const mjModel* m, mjData* d, int instance, int capability_bit) {

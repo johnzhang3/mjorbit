@@ -66,7 +66,6 @@ def test_mjo_forward_syncs_derived_state():
 
     mjo_forward(model, data)
 
-    np.testing.assert_allclose(model.opt.magnetic, data.env.mag_field_eci)
     np.testing.assert_allclose(data.xfrc_applied, data.wrench_buffer)
     assert np.all(np.isfinite(data.xipos))
     assert data.orbit.t == 12.0

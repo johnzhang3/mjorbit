@@ -1,12 +1,17 @@
 # pyright: reportAttributeAccessIssue=false
 
-"""Sensor discovery, custom truth generation, and noisy measurement helpers."""
+"""Sensor discovery, bias/RNG state, and noisy measurement helpers.
+
+Truth generation for orbit-owned sensors (sun, horizon, star tracker,
+magnetometer override) lives in the native plugin and runs as part of the
+MuJoCo sensor stage. Python only owns the noisy-measurement API and the
+per-data RNG/bias state.
+"""
 
 from __future__ import annotations
 
-import weakref
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, cast
+from typing import TYPE_CHECKING
 
 import mujoco
 import numpy as np
@@ -32,9 +37,6 @@ _ORBIT_SENSOR_PREFIXES = {
     "orbit_star_": "star",
 }
 
-_DATA_SENSOR_NAMESPACES: dict[int, weakref.ReferenceType["SensorDataNamespace"]] = {}
-_PREVIOUS_SENSOR_CALLBACK: Callable[[mujoco.MjModel, mujoco.MjData, int], None] | None = None
-_SENSOR_DISPATCH_INSTALLED = False
 _ADDITIVE_BIAS_SENSOR_TYPES = {
     _ACCELEROMETER_SENSOR_TYPE,
     _GYRO_SENSOR_TYPE,
@@ -249,48 +251,6 @@ def create_sensor_data_namespace(
     return SensorDataNamespace(model=model, data=data, rng=rng, biases=biases)
 
 
-def register_sensor_data_namespace(namespace: SensorDataNamespace) -> None:
-    """Register a data instance so custom sensor callbacks can find it."""
-    global _PREVIOUS_SENSOR_CALLBACK, _SENSOR_DISPATCH_INSTALLED
-
-    if not _SENSOR_DISPATCH_INSTALLED:
-        previous = mujoco.get_mjcb_sensor()
-        _PREVIOUS_SENSOR_CALLBACK = cast(
-            Callable[[mujoco.MjModel, mujoco.MjData, int], None] | None,
-            previous if callable(previous) else None,
-        )
-        mujoco.set_mjcb_sensor(_sensor_dispatch)
-        _SENSOR_DISPATCH_INSTALLED = True
-
-    key = id(namespace.data.mj_data)
-    _DATA_SENSOR_NAMESPACES[key] = weakref.ref(namespace)
-    weakref.finalize(namespace.data, _DATA_SENSOR_NAMESPACES.pop, key, None)
-
-
-def update_sensor_environment(model: MjoModel, data: MjoData) -> None:
-    """Update MuJoCo's world-frame magnetic field from the current orbital state."""
-    model.mj_model.opt.magnetic[:] = data.env.mag_field_eci
-
-
-def _sensor_dispatch(model: mujoco.MjModel, mj_data: mujoco.MjData, stage: int) -> None:
-    if _PREVIOUS_SENSOR_CALLBACK is not None:
-        _PREVIOUS_SENSOR_CALLBACK(model, mj_data, stage)
-
-    namespace_ref = _DATA_SENSOR_NAMESPACES.get(id(mj_data))
-    namespace = None if namespace_ref is None else namespace_ref()
-    if namespace is None:
-        return
-
-    for descriptor in namespace.model.sensors.custom_descriptors:
-        if descriptor.needstage != stage:
-            continue
-        mj_data.sensordata[descriptor.data_slice] = _custom_sensor_truth(
-            namespace.data,
-            descriptor,
-            mj_data,
-        )
-
-
 def _orbit_sensor_kind(name: str) -> str | None:
     for prefix, kind in _ORBIT_SENSOR_PREFIXES.items():
         if name.startswith(prefix):
@@ -315,28 +275,6 @@ def _validate_orbit_sensor_descriptor(descriptor: SensorDescriptor) -> None:
         raise ValueError(f"Sensor '{descriptor.name}' must use needstage='pos'")
     if descriptor.dim != 3:
         raise ValueError(f"Sensor '{descriptor.name}' must declare dim='3'")
-
-
-def _custom_sensor_truth(
-    data: MjoData,
-    descriptor: SensorDescriptor,
-    mj_data: mujoco.MjData,
-) -> np.ndarray:
-    if descriptor.orbit_kind == "sun":
-        world_vec = data.env.sun_vector_eci
-    elif descriptor.orbit_kind == "horizon":
-        nadir_eci = -data.orbit.R_eci / np.linalg.norm(data.orbit.R_eci)
-        world_vec = nadir_eci
-    elif descriptor.orbit_kind == "star":
-        if descriptor.reference_eci is None:
-            raise RuntimeError(f"Sensor '{descriptor.name}' is missing its star reference vector")
-        world_vec = descriptor.reference_eci
-    else:
-        raise RuntimeError(f"Unknown custom sensor kind for '{descriptor.name}'")
-
-    site_rot = mj_data.site_xmat[descriptor.objid].reshape(3, 3)
-    site_vec = site_rot.T @ world_vec
-    return _normalized(site_vec, f"Sensor '{descriptor.name}' truth vector")
 
 
 def _apply_sensor_noise(
@@ -481,6 +419,4 @@ __all__ = [
     "SensorDescriptor",
     "compile_sensor_catalog",
     "create_sensor_data_namespace",
-    "register_sensor_data_namespace",
-    "update_sensor_environment",
 ]

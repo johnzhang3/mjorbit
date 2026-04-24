@@ -63,6 +63,24 @@ struct ThrusterMetadataNative {
   double force_limit;
 };
 
+// Per-sensor descriptor for plugin-owned truth generation.
+//
+// kind:
+//   1 = orbit sun vector  (site-frame unit vector to the Sun)
+//   2 = orbit horizon vec (site-frame unit vector to nadir)
+//   3 = orbit star tracker (site-frame unit vector to a fixed ECI reference)
+//   4 = magnetometer      (site-frame chief magnetic field, T)
+// site_id indexes mjModel.site_xmat for the frame transform.
+// reference_eci is only used for star-tracker sensors (pre-normalised).
+struct OrbitSensorDescriptorNative {
+  int sensor_id;
+  int kind;
+  int site_id;
+  int adr;
+  int dim;
+  double reference_eci[3];
+};
+
 struct OrbitInstance {
   // Chief orbit state (absolute ECI).
   double R_eci[3];   // km
@@ -124,6 +142,9 @@ struct OrbitInstance {
   // Optional Python-facing wrench snapshot, shape (wrench_body_count, 6).
   double* wrench_buffer;
   int wrench_body_count;
+
+  int num_orbit_sensors;
+  const OrbitSensorDescriptorNative* orbit_sensors;
 };
 
 }  // namespace mujoco_orbit
