@@ -87,10 +87,11 @@ struct OrbitInstance {
   double V_eci[3];   // km/s
   double t;          // s since epoch
 
-  // Frame cache (filled by plugin compute()).
-  double C_LI[9];           // rotation world-from-LVLH (row-major)
-  double C_IL[9];           // rotation LVLH-from-world
-  double omega_lvlh[3];     // LVLH angular velocity in world, rad/s
+  // Frame cache (filled from the chief orbit). MuJoCo world axes are parallel
+  // to ECI; LVLH is only a derived rotating frame for conversions and displays.
+  double C_LI[9];           // rotation LVLH-from-world/ECI (row-major)
+  double C_IL[9];           // rotation world/ECI-from-LVLH
+  double omega_lvlh[3];     // LVLH angular velocity, expressed in LVLH, rad/s
   double omega_dot_lvlh[3]; // LVLH angular acceleration, rad/s^2
 
   // Environment cache.

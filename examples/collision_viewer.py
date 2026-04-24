@@ -9,8 +9,8 @@ Gold trail  = Body A (initially moving)
 Cyan trail  = Body B (initially at rest)
 
 Usage:
-    uv sync
-    uv run python examples/collision_viewer.py
+    pixi install
+    pixi run python examples/collision_viewer.py
 
 Controls (browser):
     - Scroll to zoom, drag to orbit the camera

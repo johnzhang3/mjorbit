@@ -6,7 +6,7 @@ torque, maps the torque to the modeled Zvezda attitude-thruster couples, and tra
 trajectory with the HW3 MEKF estimate in the full disturbed ISS model.
 
 Usage:
-    uv run python ISS/hw4/eigen_axis_slew.py
+    pixi run python ISS/hw4/eigen_axis_slew.py
 """
 
 from __future__ import annotations

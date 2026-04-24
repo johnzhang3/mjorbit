@@ -14,7 +14,7 @@ calculation represents the torque a controller/CMG cluster would need to reject
 while holding a commanded attitude; it is separate from the free-response runs.
 
 Usage:
-    uv run python ISS/hw4/environmental_torques.py
+    pixi run python ISS/hw4/environmental_torques.py
 """
 
 from __future__ import annotations

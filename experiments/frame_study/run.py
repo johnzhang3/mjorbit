@@ -13,7 +13,7 @@ torque-free rigid-body attitude. It runs for a few orbits and compares each
 MuJoCo result against an independent ECI two-body RK4 reference.
 
 Usage:
-    uv run python experiments/frame_study/run.py
+    pixi run python experiments/frame_study/run.py
 """
 
 from __future__ import annotations

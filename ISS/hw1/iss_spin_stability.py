@@ -18,7 +18,7 @@ ISS Parameters (post-assembly-complete):
   Orbit:       ~410 km circular, 51.6° inclination
 
 Usage:
-    uv run python ISS/hw1/iss_spin_stability.py
+    pixi run python ISS/hw1/iss_spin_stability.py
 """
 
 from __future__ import annotations

@@ -6,7 +6,7 @@ Demonstrates the coupled simulator with an articulated spacecraft-arm system:
 3. Stability check: long-horizon run remains finite
 
 Usage:
-    uv run python examples/arm_reach.py
+    pixi run python examples/arm_reach.py
 """
 
 from __future__ import annotations

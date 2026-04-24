@@ -5,7 +5,7 @@ One free body offset 10 m radially with no drag, SRP, or magnetic effects.
 Compares the chief-inertial MuJoCo trajectory to a CW analytical reference.
 
 Usage:
-    uv run python examples/free_drift.py
+    pixi run python examples/free_drift.py
 """
 
 from __future__ import annotations

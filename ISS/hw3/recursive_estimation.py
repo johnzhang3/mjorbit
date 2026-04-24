@@ -20,7 +20,7 @@ The script addresses four investigation topics:
   4. Convergence behavior with different initial conditions
 
 Usage:
-    uv run python ISS/hw3/recursive_estimation.py
+    pixi run python ISS/hw3/recursive_estimation.py
 """
 
 from __future__ import annotations

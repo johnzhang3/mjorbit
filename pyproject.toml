@@ -20,23 +20,13 @@ report = [
     "scipy>=1.17.1",
 ]
 
-[tool.uv]
-python-preference = "only-managed"
-
-[dependency-groups]
-dev = [
-    "pytest>=8.0",
-    "ruff>=0.8.0",
-    "pyright>=1.1.0",
-]
-
 [tool.scikit-build]
-cmake.source-dir = "cpp"
+cmake.source-dir = "src/cpp"
 cmake.version = ">=3.16"
 wheel.packages = ["src/mujoco_orbit", "src/viewer"]
 # ship XML testdata with the wheel
 wheel.exclude = []
-sdist.include = ["src/mujoco_orbit/testdata/*.xml", "cpp/**"]
+sdist.include = ["src/mujoco_orbit/testdata/*.xml", "src/cpp/**"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -51,5 +41,3 @@ select = ["E", "F", "I"]
 include = ["src"]
 extraPaths = ["src"]
 pythonVersion = "3.12"
-venv = ".venv"
-venvPath = "."

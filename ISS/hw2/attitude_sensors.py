@@ -20,7 +20,7 @@ The script validates error statistics via Monte Carlo (N=10000 samples) and
 plots histograms comparing empirical distributions to the design covariances.
 
 Usage:
-    uv run python ISS/hw2/attitude_sensors.py
+    pixi run python ISS/hw2/attitude_sensors.py
 """
 
 from __future__ import annotations

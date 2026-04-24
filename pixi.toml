@@ -1,0 +1,48 @@
+[workspace]
+name = "mujoco-orbit"
+version = "0.1.0"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-64", "osx-arm64"]
+
+[dependencies]
+python = ">=3.11,<3.13"
+pip = "*"
+cmake = ">=3.16"
+ninja = "*"
+cxx-compiler = "*"
+
+[pypi-dependencies]
+mujoco-orbit = { path = ".", editable = true }
+
+[feature.dev.dependencies]
+pytest = ">=8.0"
+ruff = ">=0.8.0"
+pyright = ">=1.1.0"
+
+[feature.report.pypi-dependencies]
+matplotlib = ">=3.10.8"
+scipy = ">=1.17.1"
+
+[feature.py311.dependencies]
+python = "3.11.*"
+
+[feature.py312.dependencies]
+python = "3.12.*"
+
+[environments]
+default = ["dev", "py312"]
+py311 = ["dev", "py311"]
+py312 = ["dev", "py312"]
+report = ["dev", "py312", "report"]
+
+[tasks]
+test = "pytest -q"
+test-api = "pytest tests/mujoco_orbit/test_api_model_data.py -q"
+lint = "ruff check ."
+typecheck = "pyright --pythonpath $(python -c 'import sys; print(sys.executable)')"
+check = { depends-on = ["lint", "typecheck", "test"] }
+example-free-drift = "python examples/free_drift.py"
+iss-hw2 = "python ISS/hw2/spacecraft_dynamics.py"
+cpp-configure = "cmake -S src/cpp -B build/cpp -DPython_EXECUTABLE=$(python -c 'import sys; print(sys.executable)') -DCMAKE_BUILD_TYPE=Release"
+cpp-build = { cmd = "cmake --build build/cpp -j", depends-on = ["cpp-configure"] }
+cpp-test = { cmd = "ctest --test-dir build/cpp --output-on-failure", depends-on = ["cpp-build"] }

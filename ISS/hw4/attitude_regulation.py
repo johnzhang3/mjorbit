@@ -13,7 +13,7 @@ The estimator-in-the-loop version can reuse the same ``lqr_torque`` function by
 replacing the perfect state with the HW3 MEKF state estimate.
 
 Usage:
-    uv run python ISS/hw4/attitude_regulation.py
+    pixi run python ISS/hw4/attitude_regulation.py
 """
 
 from __future__ import annotations

@@ -16,7 +16,7 @@ Sensor observations used for each trial:
   - Magnetometer:    1 magnetic field direction
 
 Usage:
-    uv run python ISS/hw2/attitude_estimation.py
+    pixi run python ISS/hw2/attitude_estimation.py
 """
 
 from __future__ import annotations
