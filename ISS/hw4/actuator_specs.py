@@ -44,7 +44,7 @@ from mujoco_orbit import (
     ThrusterSpec,
 )
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
 ISS_XML = str(pathlib.Path(__file__).resolve().parents[1] / "iss_model.xml")
 PLOT_DIR = pathlib.Path(__file__).resolve().parent / "plots"

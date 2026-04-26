@@ -169,42 +169,99 @@ later in the chief-frame equations is therefore
   \label{eq:a-chief}
 \end{equation}
 
-\subsection{Multi-Body Equations of Motion in the Chief Frame}
+\subsection{Per-Body External Wrenches in the Chief Frame}
 \label{subsec:chief-frame-eom}
 
-Let body $i$ have absolute position
-$\bm R_i = \bm R + 10^{-3}\bm r_i$. Newton in $\mathcal{F}_I$ reads
+We do not write the multi-body equations of motion at this stage:
+$(q,\dot q)$ for an articulated system are coupled through joint
+constraints, mass-matrix off-diagonals, and contact impulses, and the
+unified constrained equation is given in Section~\ref{subsec:mj-solver}.
+Instead, we identify the per-body net external wrench in the chief
+frame; \mj{} then folds these wrenches into its constrained
+multi-body solver via the body Jacobians.
+
+Let body $i$ have absolute position $\bm R_i = \bm R + 10^{-3}\bm r_i$
+and let $\bm F_i^{\text{ext}}$ be the total external force on body $i$ in
+$\mathcal{F}_I$ (gravity plus environmental and actuator forces, excluding
+internal joint and contact constraint forces). Newton in $\mathcal{F}_I$ reads
 \begin{equation}
-  m_i \ddot{\bm R}_i \;=\; m_i\,\bm g(\bm R_i) + \bm F_i^{\text{ng}},
+  m_i \ddot{\bm R}_i \;=\; m_i\,\bm g(\bm R_i) + \bm F_i^{\text{ng}}
+                            + \bm F_i^{\text{int}},
   \label{eq:newton-eci}
 \end{equation}
-with $\bm F_i^{\text{ng}}$ the non-gravity force on body $i$. Substituting
-$\bm R_i = \bm R + 10^{-3}\bm r_i$ and rearranging,
-\begin{equation}
-  m_i\,10^{-3}\ddot{\bm r}_i \;=\;
-    m_i\bigl[\bm g(\bm R_i) - \bm a_\text{chief}\bigr]
-    + \bm F_i^{\text{ng}}.
-  \label{eq:chief-frame-eom-eci-units}
-\end{equation}
-Converting the $\bm g$-difference from \si{km/s\squared} to \si{m/s\squared}
-($\times 10^{3}$) and dividing both sides by $10^{-3}$,
-\begin{equation}
-  m_i\ddot{\bm r}_i \;=\;
+where $\bm F_i^{\text{ng}}$ is the non-gravity external force on body $i$
+(drag, SRP, thrust, etc., evaluated at body $i$'s own state) and
+$\bm F_i^{\text{int}}$ collects internal forces between connected bodies
+(joint reactions, contact impulses). Substituting
+$\bm R_i = \bm R + 10^{-3}\bm r_i$ and rearranging, with the gravity
+acceleration converted to SI ($\tilde{\bm g}\equiv 10^3\bm g$,
+$\tilde{\bm a}_\text{fb}\equiv 10^3\bm a_\text{fb}$),
+\begin{align}
+  m_i\ddot{\bm r}_i \;=\; &
     \underbrace{m_i\bigl[\tilde{\bm g}(\bm R_i)-\tilde{\bm g}(\bm R)\bigr]}_{\text{differential gravity}}
-    \;-\;
+    -
     \underbrace{m_i\,\tilde{\bm a}_\text{fb}}_{\text{origin compensation}}
-    \;+\;
-    \bm F_i^{\text{ng}},
+    + \bm F_i^{\text{ng}}
+    + \bm F_i^{\text{int}}.
   \label{eq:chief-frame-eom}
+\end{align}
+The bracketed sum of differential gravity, origin compensation, and
+$\bm F_i^{\text{ng}}$ is the per-body external wrench
+\begin{equation}
+  \bm F_i^{\text{wrench}}
+   \;\equiv\;
+   m_i\bigl[\tilde{\bm g}(\bm R_i)-\tilde{\bm g}(\bm R)\bigr]
+   - m_i\,\tilde{\bm a}_\text{fb}
+   + \bm F_i^{\text{ng}}.
+  \label{eq:per-body-wrench}
 \end{equation}
-where tildes denote SI quantities ($\tilde{\bm g} \equiv 10^3\,\bm g$,
-$\tilde{\bm a}_\text{fb}\equiv 10^3\,\bm a_\text{fb}$).
-Equation~\eqref{eq:chief-frame-eom} is the equation of motion that \mj{}
-integrates per body. Because $\mathcal{F}_W$ is non-rotating, no Coriolis,
-centrifugal, or Euler terms appear; the only fictitious force is the
-translational $-m_i\bm a_\text{chief}$, which is split into the gravity
-piece $-m_i\bm g(\bm R)$ (absorbed into the differential gravity term) and
-the non-gravity piece $-m_i\bm a_\text{fb}$ (the origin compensation).
+This is what \mjorbit{} computes per body and feeds into \mj{}'s solver.
+The internal force $\bm F_i^{\text{int}}$ in~\eqref{eq:chief-frame-eom} is
+\emph{not} computed by \mjorbit{}: \mj{} resolves it as part of solving the
+constrained multi-body equation in Section~\ref{subsec:mj-solver}.
+
+Because $\mathcal{F}_W$ is non-rotating, no Coriolis, centrifugal, or Euler
+terms appear in~\eqref{eq:chief-frame-eom}; the only fictitious force is
+the translational $-m_i\bm a_\text{chief}$, split between the gravity
+piece ($-m_i\bm g(\bm R)$, absorbed into the differential-gravity term)
+and the non-gravity piece ($-m_i\bm a_\text{fb}$, the origin compensation).
+This per-body translational pseudo-force does \emph{not} depend on whether
+bodies are connected: it is a kinematic frame-transformation effect,
+identical for free, articulated, and contact-coupled systems.
+
+\subsubsection{Equivalence to the constrained multi-body equation}
+\label{subsubsec:articulated-equivalence}
+
+For an articulated system parameterized by generalized coordinates
+$q\in\R^{n_q}$ with body-COM Jacobians $J_i(q)\in\R^{3\times n_q}$
+(with $\dot{\bm r}_i = J_i(q)\dot q$), the inertial-frame Lagrangian is
+\begin{equation}
+  L = \tfrac{1}{2}\sum_i m_i\|\dot{\bm R}+\dot{\bm r}_i\|^2 - U(q,\bm R),
+\end{equation}
+where $U$ collects gravitational and elastic potentials. Discarding the
+$\bm R$-only kinetic term (independent of $q$) and using
+$\sum_i m_i\dot{\bm R}\cdot\dot{\bm r}_i$ to derive the time-dependent
+forcing, the Euler--Lagrange equations in the chief frame yield
+\begin{equation}
+  M(q)\ddot q + \bm c(q,\dot q)
+   \;=\;
+   \sum_i J_i^{\!\top}(q)\,\bm F_i^{\text{wrench}}
+   + \bm\tau^{\text{int}},
+  \label{eq:articulated-chief}
+\end{equation}
+where $M(q)$ and $\bm c(q,\dot q)$ are the standard articulated-body mass
+matrix and bias terms and $\bm\tau^{\text{int}}$ collects joint actuator,
+constraint, and contact contributions. The fictitious force enters
+through the per-body wrench $\bm F_i^{\text{wrench}}$ exactly as
+in~\eqref{eq:per-body-wrench}: applying $-m_i\bm a_\text{chief}$ at each
+body's COM is equivalent (after $J_i^{\!\top}$ projection) to adding the
+correct generalized fictitious force $-\sum_i m_i J_i^{\!\top}(q)\bm a_\text{chief}
+= -M_\text{tot}\,J_\text{COM}^{\!\top}(q)\bm a_\text{chief}$ on the
+articulated system. So the per-body wrench
+formulation of~\eqref{eq:per-body-wrench} is the correct input to
+articulated, contact-coupled, and free-body systems alike;
+\mj{}'s solver in Section~\ref{subsec:mj-solver} consumes it without
+modification.
 
 \subsubsection{Per-body external force model}
 \label{subsubsec:force-model}
@@ -353,30 +410,47 @@ applied to all bodies. The swarm-mean choice keeps $\|\bm r_i\|$ small.
 \subsection{\mj{} Multibody and Contact Solver}
 \label{subsec:mj-solver}
 
-Inside $\mathcal{F}_W$, \mj{} treats $(\bm r_i,\dot{\bm r}_i,\bm q^{joint},
-\dot{\bm q}^{joint})$ as a generalised state and integrates the standard
-articulated-body equations
+Inside $\mathcal{F}_W$, \mj{} treats the joint coordinates
+$(q,\dot q)\in\R^{n_q}\times\R^{n_q}$ (free-joint translations and
+rotations of root bodies, plus revolute/prismatic/etc.\ joint angles for
+articulated chains) as the generalised state and integrates the
+constrained articulated-body equation
 \begin{equation}
   M(q)\ddot q + \bm c(q,\dot q) \;=\; \bm\tau^{\text{passive}} +
-   \bm\tau^{\text{ctrl}} + J_c^\top\bm\lambda,
+   \bm\tau^{\text{ctrl}} + J_c^{\!\top}\bm\lambda,
   \label{eq:mj-eom}
 \end{equation}
-where $M$ is the joint-space mass matrix, $\bm c$ collects Coriolis,
-centripetal, and gyroscopic terms internal to the multibody chain (i.e.\
-those generated by relative motion of links, not by frame rotation),
-$\bm\tau^{\text{passive}}$ is the passive force vector (\texttt{qfrc\_passive}),
-$\bm\tau^{\text{ctrl}}$ is from \mj{} actuators, and $J_c^\top\bm\lambda$ is
-the contact constraint impulse computed by \mj{}'s convex contact solver.
+where $M(q)$ is the joint-space mass matrix, $\bm c(q,\dot q)$ collects
+Coriolis, centripetal, and gyroscopic terms generated by relative motion
+of connected links (these are \emph{internal} to the multibody chain, not
+fictitious frame-rotation terms), $\bm\tau^{\text{passive}}$ is the
+passive force vector (\texttt{qfrc\_passive}), $\bm\tau^{\text{ctrl}}$
+comes from \mj{} actuators, and $J_c^{\!\top}\bm\lambda$ is the contact
+and equality-constraint impulse computed by \mj{}'s convex solver.
 \mj{}'s built-in uniform gravity is disabled
 ($\texttt{opt.gravity}=\bm 0$) so that the gravity model
-in~\eqref{eq:chief-frame-eom} is not duplicated.
+in~\eqref{eq:per-body-wrench} is not duplicated.
 
-\mjorbit{} writes the per-body wrench
-$\bigl(\bm F_i^{\text{tot}},\,\bm\tau_i^{\text{tot}}\bigr)$ from
-Section~\ref{subsubsec:force-model} into $\bm\tau^{\text{passive}}$ via
-$\texttt{mj\_applyFT}$ at each body's COM. \mj{} is otherwise responsible
-for: integrating $(q,\dot q)$, enforcing joint and equality constraints,
-detecting contacts, and computing contact impulses $\bm\lambda$.
+\mjorbit{} writes the per-body wrench from~\eqref{eq:per-body-wrench}
+together with its torque counterpart
+$\bm\tau_i^{\text{wrench}}$ (the sum of $\bm\tau_i^{gg}$, drag/SRP,
+magnetic, magnetorquer, RW, CMG, and thruster torques) into
+$\bm\tau^{\text{passive}}$ via $\texttt{mj\_applyFT}$ at each body's COM.
+\mj{} aggregates these per-body wrenches through the body Jacobians,
+\begin{equation}
+  \bm\tau^{\text{passive}}
+   \;=\;
+   \sum_i \bigl(J_i^{\!\top}\bm F_i^{\text{wrench}}
+                + J_i^{R\,\!\top}\bm\tau_i^{\text{wrench}}\bigr),
+  \label{eq:passive-projection}
+\end{equation}
+where $J_i$ and $J_i^R$ are the translational and rotational Jacobians of
+body $i$. \mj{} is then responsible for integrating $(q,\dot q)$,
+enforcing joint and equality constraints, detecting contacts, and
+computing contact impulses $\bm\lambda$. The chief-frame fictitious force
+enters the constrained dynamics
+through~\eqref{eq:passive-projection}; no additional terms are needed for
+articulated or contact-coupled systems.
 
 \subsection{Coupling Architecture}
 \label{subsec:coupling}

@@ -64,18 +64,16 @@ def _apply_reaction_wheels(model: MjoModel, data: MjoData) -> None:
         return
 
     act = data.actuators
-    mjd = data.mj_data
-
     for i, rw_cfg in enumerate(model.reaction_wheels):
         bid = rw_cfg.body_id
 
         # Wheel angular momentum in body frame: h_i = I_w * Ω_w * axis
-        h_body = model.rw_inertia[i] * act.rw_speed[i] * rw_cfg.axis_body  # kg·m²/s
+        h_body = rw_cfg.inertia * act.rw_speed[i] * rw_cfg.axis_body  # kg·m²/s
 
         # cvel stores angular velocity in the world frame for every body, including
         # downstream articulated links. Rotate it back into the host body frame.
-        R_body = mjd.xmat[bid].reshape(3, 3)
-        w_body = R_body.T @ mjd.cvel[bid, :3]
+        R_body = data.xmat[bid].reshape(3, 3)
+        w_body = R_body.T @ data.cvel[bid, :3]
 
         # Gyroscopic coupling torque: τ = -ω × h  (body frame)
         tau_body = -np.cross(w_body, h_body)
@@ -106,24 +104,22 @@ def command_rw_torques(
         return
 
     act = data.actuators
-    mjd = data.mj_data
-
     for i, rw_cfg in enumerate(model.reaction_wheels):
         bid = rw_cfg.body_id
-        inertia = model.rw_inertia[i]
+        inertia = rw_cfg.inertia
         if inertia <= 0.0:
             continue
 
         # Clamp torque command
         tau = torque_cmds[i]
-        if rw_cfg.torque_limit is not None:
+        if rw_cfg.has_torque_limit:
             tau = np.clip(tau, -rw_cfg.torque_limit, rw_cfg.torque_limit)
 
         # Compute wheel acceleration
         alpha = tau / inertia
 
         # Speed saturation: if at limit, don't accelerate further in that direction
-        if rw_cfg.speed_limit is not None:
+        if rw_cfg.has_speed_limit:
             if act.rw_speed[i] >= rw_cfg.speed_limit and alpha > 0:
                 alpha = 0.0
             elif act.rw_speed[i] <= -rw_cfg.speed_limit and alpha < 0:
@@ -131,7 +127,7 @@ def command_rw_torques(
 
         # Integrate wheel speed
         act.rw_speed[i] += alpha * dt
-        if rw_cfg.speed_limit is not None:
+        if rw_cfg.has_speed_limit:
             act.rw_speed[i] = np.clip(act.rw_speed[i], -rw_cfg.speed_limit, rw_cfg.speed_limit)
 
         # Reaction torque on body: equal and opposite
@@ -140,12 +136,12 @@ def command_rw_torques(
         tau_body = reaction_tau * rw_cfg.axis_body
 
         # Rotate to world frame
-        R_body = mjd.xmat[bid].reshape(3, 3)
+        R_body = data.xmat[bid].reshape(3, 3)
         tau_world = R_body @ tau_body
 
         data.wrench_buffer[bid, 3:] += tau_world
 
-    act.update_rw_momentum(model.rw_inertia)
+    act.update_rw_momentum()
 
 
 def _apply_magnetorquers(model: MjoModel, data: MjoData) -> None:
@@ -156,7 +152,6 @@ def _apply_magnetorquers(model: MjoModel, data: MjoData) -> None:
         return
 
     act = data.actuators
-    mjd = data.mj_data
     env = data.env
 
     # MuJoCo world axes are parallel to ECI, so cached B is already in world axes.
@@ -168,7 +163,7 @@ def _apply_magnetorquers(model: MjoModel, data: MjoData) -> None:
         m_cmd = np.clip(act.mtq_dipole_cmd[i], -mtq_cfg.dipole_limit, mtq_cfg.dipole_limit)
         dipole_body = m_cmd * mtq_cfg.axis_body  # A·m^2 in body frame
 
-        R_body = mjd.xmat[bid].reshape(3, 3)
+        R_body = data.xmat[bid].reshape(3, 3)
         B_body = R_body.T @ B_world
 
         tau_body = np.cross(dipole_body, B_body)
@@ -214,8 +209,6 @@ def _apply_cmgs(model: MjoModel, data: MjoData) -> None:
         return
 
     act = data.actuators
-    mjd = data.mj_data
-
     for i, cmg_cfg in enumerate(model.cmgs):
         bid = cmg_cfg.body_id
 
@@ -226,8 +219,8 @@ def _apply_cmgs(model: MjoModel, data: MjoData) -> None:
             cmg_cfg.torque_axis_body_0,
         )
 
-        R_body = mjd.xmat[bid].reshape(3, 3)
-        w_body = R_body.T @ mjd.cvel[bid, :3]
+        R_body = data.xmat[bid].reshape(3, 3)
+        w_body = R_body.T @ data.cvel[bid, :3]
 
         tau_body = -np.cross(w_body, h_body)
         tau_world = R_body @ tau_body
@@ -254,8 +247,6 @@ def command_cmg_gimbal_rates(
         return
 
     act = data.actuators
-    mjd = data.mj_data
-
     for i, cmg_cfg in enumerate(model.cmgs):
         bid = cmg_cfg.body_id
         h_rotor = act.cmg_rotor_momentum[i]
@@ -265,13 +256,13 @@ def command_cmg_gimbal_rates(
         theta_old = float(act.cmg_gimbal_angle[i])
 
         theta_dot = float(gimbal_rate_cmds[i])
-        if cmg_cfg.gimbal_rate_limit is not None:
+        if cmg_cfg.has_gimbal_rate_limit:
             theta_dot = float(
                 np.clip(theta_dot, -cmg_cfg.gimbal_rate_limit, cmg_cfg.gimbal_rate_limit)
             )
 
         # Gimbal-angle saturation: freeze rate if we're against a hard stop
-        if cmg_cfg.gimbal_angle_limit is not None:
+        if cmg_cfg.has_gimbal_angle_limit:
             limit = cmg_cfg.gimbal_angle_limit
             if theta_old >= limit and theta_dot > 0:
                 theta_dot = 0.0
@@ -288,7 +279,7 @@ def command_cmg_gimbal_rates(
 
         # Integrate gimbal angle (forward Euler)
         theta_new = theta_old + theta_dot * dt
-        if cmg_cfg.gimbal_angle_limit is not None:
+        if cmg_cfg.has_gimbal_angle_limit:
             theta_new = float(
                 np.clip(theta_new, -cmg_cfg.gimbal_angle_limit, cmg_cfg.gimbal_angle_limit)
             )
@@ -297,7 +288,7 @@ def command_cmg_gimbal_rates(
 
         # Reaction torque on body: τ_body = -h · θ̇ · t̂(θ)
         tau_body = -h_rotor * theta_dot_effective * t_axis_body
-        R_body = mjd.xmat[bid].reshape(3, 3)
+        R_body = data.xmat[bid].reshape(3, 3)
         tau_world = R_body @ tau_body
 
         data.wrench_buffer[bid, 3:] += tau_world
@@ -309,8 +300,6 @@ def _apply_thrusters(model: MjoModel, data: MjoData) -> None:
         return
 
     act = data.actuators
-    mjd = data.mj_data
-
     for i, thr_cfg in enumerate(model.thrusters):
         bid = thr_cfg.body_id
         # Clamp thrust command
@@ -318,7 +307,7 @@ def _apply_thrusters(model: MjoModel, data: MjoData) -> None:
 
         F_body = f_cmd * thr_cfg.direction_body  # N in body frame
 
-        R_body = mjd.xmat[bid].reshape(3, 3)
+        R_body = data.xmat[bid].reshape(3, 3)
         F_world = R_body @ F_body  # N in world frame
 
         # xfrc_applied torques are about the body COM, not the body-frame origin.

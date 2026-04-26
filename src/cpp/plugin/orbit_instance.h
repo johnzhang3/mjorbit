@@ -146,6 +146,22 @@ struct OrbitInstance {
 
   int num_orbit_sensors;
   const OrbitSensorDescriptorNative* orbit_sensors;
+
+  // Multirate chief-orbit propagation state. When orbit_dt is larger than the
+  // MuJoCo timestep, the public R/V/t state is interpolated between coarse RK4
+  // endpoints while feedback acceleration is averaged over the coarse interval.
+  int orbit_schedule_initialized;
+  int orbit_rk4_count;
+  double orbit_segment_start_R_eci[3];
+  double orbit_segment_start_V_eci[3];
+  double orbit_segment_start_t;
+  double orbit_segment_end_R_eci[3];
+  double orbit_segment_end_V_eci[3];
+  double orbit_segment_end_t;
+  double orbit_segment_duration;
+  double orbit_segment_elapsed;
+  double feedback_accel_integral_eci[3];
+  double feedback_accel_integral_dt;
 };
 
 }  // namespace mujoco_orbit

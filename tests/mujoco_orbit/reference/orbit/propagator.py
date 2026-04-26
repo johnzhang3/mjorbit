@@ -9,8 +9,8 @@ from typing import Optional
 
 import numpy as np
 
-from mujoco_orbit.orbit.gravity import total_accel
-from mujoco_orbit.orbit.state import OrbitState
+from tests.mujoco_orbit.reference.orbit.gravity import total_accel
+from tests.mujoco_orbit.reference.orbit.state import OrbitState
 
 
 def _derivatives(

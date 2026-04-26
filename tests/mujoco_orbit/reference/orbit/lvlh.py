@@ -22,8 +22,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from mujoco_orbit.orbit.gravity import total_accel
-from mujoco_orbit.orbit.state import FrameCache, OrbitState
+from tests.mujoco_orbit.reference.orbit.gravity import total_accel
+from tests.mujoco_orbit.reference.orbit.state import FrameCache, OrbitState
 
 
 def update_frame_cache(orbit: OrbitState, use_j2: bool = False) -> FrameCache:

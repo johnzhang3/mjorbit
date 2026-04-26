@@ -32,10 +32,10 @@ import numpy as np
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit, SurfaceSpec, mjo_forward, mjo_step
 from mujoco_orbit.constants import GM_EARTH, P_SUN, R_EARTH
-from mujoco_orbit.coupling.gravity_gradient import apply_gravity_gradient_torques
-from mujoco_orbit.coupling.surfaces import apply_surface_wrenches
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
-from mujoco_orbit.orbit.environment import atm_density
+from tests.mujoco_orbit.reference.coupling.gravity_gradient import apply_gravity_gradient_torques
+from tests.mujoco_orbit.reference.coupling.surfaces import apply_surface_wrenches
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
+from tests.mujoco_orbit.reference.orbit.environment import atm_density
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 HW4_DIR = pathlib.Path(__file__).resolve().parent

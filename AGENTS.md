@@ -6,11 +6,11 @@
 - `src/mujoco_orbit/core/config.py` defines public `OrbitInit` and `*Spec` dataclasses.
 - `src/mujoco_orbit/core/runtime.py` defines `MjoModel` and `MjoData`.
 - `src/mujoco_orbit/core/step.py` defines `mjo_forward` and `mjo_step`.
-- `src/mujoco_orbit/core/actuators.py` holds runtime actuator-state containers.
+- `src/mujoco_orbit/core/rollout.py` defines state and rollout helpers.
 - `src/cpp/` contains the native MuJoCo plugin and C++ orbit implementation.
-- `src/mujoco_orbit/orbit/` contains Python reference/analysis orbit helpers.
-- `src/mujoco_orbit/coupling/` contains Python reference/analysis coupling helpers.
-- `src/mujoco_orbit/sensors.py` contains sensor catalogs, callbacks, and measurement helpers.
+- `tests/mujoco_orbit/reference/orbit/` contains Python reference/analysis orbit helpers.
+- `tests/mujoco_orbit/reference/coupling/` contains Python reference/analysis coupling helpers.
+- `tests/mujoco_orbit/reference/sensors.py` contains Python reference sensor helpers.
 - `src/mujoco_orbit/testdata/` contains XML fixtures used by tests and examples.
 - `src/viewer/` contains the browser viewer integration.
 - `examples/` contains small runnable demos of the public API.

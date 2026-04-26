@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import mujoco
 import numpy as np
 
 from mujoco_orbit import (
@@ -23,7 +22,8 @@ from ._helpers import circular_leo_orbit_init, make_model_data
 
 
 def _full_state_size(model) -> int:
-    return int(mujoco.mj_stateSize(model.mj_model, mujoco.mjtState.mjSTATE_FULLPHYSICS.value))
+    orbit_tail = 7 + len(model.reaction_wheels) + 2 * len(model.cmgs)
+    return mjo_state_size(model) - orbit_tail
 
 
 def test_mjo_state_pack_round_trips_orbit_and_actuator_state():

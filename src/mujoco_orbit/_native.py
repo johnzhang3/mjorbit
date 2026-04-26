@@ -12,6 +12,7 @@ import mujoco
 
 _PLUGIN_LIBRARY: ctypes.CDLL | None = None
 _PLUGIN_PATH: str | None = None
+_MUJOCO_LIBRARY: ctypes.CDLL | None = None
 
 
 def _candidate_plugin_dirs() -> list[str]:
@@ -43,10 +44,11 @@ def find_native_plugin_path() -> str | None:
 
 def load_native_plugin() -> str | None:
     """Load/register the MuJoCo plugin and return its library path if present."""
-    global _PLUGIN_PATH
+    global _PLUGIN_LIBRARY, _PLUGIN_PATH
     if _PLUGIN_PATH is not None:
         return _PLUGIN_PATH
 
+    _preload_mujoco_library()
     path = find_native_plugin_path()
     if path is None:
         return None
@@ -54,23 +56,31 @@ def load_native_plugin() -> str | None:
     load_plugin_library = getattr(mujoco, "mj_loadPluginLibrary", None)
     if callable(load_plugin_library):
         load_plugin_library(path)
+    else:
+        _PLUGIN_LIBRARY = ctypes.CDLL(path)
 
     _PLUGIN_PATH = path
     return path
 
 
-def load_native_library() -> ctypes.CDLL:
-    """Return a ctypes handle for calling exported mujoco_orbit C symbols."""
-    global _PLUGIN_LIBRARY
-    if _PLUGIN_LIBRARY is None:
-        path = load_native_plugin()
-        if path is None:
-            raise RuntimeError(
-                "mujoco_orbit native plugin was not found. Run `pixi run sync-package` "
-                "or build the package before calling native rollout."
-            )
-        _PLUGIN_LIBRARY = ctypes.CDLL(path)
-    return _PLUGIN_LIBRARY
+def _preload_mujoco_library() -> None:
+    """Load MuJoCo's shared library globally before extension imports."""
+    global _MUJOCO_LIBRARY
+    if _MUJOCO_LIBRARY is not None:
+        return
+
+    mujoco_dir = pathlib.Path(mujoco.__file__).resolve().parent
+    candidates = sorted(
+        list(mujoco_dir.glob("libmujoco*.dylib"))
+        + list(mujoco_dir.glob("libmujoco*.so*"))
+        + list(mujoco_dir.glob("mujoco.dll"))
+    )
+    if not candidates:
+        return
+    _MUJOCO_LIBRARY = ctypes.CDLL(
+        str(candidates[0]),
+        mode=getattr(ctypes, "RTLD_GLOBAL", 0),
+    )
 
 
-__all__ = ["find_native_plugin_path", "load_native_library", "load_native_plugin"]
+__all__ = ["find_native_plugin_path", "load_native_plugin"]

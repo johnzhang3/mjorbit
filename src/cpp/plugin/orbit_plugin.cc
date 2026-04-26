@@ -16,6 +16,7 @@
 
 #include "mujoco_orbit/coupling.h"
 #include "mujoco_orbit/orbit_cache.h"
+#include "mujoco_orbit/orbit_schedule.h"
 #include "mujoco_orbit/propagator.h"
 #include "mujoco_orbit/sensors_plugin.h"
 #include "orbit_instance.h"
@@ -138,19 +139,7 @@ void Advance(const mjModel* m, mjData* d, int instance) {
   if (!inst) return;
 
   mujoco_orbit::advance_actuators(m, inst);
-
-  const double dt = inst->orbit_dt > 0.0 ? inst->orbit_dt : m->opt.timestep;
-  mujoco_orbit::propagate_rk4(
-      inst->R_eci,
-      inst->V_eci,
-      inst->t,
-      dt,
-      inst->R_eci,
-      inst->V_eci,
-      &inst->t,
-      inst->use_j2 != 0,
-      inst->feedback_accel_eci);
-  mujoco_orbit::refresh_orbit_caches(inst);
+  mujoco_orbit::advance_orbit_schedule(m, inst);
 }
 
 void RegisterPlugin() {

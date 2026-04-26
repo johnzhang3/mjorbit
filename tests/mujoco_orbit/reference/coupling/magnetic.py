@@ -24,8 +24,6 @@ def apply_magnetic_wrenches(model: MjoModel, data: MjoData) -> None:
         return
 
     env = data.env
-    mjd = data.mj_data
-
     # MuJoCo world axes are parallel to ECI, so cached B is already in world axes.
     B_world = env.mag_field_eci
 
@@ -33,7 +31,7 @@ def apply_magnetic_wrenches(model: MjoModel, data: MjoData) -> None:
         bid = mag.body_id
 
         # World-from-body rotation
-        R_body = mjd.xmat[bid].reshape(3, 3)
+        R_body = data.xmat[bid].reshape(3, 3)
 
         # Body-from-world rotation
         R_inv = R_body.T

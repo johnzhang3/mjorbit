@@ -14,7 +14,6 @@ Key properties verified:
 import os
 import tempfile
 
-import mujoco
 import numpy as np
 
 from mujoco_orbit import mjo_forward, mjo_step
@@ -70,22 +69,20 @@ def _make_collision_model_data(xml_str: str = TWO_BODY_COLLISION_XML, **override
 
 def _total_lvlh_momentum(model: MjoModel, data: MjoData) -> np.ndarray:
     """Compute total linear momentum in the chief-inertial MuJoCo world frame."""
-    md = data.mj_data
     p_total = np.zeros(3)
-    for i in range(1, model.mj_model.nbody):
-        mass = model.mj_model.body_mass[i]
-        vel = md.cvel[i, 3:6]
+    for i in range(1, model.nbody):
+        mass = model.body_mass[i]
+        vel = data.cvel[i, 3:6]
         p_total += mass * vel
     return p_total
 
 
 def _total_kinetic_energy(model: MjoModel, data: MjoData) -> float:
     """Compute total translational KE in the chief-inertial MuJoCo world frame."""
-    md = data.mj_data
     ke = 0.0
-    for i in range(1, model.mj_model.nbody):
-        mass = model.mj_model.body_mass[i]
-        vel = md.cvel[i, 3:6]
+    for i in range(1, model.nbody):
+        mass = model.body_mass[i]
+        vel = data.cvel[i, 3:6]
         ke += 0.5 * mass * np.dot(vel, vel)
     return ke
 
@@ -105,7 +102,7 @@ class TestCollisionDynamics:
             contact_detected = False
             for step in range(2000):
                 mjo_step(model, data)
-                if data.mj_data.ncon > 0:
+                if data.ncon > 0:
                     contact_detected = True
                     break
 
@@ -148,10 +145,8 @@ class TestCollisionDynamics:
                 max_wrench = max(max_wrench, w)
 
                 # Also measure actual contact forces for comparison
-                md = data.mj_data
-                for i in range(md.ncon):
-                    force = np.zeros(6)
-                    mujoco.mj_contactForce(model.mj_model, md, i, force)
+                for i in range(data.ncon):
+                    force = data.contact_force(i)
                     max_contact_force = max(max_contact_force, np.linalg.norm(force[:3]))
 
             # Contact forces should be much larger than wrench_buffer entries.
@@ -194,9 +189,9 @@ class TestCollisionDynamics:
                 mjo_step(model, data)
                 p_post = _total_lvlh_momentum(model, data)
 
-                if data.mj_data.ncon > 0 and p_before_contact is None:
+                if data.ncon > 0 and p_before_contact is None:
                     p_before_contact = p_pre
-                elif p_before_contact is not None and data.mj_data.ncon == 0:
+                elif p_before_contact is not None and data.ncon == 0:
                     p_after_contact = p_post
                     break
 
@@ -260,10 +255,8 @@ class TestCollisionDynamics:
             max_contact_force = 0.0
             for _ in range(2000):
                 mjo_step(model, data)
-                md = data.mj_data
-                for i in range(md.ncon):
-                    force = np.zeros(6)
-                    mujoco.mj_contactForce(model.mj_model, md, i, force)
+                for i in range(data.ncon):
+                    force = data.contact_force(i)
                     max_contact_force = max(max_contact_force, np.linalg.norm(force[:3]))
 
             assert max_contact_force > 0, "No contact force detected"
@@ -340,7 +333,7 @@ class TestPostCollisionOrbits:
             in_contact = False
             for _ in range(5000):
                 mjo_step(model, data)
-                if data.mj_data.ncon > 0:
+                if data.ncon > 0:
                     in_contact = True
                 elif in_contact:
                     collision_ended = True

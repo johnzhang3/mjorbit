@@ -4,41 +4,27 @@
 
 from __future__ import annotations
 
-import mujoco
 import numpy as np
 import viser
+
+from mujoco_orbit.core.runtime import MjoData, MjoModel
 
 _DEFAULT_CONTACT_COLOR = np.array([255, 80, 80], dtype=np.uint8)
 
 
 def contact_force_segments(
-    mj_model: mujoco.MjModel,
-    mj_data: mujoco.MjData,
+    model: MjoModel,
+    data: MjoData,
     *,
     force_scale: float,
 ) -> tuple[np.ndarray, np.ndarray] | None:
     """Return line segments for all active contact forces in world coordinates."""
-    segments: list[np.ndarray] = []
-    for contact_id in range(mj_data.ncon):
-        contact = mj_data.contact[contact_id]
-        force_contact = np.zeros(6, dtype=float)
-        mujoco.mj_contactForce(mj_model, mj_data, contact_id, force_contact)
-
-        # MuJoCo reports force/torque in the contact frame; the contact-frame axes
-        # are stored row-major in ``contact.frame``, so transpose to map into world.
-        contact_frame = contact.frame.reshape(3, 3)
-        force_world = contact_frame.T @ force_contact[:3]
-        if np.linalg.norm(force_world) < 1e-9:
-            continue
-
-        start = np.asarray(contact.pos, dtype=float)
-        end = start + force_world * force_scale
-        segments.append(np.stack([start, end], axis=0))
-
-    if not segments:
+    del model
+    segments_array = data.contact_force_segments(force_scale=force_scale)
+    if segments_array is None:
         return None
 
-    segments_array = np.asarray(segments, dtype=np.float32)
+    segments_array = np.asarray(segments_array, dtype=np.float32)
     colors = np.broadcast_to(
         _DEFAULT_CONTACT_COLOR,
         (segments_array.shape[0], 2, _DEFAULT_CONTACT_COLOR.shape[0]),
@@ -72,14 +58,14 @@ class ContactForceOverlay:
     def set_scale(self, scale: float) -> None:
         self._scale = float(scale)
 
-    def render(self, mj_model: mujoco.MjModel, mj_data: mujoco.MjData, *, visible: bool) -> None:
+    def render(self, model: MjoModel, data: MjoData, *, visible: bool) -> None:
         if not visible:
             self.clear()
             return
 
         payload = contact_force_segments(
-            mj_model,
-            mj_data,
+            model,
+            data,
             force_scale=self._force_scale,
         )
         if payload is None:
@@ -99,8 +85,8 @@ class ContactForceOverlay:
 
     def render_transformed(
         self,
-        mj_model: mujoco.MjModel,
-        mj_data: mujoco.MjData,
+        model: MjoModel,
+        data: MjoData,
         *,
         visible: bool,
         rotation: np.ndarray | None = None,
@@ -111,8 +97,8 @@ class ContactForceOverlay:
             return
 
         payload = contact_force_segments(
-            mj_model,
-            mj_data,
+            model,
+            data,
             force_scale=self._force_scale,
         )
         if payload is None:

@@ -28,7 +28,7 @@ import numpy as np
 
 from mujoco_orbit.constants import GM_EARTH
 from mujoco_orbit.core.runtime import MjoData, MjoModel
-from mujoco_orbit.coupling.inertial import body_eci_position_km
+from tests.mujoco_orbit.reference.coupling.inertial import body_eci_position_km
 
 
 def apply_gravity_gradient_torques(model: MjoModel, data: MjoData) -> None:
@@ -42,15 +42,12 @@ def apply_gravity_gradient_torques(model: MjoModel, data: MjoData) -> None:
     if not model.use_gravity_gradient:
         return
 
-    mjm = model.mj_model
-    mjd = data.mj_data
-
-    for body_id in range(1, mjm.nbody):
-        if mjm.body_mass[body_id] <= 0.0:
+    for body_id in range(1, model.nbody):
+        if model.body_mass[body_id] <= 0.0:
             continue
 
         # Body COM position in absolute ECI (km)
-        r_body_eci = body_eci_position_km(data, mjd.xipos[body_id])
+        r_body_eci = body_eci_position_km(data, data.xipos[body_id])
         R_mag = float(np.linalg.norm(r_body_eci))
         if R_mag < 1e-9:
             continue
@@ -61,8 +58,8 @@ def apply_gravity_gradient_torques(model: MjoModel, data: MjoData) -> None:
         # Inertia tensor in the world frame via the inertia-frame rotation.
         # ximat is world-from-principal-axes; equals xmat only when body_iquat
         # is identity.
-        R_wi = mjd.ximat[body_id].reshape(3, 3)
-        J_world = R_wi @ np.diag(mjm.body_inertia[body_id]) @ R_wi.T
+        R_wi = data.ximat[body_id].reshape(3, 3)
+        J_world = R_wi @ np.diag(model.body_inertia[body_id]) @ R_wi.T
 
         coeff = 3.0 * GM_EARTH / R_mag**3  # 1/s²
         tau_world = coeff * np.cross(r_hat_world, J_world @ r_hat_world)

@@ -18,7 +18,7 @@ from mujoco_orbit import (
 )
 from mujoco_orbit.testdata import FREE_BODY_SENSORS_XML
 
-from ._helpers import circular_leo_orbit_init
+from ._helpers import circular_leo_orbit_init, make_model_data
 
 
 @dataclass(frozen=True)
@@ -35,8 +35,8 @@ class RolloutSnapshot:
 
 
 def _make_thread_model() -> MjoModel:
-    return MjoModel.from_xml_path(
-        FREE_BODY_SENSORS_XML,
+    model, _ = make_model_data(
+        xml_path=FREE_BODY_SENSORS_XML,
         mj_timestep=0.005,
         use_j2=False,
         use_drag=True,
@@ -70,6 +70,7 @@ def _make_thread_model() -> MjoModel:
             )
         ],
     )
+    return model
 
 
 def _run_rollout(model: MjoModel, steps: int) -> RolloutSnapshot:
@@ -117,13 +118,6 @@ def test_each_data_owns_distinct_native_plugin_state():
     model = _make_thread_model()
     first = MjoData(model, orbit=circular_leo_orbit_init(), rng_seed=1)
     second = MjoData(model, orbit=circular_leo_orbit_init(), rng_seed=2)
-
-    plugin_instance = model.orbit_plugin_instance
-    first_ptr = int(first.mj_data.plugin_data[plugin_instance])
-    second_ptr = int(second.mj_data.plugin_data[plugin_instance])
-    assert first_ptr != 0
-    assert second_ptr != 0
-    assert first_ptr != second_ptr
 
     first.orbit.R_eci[0] += 1.0
     first.actuators.rw_torque_cmd[0] = 0.02

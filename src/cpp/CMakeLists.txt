@@ -36,7 +36,7 @@ endfunction()
 #   <site-packages>/mujoco/include/mujoco/*.h
 #   <site-packages>/mujoco/libmujoco.so.<version>   (Linux)
 #   <site-packages>/mujoco/libmujoco.<version>.dylib (macOS)
-find_package(Python COMPONENTS Interpreter REQUIRED)
+find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 execute_process(
     COMMAND ${Python_EXECUTABLE} -c
     "import mujoco, os, sys; sys.stdout.write(os.path.dirname(mujoco.__file__))"
@@ -71,9 +71,22 @@ list(GET MUJOCO_LIBRARY_CANDIDATES 0 MUJOCO_LIBRARY)
 message(STATUS "mujoco_orbit: linking against ${MUJOCO_LIBRARY}")
 get_filename_component(MUJOCO_LIBRARY_BASENAME "${MUJOCO_LIBRARY}" NAME)
 
+execute_process(
+    COMMAND ${Python_EXECUTABLE} -m nanobind --cmake_dir
+    OUTPUT_VARIABLE nanobind_DIR
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE NANOBIND_QUERY_RESULT
+    ERROR_VARIABLE NANOBIND_QUERY_ERROR
+)
+if(NOT NANOBIND_QUERY_RESULT EQUAL 0)
+    message(FATAL_ERROR "Failed to locate nanobind via ${Python_EXECUTABLE}: ${NANOBIND_QUERY_ERROR}")
+endif()
+find_package(nanobind CONFIG REQUIRED)
+
 if(APPLE)
-    set(MUJOCO_ORBIT_INSTALL_RPATH "@loader_path/../../mujoco")
-    set(MUJOCO_ORBIT_MUJOCO_RUNTIME_NAME "@rpath/${MUJOCO_LIBRARY_BASENAME}")
+    set(MUJOCO_ORBIT_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR}")
+    set(MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR};@loader_path/../../mujoco")
+    set(MUJOCO_ORBIT_BINDINGS_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR};@loader_path/../mujoco")
     execute_process(
         COMMAND otool -D "${MUJOCO_LIBRARY}"
         OUTPUT_VARIABLE MUJOCO_DYLIB_ID_OUTPUT
@@ -100,17 +113,19 @@ if(APPLE)
         message(FATAL_ERROR "Could not parse MuJoCo dylib id from: ${MUJOCO_DYLIB_ID_OUTPUT}")
     endif()
     message(STATUS "mujoco_orbit: MuJoCo dylib id is ${MUJOCO_DYLIB_ID}")
+    set(MUJOCO_ORBIT_MUJOCO_RUNTIME_NAME "${MUJOCO_LIBRARY}")
 elseif(UNIX)
-    set(MUJOCO_ORBIT_INSTALL_RPATH "$ORIGIN/../../mujoco")
+    set(MUJOCO_ORBIT_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR}")
+    set(MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR};$ORIGIN/../../mujoco")
+    set(MUJOCO_ORBIT_BINDINGS_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR};$ORIGIN/../mujoco")
 else()
     set(MUJOCO_ORBIT_INSTALL_RPATH "")
+    set(MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH "")
+    set(MUJOCO_ORBIT_BINDINGS_INSTALL_RPATH "")
 endif()
 
 function(mujoco_orbit_fix_macos_mujoco_id target)
     if(NOT APPLE)
-        return()
-    endif()
-    if(MUJOCO_DYLIB_ID STREQUAL MUJOCO_ORBIT_MUJOCO_RUNTIME_NAME)
         return()
     endif()
     add_custom_command(TARGET ${target} POST_BUILD
@@ -118,6 +133,12 @@ function(mujoco_orbit_fix_macos_mujoco_id target)
             -change "${MUJOCO_DYLIB_ID}"
                     "${MUJOCO_ORBIT_MUJOCO_RUNTIME_NAME}"
                     "$<TARGET_FILE:${target}>"
+        COMMAND ${CMAKE_INSTALL_NAME_TOOL}
+            -change "@rpath/${MUJOCO_LIBRARY_BASENAME}"
+                    "${MUJOCO_ORBIT_MUJOCO_RUNTIME_NAME}"
+                    "$<TARGET_FILE:${target}>"
+        COMMAND /usr/bin/codesign
+            --force --sign - "$<TARGET_FILE:${target}>"
         COMMENT "Rewriting MuJoCo dylib install name for ${target}"
     )
 endfunction()
@@ -125,6 +146,7 @@ endfunction()
 set(ORBIT_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/gravity.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/propagator.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/orbit_schedule.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/lvlh.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/environment.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/src/elements.cc
@@ -134,9 +156,27 @@ set(ORBIT_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rollout.cc
 )
 
+add_library(mujoco_orbit_core STATIC
+    ${ORBIT_CORE_SOURCES}
+)
+
+target_include_directories(mujoco_orbit_core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/plugin
+    PRIVATE
+        ${MUJOCO_INCLUDE_DIR}
+)
+
+target_link_libraries(mujoco_orbit_core PUBLIC ${MUJOCO_LIBRARY})
+mujoco_orbit_enable_tsan(mujoco_orbit_core)
+set_target_properties(mujoco_orbit_core PROPERTIES
+    BUILD_RPATH "${MUJOCO_PACKAGE_DIR}"
+    INSTALL_RPATH "${MUJOCO_ORBIT_INSTALL_RPATH}"
+)
+
 add_library(mujoco_orbit_plugin SHARED
     plugin/orbit_plugin.cc
-    ${ORBIT_CORE_SOURCES}
 )
 
 target_include_directories(mujoco_orbit_plugin
@@ -146,14 +186,14 @@ target_include_directories(mujoco_orbit_plugin
         ${CMAKE_CURRENT_SOURCE_DIR}/plugin
 )
 
-target_link_libraries(mujoco_orbit_plugin PRIVATE ${MUJOCO_LIBRARY})
+target_link_libraries(mujoco_orbit_plugin PRIVATE mujoco_orbit_core ${MUJOCO_LIBRARY})
 mujoco_orbit_enable_tsan(mujoco_orbit_plugin)
 mujoco_orbit_fix_macos_mujoco_id(mujoco_orbit_plugin)
 set_target_properties(mujoco_orbit_plugin PROPERTIES
     PREFIX ""
     OUTPUT_NAME "mujoco_orbit_plugin"
     BUILD_RPATH "${MUJOCO_PACKAGE_DIR}"
-    INSTALL_RPATH "${MUJOCO_ORBIT_INSTALL_RPATH}"
+    INSTALL_RPATH "${MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH}"
 )
 
 # scikit-build-core installs relative to the wheel root; land the .so inside the
@@ -161,5 +201,73 @@ set_target_properties(mujoco_orbit_plugin PROPERTIES
 install(TARGETS mujoco_orbit_plugin
     LIBRARY DESTINATION mujoco_orbit/plugins
 )
+
+nanobind_add_module(mujoco_orbit_bindings
+    src/bindings.cc
+    src/runtime.cc
+)
+
+target_include_directories(mujoco_orbit_bindings
+    PRIVATE
+        ${MUJOCO_INCLUDE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/plugin
+)
+target_link_libraries(mujoco_orbit_bindings PRIVATE mujoco_orbit_core ${MUJOCO_LIBRARY})
+mujoco_orbit_fix_macos_mujoco_id(mujoco_orbit_bindings)
+set_target_properties(mujoco_orbit_bindings PROPERTIES
+    OUTPUT_NAME "_bindings"
+    BUILD_RPATH "${MUJOCO_PACKAGE_DIR}"
+    INSTALL_RPATH "${MUJOCO_ORBIT_BINDINGS_INSTALL_RPATH}"
+)
+install(TARGETS mujoco_orbit_bindings
+    LIBRARY DESTINATION mujoco_orbit
+)
+
+if(APPLE)
+    install(CODE "
+        file(GLOB _mjorbit_binding_paths \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/mujoco_orbit/_bindings*.so\")
+        foreach(_mjorbit_path IN LISTS _mjorbit_binding_paths)
+            execute_process(COMMAND \"${CMAKE_INSTALL_NAME_TOOL}\"
+                -change \"@rpath/${MUJOCO_LIBRARY_BASENAME}\"
+                        \"@loader_path/../mujoco/${MUJOCO_LIBRARY_BASENAME}\"
+                        \"\${_mjorbit_path}\" ERROR_QUIET)
+            execute_process(COMMAND \"${CMAKE_INSTALL_NAME_TOOL}\"
+                -change \"${MUJOCO_DYLIB_ID}\"
+                        \"@loader_path/../mujoco/${MUJOCO_LIBRARY_BASENAME}\"
+                        \"\${_mjorbit_path}\" ERROR_QUIET)
+            execute_process(COMMAND \"${CMAKE_INSTALL_NAME_TOOL}\"
+                -change \"${MUJOCO_LIBRARY}\"
+                        \"@loader_path/../mujoco/${MUJOCO_LIBRARY_BASENAME}\"
+                        \"\${_mjorbit_path}\" ERROR_QUIET)
+            execute_process(COMMAND \"${CMAKE_INSTALL_NAME_TOOL}\"
+                -add_rpath \"@loader_path/../mujoco\"
+                           \"\${_mjorbit_path}\" ERROR_QUIET)
+            execute_process(COMMAND /usr/bin/codesign
+                --force --sign - \"\${_mjorbit_path}\" ERROR_QUIET)
+        endforeach()
+
+        file(GLOB _mjorbit_plugin_paths \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/mujoco_orbit/plugins/mujoco_orbit_plugin*.dylib\")
+        foreach(_mjorbit_path IN LISTS _mjorbit_plugin_paths)
+            execute_process(COMMAND \"${CMAKE_INSTALL_NAME_TOOL}\"
+                -change \"@rpath/${MUJOCO_LIBRARY_BASENAME}\"
+                        \"@loader_path/../../mujoco/${MUJOCO_LIBRARY_BASENAME}\"
+                        \"\${_mjorbit_path}\" ERROR_QUIET)
+            execute_process(COMMAND \"${CMAKE_INSTALL_NAME_TOOL}\"
+                -change \"${MUJOCO_DYLIB_ID}\"
+                        \"@loader_path/../../mujoco/${MUJOCO_LIBRARY_BASENAME}\"
+                        \"\${_mjorbit_path}\" ERROR_QUIET)
+            execute_process(COMMAND \"${CMAKE_INSTALL_NAME_TOOL}\"
+                -change \"${MUJOCO_LIBRARY}\"
+                        \"@loader_path/../../mujoco/${MUJOCO_LIBRARY_BASENAME}\"
+                        \"\${_mjorbit_path}\" ERROR_QUIET)
+            execute_process(COMMAND \"${CMAKE_INSTALL_NAME_TOOL}\"
+                -add_rpath \"@loader_path/../../mujoco\"
+                           \"\${_mjorbit_path}\" ERROR_QUIET)
+            execute_process(COMMAND /usr/bin/codesign
+                --force --sign - \"\${_mjorbit_path}\" ERROR_QUIET)
+        endforeach()
+    ")
+endif()
 
 add_subdirectory(tests)

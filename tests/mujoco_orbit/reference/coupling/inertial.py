@@ -20,7 +20,7 @@ from __future__ import annotations
 import numpy as np
 
 from mujoco_orbit.core.runtime import MjoData, MjoModel
-from mujoco_orbit.orbit.gravity import total_accel
+from tests.mujoco_orbit.reference.orbit.gravity import total_accel
 
 _M_TO_KM = 1e-3
 _KM_S2_TO_M_S2 = 1e3  # km/s^2 -> m/s^2
@@ -65,12 +65,10 @@ def apply_inertial_wrenches(model: MjoModel, data: MjoData) -> None:
     Writes force contributions (N) into ``data.wrench_buffer[:, :3]``.
     Torque contributions are zero for translational forcing.
     """
-    mjm = model.mj_model
-
     g_chief = chief_gravity(data, model)
 
-    for body_id in range(1, mjm.nbody):  # skip world body (id=0)
-        mass = mjm.body_mass[body_id]  # kg
+    for body_id in range(1, model.nbody):  # skip world body (id=0)
+        mass = model.body_mass[body_id]  # kg
         if mass <= 0.0:
             continue
 

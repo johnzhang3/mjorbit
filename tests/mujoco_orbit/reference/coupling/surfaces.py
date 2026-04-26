@@ -17,7 +17,10 @@ import numpy as np
 
 from mujoco_orbit.constants import OMEGA_EARTH, P_SUN
 from mujoco_orbit.core.runtime import MjoData, MjoModel
-from mujoco_orbit.coupling.inertial import body_eci_position_km, body_eci_velocity_km_s
+from tests.mujoco_orbit.reference.coupling.inertial import (
+    body_eci_position_km,
+    body_eci_velocity_km_s,
+)
 
 
 def apply_surface_wrenches(model: MjoModel, data: MjoData) -> None:
@@ -26,8 +29,6 @@ def apply_surface_wrenches(model: MjoModel, data: MjoData) -> None:
         return
 
     env = data.env
-    mjd = data.mj_data
-
     omega_earth = np.array([0.0, 0.0, OMEGA_EARTH])
 
     # MuJoCo world axes are parallel to ECI, so cached ECI unit vectors are world vectors.
@@ -39,22 +40,22 @@ def apply_surface_wrenches(model: MjoModel, data: MjoData) -> None:
         bid = surf.body_id
 
         # Body world-from-body rotation
-        R_body = mjd.xmat[bid].reshape(3, 3)
+        R_body = data.xmat[bid].reshape(3, 3)
 
         # Surface point in world frame (meters, relative to body COM)
         r_cop_world = R_body @ surf.center_of_pressure_body  # m
         n_world = R_body @ surf.normal_body  # unit vector
 
         # Body COM velocity and angular velocity (chief-inertial world frame, m/s, rad/s)
-        v_com = mjd.cvel[bid, 3:].copy()  # m/s
-        omega_body = mjd.cvel[bid, :3].copy()  # rad/s
+        v_com = data.cvel[bid, 3:].copy()  # m/s
+        omega_body = data.cvel[bid, :3].copy()  # rad/s
 
         # Velocity at surface point in world frame (m/s)
         v_point = v_com + np.cross(omega_body, r_cop_world)
 
         # Atmosphere-relative velocity at surface point in ECI-parallel world axes.
         # Atmosphere co-rotates with Earth, so v_rel = v_point_eci - omega_E x r_eci.
-        r_point_eci_km = body_eci_position_km(data, mjd.xipos[bid] + r_cop_world)
+        r_point_eci_km = body_eci_position_km(data, data.xipos[bid] + r_cop_world)
         v_point_eci_m_s = body_eci_velocity_km_s(data, v_point) * 1e3
         v_atm_eci_m_s = np.cross(omega_earth, r_point_eci_km) * 1e3
         v_rel_m_s = v_point_eci_m_s - v_atm_eci_m_s

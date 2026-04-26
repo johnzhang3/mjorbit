@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from mujoco_orbit.constants import B0_EARTH, OMEGA_EARTH, R_EARTH
-from mujoco_orbit.orbit.state import EnvironmentCache, FrameCache, OrbitState
+from tests.mujoco_orbit.reference.orbit.state import EnvironmentCache, FrameCache, OrbitState
 
 # ---------------------------------------------------------------------------
 # Sun vector (low-fidelity, mean ecliptic approximation)
