@@ -17,7 +17,7 @@ import mujoco
 import numpy as np
 
 if TYPE_CHECKING:
-    from mujoco_orbit.core.runtime import MjoData, MjoModel
+    from mujoco_orbit.runtime import MjoData, MjoModel
 
 _GYRO_SENSOR_TYPE = int(mujoco.mjtSensor.mjSENS_GYRO)
 _ACCELEROMETER_SENSOR_TYPE = int(mujoco.mjtSensor.mjSENS_ACCELEROMETER)

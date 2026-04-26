@@ -11,7 +11,8 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from mujoco_orbit import _bindings
-from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.data import MjoData
+from mujoco_orbit.model import MjoModel
 
 _DEFAULT_CONTROL_SPEC = mujoco.mjtState.mjSTATE_CTRL.value
 _USER_STATE_MASK = mujoco.mjtState.mjSTATE_USER.value

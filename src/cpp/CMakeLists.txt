@@ -203,8 +203,11 @@ install(TARGETS mujoco_orbit_plugin
 )
 
 nanobind_add_module(mujoco_orbit_bindings
-    src/bindings.cc
+    bindings/module.cc
     src/runtime.cc
+    src/runtime_model.cc
+    src/runtime_sensors.cc
+    src/runtime_state.cc
 )
 
 target_include_directories(mujoco_orbit_bindings

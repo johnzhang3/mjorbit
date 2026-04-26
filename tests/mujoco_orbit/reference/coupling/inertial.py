@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.runtime import MjoData, MjoModel
 from tests.mujoco_orbit.reference.orbit.gravity import total_accel
 
 _M_TO_KM = 1e-3

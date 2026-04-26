@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 import viser
 
-from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.runtime import MjoData, MjoModel
 
 _DEFAULT_CONTACT_COLOR = np.array([255, 80, 80], dtype=np.uint8)
 

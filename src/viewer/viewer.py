@@ -17,9 +17,9 @@ from typing import Callable, Literal, Optional, Sequence
 import numpy as np
 import viser
 
-from mujoco_orbit.core.rollout import mjo_get_state, mjo_set_state
-from mujoco_orbit.core.runtime import MjoData, MjoModel
-from mujoco_orbit.core.step import mjo_forward, mjo_step
+from mujoco_orbit.rollout import mjo_get_state, mjo_set_state
+from mujoco_orbit.runtime import MjoData, MjoModel
+from mujoco_orbit.step import mjo_forward, mjo_step
 
 from .bodies import MuJoCoScene
 from .contacts import ContactForceOverlay

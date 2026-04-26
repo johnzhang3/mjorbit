@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.runtime import MjoData, MjoModel
 
 
 def apply_magnetic_wrenches(model: MjoModel, data: MjoData) -> None:

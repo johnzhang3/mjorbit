@@ -27,7 +27,7 @@ from __future__ import annotations
 import numpy as np
 
 from mujoco_orbit.constants import GM_EARTH
-from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.runtime import MjoData, MjoModel
 from tests.mujoco_orbit.reference.coupling.inertial import body_eci_position_km
 
 

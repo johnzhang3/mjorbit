@@ -5,7 +5,8 @@
 from __future__ import annotations
 
 from mujoco_orbit import _bindings
-from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.data import MjoData
+from mujoco_orbit.model import MjoModel
 
 
 def mjo_forward(model: MjoModel, data: MjoData) -> None:

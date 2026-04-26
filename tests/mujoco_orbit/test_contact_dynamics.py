@@ -18,7 +18,7 @@ import numpy as np
 
 from mujoco_orbit import mjo_forward, mjo_step
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.core.runtime import MjoData, MjoModel
+from mujoco_orbit.runtime import MjoData, MjoModel
 
 from ._helpers import get_freejoint_lvlh_state, make_model_data
 
