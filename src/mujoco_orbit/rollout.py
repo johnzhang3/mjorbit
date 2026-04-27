@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import mujoco
@@ -11,6 +12,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 from mujoco_orbit import _bindings
+from mujoco_orbit.config import OrbitInit
 from mujoco_orbit.data import MjoData
 from mujoco_orbit.model import MjoModel
 
@@ -68,11 +70,20 @@ def rollout(
     initial_warmstart: ArrayLike | None = None,
     state: ArrayLike | None = None,
     sensordata: ArrayLike | None = None,
+    nthread: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Roll out batched open-loop trajectories and return states and sensors."""
+    """Roll out batched open-loop trajectories and return states and sensors.
+
+    When ``nthread`` is ``None`` or ``1``, the rollout runs on the calling thread
+    using the supplied ``data`` as workspace. When ``nthread > 1``, the function
+    allocates ``nthread - 1`` additional ``MjoData`` instances sharing ``model``,
+    splits the batch across a ``ThreadPoolExecutor``, and joins the results.
+    """
     _validate_control_spec(control_spec)
     if nstep is not None and not isinstance(nstep, int):
         raise ValueError("nstep must be an integer")
+    if nthread is not None and (not isinstance(nthread, int) or nthread < 1):
+        raise ValueError("nthread must be a positive integer")
     if initial_state is None:
         initial_state = mjo_get_state(model, data)
 
@@ -130,25 +141,96 @@ def rollout(
     if sensordata_arr is None:
         sensordata_arr = np.empty((nbatch, nstep, nsensordata), dtype=np.float64)
 
-    result = _bindings.mjo_rollout_native(
-        model._native,
-        data._native,
-        int(nbatch),
-        int(nstep),
-        int(control_spec),
-        int(nstate),
-        int(ncontrol),
-        np.ascontiguousarray(initial_state_arr, dtype=np.float64),
+    initial_state_c = np.ascontiguousarray(initial_state_arr, dtype=np.float64)
+    initial_warmstart_c = (
         _empty_array()
         if initial_warmstart_arr is None
-        else np.ascontiguousarray(initial_warmstart_arr),
-        _empty_array() if control_arr is None else np.ascontiguousarray(control_arr),
-        state_arr,
-        sensordata_arr,
+        else np.ascontiguousarray(initial_warmstart_arr)
     )
-    if result != 0:
-        raise RuntimeError(_ROLLOUT_ERROR_MESSAGES.get(result, f"mjo_rollout failed: {result}"))
+    control_c = (
+        _empty_array() if control_arr is None else np.ascontiguousarray(control_arr)
+    )
+
+    nworkers = max(1, int(nthread)) if nthread is not None else 1
+    nworkers = min(nworkers, int(nbatch))
+
+    if nworkers <= 1:
+        result = _bindings.mjo_rollout_native(
+            model._native,
+            data._native,
+            int(nbatch),
+            int(nstep),
+            int(control_spec),
+            int(nstate),
+            int(ncontrol),
+            initial_state_c,
+            initial_warmstart_c,
+            control_c,
+            state_arr,
+            sensordata_arr,
+        )
+        if result != 0:
+            raise RuntimeError(
+                _ROLLOUT_ERROR_MESSAGES.get(result, f"mjo_rollout failed: {result}")
+            )
+        return state_arr, sensordata_arr
+
+    chunks = _split_batches(int(nbatch), nworkers)
+    workers = [data] + [_make_worker_data(model) for _ in range(nworkers - 1)]
+    nv_eff = int(nv)
+
+    def _run(worker_idx: int, start: int, count: int) -> int:
+        if count == 0:
+            return 0
+        worker = workers[worker_idx]
+        is_warmstart = initial_warmstart_arr is not None
+        ws = (
+            initial_warmstart_c[start : start + count]
+            if is_warmstart
+            else _empty_array()
+        )
+        ctrl = (
+            control_c[start : start + count] if control_arr is not None else _empty_array()
+        )
+        return _bindings.mjo_rollout_native(
+            model._native,
+            worker._native,
+            int(count),
+            int(nstep),
+            int(control_spec),
+            int(nstate),
+            int(ncontrol),
+            np.ascontiguousarray(initial_state_c[start : start + count]),
+            np.ascontiguousarray(ws) if ws.size else ws,
+            np.ascontiguousarray(ctrl) if ctrl.size else ctrl,
+            state_arr[start : start + count],
+            sensordata_arr[start : start + count],
+        )
+
+    _ = nv_eff  # nv kept for trailing-dim checks above
+    futures = []
+    with ThreadPoolExecutor(max_workers=nworkers) as pool:
+        offset = 0
+        for worker_idx, count in enumerate(chunks):
+            futures.append(pool.submit(_run, worker_idx, offset, count))
+            offset += count
+        for fut in futures:
+            result = fut.result()
+            if result != 0:
+                raise RuntimeError(
+                    _ROLLOUT_ERROR_MESSAGES.get(result, f"mjo_rollout failed: {result}")
+                )
     return state_arr, sensordata_arr
+
+
+def _split_batches(nbatch: int, nworkers: int) -> list[int]:
+    base, extra = divmod(nbatch, nworkers)
+    return [base + (1 if i < extra else 0) for i in range(nworkers)]
+
+
+def _make_worker_data(model: MjoModel) -> MjoData:
+    """Allocate a fresh ``MjoData`` workspace for a rollout worker thread."""
+    return MjoData(model, orbit=OrbitInit(R_eci=np.zeros(3), V_eci=np.zeros(3), t=0.0))
 
 
 def _validate_control_spec(control_spec: int) -> None:

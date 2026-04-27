@@ -130,6 +130,8 @@ int rollout_array(
     sensordata_ptr = sensordata_arr.data();
   }
 
+  const double* initial_state_ptr = initial_state_arr.data();
+  nb::gil_scoped_release release;
   return mjo_rollout_native(
       model,
       data,
@@ -138,7 +140,7 @@ int rollout_array(
       control_spec,
       state_size,
       control_size,
-      initial_state_arr.data(),
+      initial_state_ptr,
       initial_warmstart_ptr,
       control_ptr,
       state_ptr,
@@ -720,8 +722,8 @@ NB_MODULE(_bindings, m) {
         return self.data->model().sensor(name);
       }, nb::rv_policy::reference_internal);
 
-  m.def("mjo_forward", &mjo_forward);
-  m.def("mjo_step", &mjo_step);
+  m.def("mjo_forward", &mjo_forward, nb::call_guard<nb::gil_scoped_release>());
+  m.def("mjo_step", &mjo_step, nb::call_guard<nb::gil_scoped_release>());
   m.def("mjo_state_size", &mjo_state_size);
   m.def("mjo_control_size", &mjo_control_size, "model"_a, "control_spec"_a);
   m.def("mjo_get_state", &get_state_vector);
