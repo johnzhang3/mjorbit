@@ -1,6 +1,8 @@
 #ifndef MUJOCO_ORBIT_PLUGIN_ORBIT_INSTANCE_H_
 #define MUJOCO_ORBIT_PLUGIN_ORBIT_INSTANCE_H_
 
+#include "mujoco_orbit/spec.h"
+
 // Per-mjData instance state for the mujoco_orbit.orbit plugin.
 //
 // One OrbitInstance lives behind mjData->plugin_data[instance], allocated in
@@ -107,6 +109,7 @@ struct OrbitInstance {
   double feedback_accel_eci[3];
 
   // Config (parsed from XML plugin attributes during init()).
+  CentralBodySpecNative central_body;
   int use_j2;               // include J2 perturbation in chief gravity
   int use_drag;
   int use_srp;

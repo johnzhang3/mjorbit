@@ -85,8 +85,10 @@ find_package(nanobind CONFIG REQUIRED)
 
 if(APPLE)
     set(MUJOCO_ORBIT_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR}")
-    set(MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR};@loader_path/../../mujoco")
-    set(MUJOCO_ORBIT_BINDINGS_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR};@loader_path/../mujoco")
+    set(MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH
+        "${MUJOCO_PACKAGE_DIR};@loader_path/../../mujoco;@loader_path/../mujoco")
+    set(MUJOCO_ORBIT_BINDINGS_INSTALL_RPATH
+        "${MUJOCO_PACKAGE_DIR};@loader_path/../mujoco;@loader_path/../../mujoco")
     execute_process(
         COMMAND otool -D "${MUJOCO_LIBRARY}"
         OUTPUT_VARIABLE MUJOCO_DYLIB_ID_OUTPUT
@@ -116,8 +118,10 @@ if(APPLE)
     set(MUJOCO_ORBIT_MUJOCO_RUNTIME_NAME "${MUJOCO_LIBRARY}")
 elseif(UNIX)
     set(MUJOCO_ORBIT_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR}")
-    set(MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR};$ORIGIN/../../mujoco")
-    set(MUJOCO_ORBIT_BINDINGS_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR};$ORIGIN/../mujoco")
+    set(MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH
+        "${MUJOCO_PACKAGE_DIR};$ORIGIN/../../mujoco;$ORIGIN/../mujoco")
+    set(MUJOCO_ORBIT_BINDINGS_INSTALL_RPATH
+        "${MUJOCO_PACKAGE_DIR};$ORIGIN/../mujoco;$ORIGIN/../../mujoco")
 else()
     set(MUJOCO_ORBIT_INSTALL_RPATH "")
     set(MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH "")
@@ -207,6 +211,7 @@ nanobind_add_module(mujoco_orbit_bindings
     src/runtime.cc
     src/runtime_model.cc
     src/runtime_sensors.cc
+    src/runtime_spec.cc
     src/runtime_state.cc
 )
 

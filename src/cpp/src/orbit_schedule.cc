@@ -48,7 +48,8 @@ void predict_segment_end(const mjModel* m, OrbitInstance* inst, const double acc
       inst->orbit_segment_end_V_eci,
       &inst->orbit_segment_end_t,
       inst->use_j2 != 0,
-      accel);
+      accel,
+      inst->central_body);
   (void) m;
   ++inst->orbit_rk4_count;
 }
@@ -104,7 +105,8 @@ void advance_with_substeps(const mjModel* m, OrbitInstance* inst, double dt, dou
         inst->V_eci,
         &inst->t,
         inst->use_j2 != 0,
-        inst->feedback_accel_eci);
+        inst->feedback_accel_eci,
+        inst->central_body);
     ++inst->orbit_rk4_count;
     remaining -= sub_dt;
   }

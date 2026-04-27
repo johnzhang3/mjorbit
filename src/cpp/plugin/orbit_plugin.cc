@@ -47,6 +47,7 @@ int Init(const mjModel* m, mjData* d, int instance) {
   if (!inst) return -1;
 
   // Defaults — Python shim / XML attributes override these later.
+  inst->central_body = mujoco_orbit::CentralBodySpecNative{};
   inst->use_j2 = 1;
   inst->use_drag = 1;
   inst->use_srp = 1;
@@ -93,6 +94,7 @@ void Reset(const mjModel* /*m*/, mjtNum* /*plugin_state*/, void* plugin_data, in
   // runtime chief orbit + derived caches should be reset to zero.
   const auto preserved = *inst;
   std::memset(inst, 0, sizeof(*inst));
+  inst->central_body = preserved.central_body;
   inst->use_j2 = preserved.use_j2;
   inst->use_drag = preserved.use_drag;
   inst->use_srp = preserved.use_srp;

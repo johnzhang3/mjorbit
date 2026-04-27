@@ -12,6 +12,7 @@
 #include <mujoco/mujoco.h>
 
 #include "orbit_instance.h"
+#include "mujoco_orbit/spec.h"
 
 namespace mujoco_orbit {
 
@@ -93,6 +94,7 @@ class MjoModel {
   bool use_magnetic() const { return use_magnetic_; }
   bool use_gravity_gradient() const { return use_gravity_gradient_; }
   double orbit_dt() const { return orbit_dt_; }
+  const CentralBodySpecNative& central_body() const { return central_body_; }
 
   int nbody() const { return model_->nbody; }
   int nq() const { return model_->nq; }
@@ -105,9 +107,15 @@ class MjoModel {
 
  private:
   MjoModel() = default;
+  static std::unique_ptr<MjoModel> FromSpecXml(
+      const std::string& xml,
+      const OrbitSpecNative& orbit,
+      const AssetMap& assets,
+      std::optional<double> mj_timestep = std::nullopt);
 
   mjModel* model_ = nullptr;
   int orbit_plugin_instance_ = -1;
+  CentralBodySpecNative central_body_;
   bool use_j2_ = true;
   bool use_drag_ = true;
   bool use_srp_ = true;
@@ -125,6 +133,7 @@ class MjoModel {
   SensorCatalog sensors_;
 
   friend class MjoData;
+  friend class MjoSpec;
 };
 
 class MjoData {

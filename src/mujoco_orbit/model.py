@@ -36,16 +36,20 @@ class MjoModel:
                 "MjoModel.from_xml_path is XML-first; move orbit config into "
                 f"<mjorbit> instead of passing keyword(s): {names}"
             )
-        try:
-            native = _bindings.MjoModel.from_xml_path(xml_path, mj_timestep)
-        except RuntimeError as exc:
-            raise ValueError(str(exc)) from exc
-        return cls(native)
+        from mujoco_orbit.spec import MjoSpec
+
+        return MjoSpec.from_xml_path(xml_path).compile(mj_timestep=mj_timestep)
 
     def __getattr__(self, name: str) -> Any:
         if name in {"mj_model", "mj_data"}:
             raise AttributeError(name)
         return getattr(self._native, name)
+
+    @property
+    def central_body(self):
+        from mujoco_orbit.spec import CentralBodySpec
+
+        return CentralBodySpec._from_native(self._native.central_body)
 
     def body_id(self, name: str) -> int:
         try:

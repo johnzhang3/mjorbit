@@ -1,15 +1,10 @@
 #include "mujoco_orbit/runtime.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
-#include <filesystem>
-#include <fstream>
 #include <regex>
-#include <sstream>
 #include <stdexcept>
 #include <string>
-#include <unordered_map>
 
 #include "mujoco_orbit/math_utils.h"
 
@@ -17,162 +12,50 @@ namespace mujoco_orbit {
 namespace {
 
 constexpr char kPluginName[] = "mujoco_orbit.orbit";
-constexpr char kGeneratedPluginHostName[] = "__mujoco_orbit_plugin_host__";
 constexpr int kOrbitSensorKindSun = 1;
 constexpr int kOrbitSensorKindHorizon = 2;
 constexpr int kOrbitSensorKindStar = 3;
 constexpr int kOrbitSensorKindMagnetometer = 4;
 
-struct RawElement {
-  std::string tag;
-  std::unordered_map<std::string, std::string> attrs;
-};
-
-struct SurfaceSpecXml {
-  std::string body_name;
-  double cop[3] = {0.0, 0.0, 0.0};
-  double normal[3] = {0.0, 0.0, 0.0};
-  double area = 0.0;
-  double drag_coeff = 2.2;
-  double srp_coeff = 1.8;
-  bool use_drag = true;
-  bool use_srp = true;
-};
-
-struct MagneticSpecXml {
-  std::string body_name;
-  double dipole[3] = {0.0, 0.0, 0.0};
-};
-
-struct ReactionWheelSpecXml {
-  std::string body_name;
-  double axis[3] = {0.0, 0.0, 0.0};
-  double inertia = 0.0;
-  std::optional<double> speed_limit;
-  std::optional<double> torque_limit;
-};
-
-struct MagnetorquerSpecXml {
-  std::string body_name;
-  double axis[3] = {0.0, 0.0, 0.0};
-  double dipole_limit = 0.0;
-};
-
-struct ThrusterSpecXml {
-  std::string body_name;
-  double position[3] = {0.0, 0.0, 0.0};
-  double direction[3] = {0.0, 0.0, 0.0};
-  double force_limit = 0.0;
-};
-
-struct CmgSpecXml {
-  std::string body_name;
-  double gimbal_axis[3] = {0.0, 0.0, 0.0};
-  double spin_axis0[3] = {0.0, 0.0, 0.0};
-  double rotor_momentum = 0.0;
-  std::optional<double> gimbal_rate_limit;
-  std::optional<double> gimbal_angle_limit;
-};
-
-struct ParsedOrbitXml {
-  std::string plugin_body;
-  bool use_j2 = true;
-  bool use_drag = true;
-  bool use_srp = true;
-  bool use_magnetic = true;
-  bool use_gravity_gradient = true;
-  double orbit_dt = 0.0;
-  std::vector<SurfaceSpecXml> surfaces;
-  std::vector<MagneticSpecXml> magnetic_bodies;
-  std::vector<ReactionWheelSpecXml> reaction_wheels;
-  std::vector<MagnetorquerSpecXml> magnetorquers;
-  std::vector<ThrusterSpecXml> thrusters;
-  std::vector<CmgSpecXml> cmgs;
-};
-
-std::string read_file(const std::string& path) {
-  std::ifstream input(path);
-  if (!input) {
-    throw std::runtime_error("Could not open XML file: " + path);
+class VfsHolder {
+ public:
+  explicit VfsHolder(const AssetMap& assets) {
+    if (assets.empty()) {
+      return;
+    }
+    mj_defaultVFS(&vfs_);
+    active_ = true;
+    for (const auto& item : assets) {
+      const int result = mj_addBufferVFS(
+          &vfs_,
+          item.first.c_str(),
+          item.second.empty() ? nullptr : item.second.data(),
+          static_cast<int>(item.second.size()));
+      if (result != 0) {
+        throw std::runtime_error("Could not add asset '" + item.first + "' to MuJoCo VFS");
+      }
+    }
   }
-  std::ostringstream out;
-  out << input.rdbuf();
-  return out.str();
-}
+
+  VfsHolder(const VfsHolder&) = delete;
+  VfsHolder& operator=(const VfsHolder&) = delete;
+
+  ~VfsHolder() {
+    if (active_) {
+      mj_deleteVFS(&vfs_);
+    }
+  }
+
+  mjVFS* get() { return active_ ? &vfs_ : nullptr; }
+
+ private:
+  mjVFS vfs_{};
+  bool active_ = false;
+};
 
 std::string regex_escape(const std::string& value) {
   static const std::regex special(R"([.^$|()\\[\]{}*+?])");
   return std::regex_replace(value, special, R"(\$&)");
-}
-
-std::unordered_map<std::string, std::string> parse_attrs(const std::string& text) {
-  std::unordered_map<std::string, std::string> attrs;
-  const std::regex attr_re(R"ATTR(([A-Za-z_][A-Za-z0-9_\-]*)\s*=\s*"([^"]*)")ATTR");
-  for (std::sregex_iterator it(text.begin(), text.end(), attr_re), end; it != end; ++it) {
-    attrs[(*it)[1].str()] = (*it)[2].str();
-  }
-  return attrs;
-}
-
-bool parse_bool(const std::unordered_map<std::string, std::string>& attrs,
-                const std::string& key,
-                bool default_value) {
-  auto it = attrs.find(key);
-  if (it == attrs.end()) {
-    return default_value;
-  }
-  const std::string& value = it->second;
-  return !(value == "false" || value == "False" || value == "0" || value == "no");
-}
-
-double parse_double(const std::unordered_map<std::string, std::string>& attrs,
-                    const std::string& key,
-                    double default_value) {
-  auto it = attrs.find(key);
-  if (it == attrs.end()) {
-    return default_value;
-  }
-  return std::stod(it->second);
-}
-
-std::optional<double> parse_optional_double(
-    const std::unordered_map<std::string, std::string>& attrs,
-    const std::string& key) {
-  auto it = attrs.find(key);
-  if (it == attrs.end() || it->second.empty()) {
-    return std::nullopt;
-  }
-  return std::stod(it->second);
-}
-
-std::string parse_required_string(
-    const std::unordered_map<std::string, std::string>& attrs,
-    const std::string& key,
-    const std::string& tag) {
-  auto it = attrs.find(key);
-  if (it == attrs.end() || it->second.empty()) {
-    throw std::runtime_error("<" + tag + "> requires attribute '" + key + "'");
-  }
-  return it->second;
-}
-
-void parse_vec3(const std::string& text, double out[3], const std::string& label) {
-  std::istringstream input(text);
-  if (!(input >> out[0] >> out[1] >> out[2])) {
-    throw std::runtime_error(label + " must contain three numeric values");
-  }
-}
-
-void parse_required_vec3(
-    const std::unordered_map<std::string, std::string>& attrs,
-    const std::string& key,
-    const std::string& tag,
-    double out[3]) {
-  auto it = attrs.find(key);
-  if (it == attrs.end()) {
-    throw std::runtime_error("<" + tag + "> requires attribute '" + key + "'");
-  }
-  parse_vec3(it->second, out, "<" + tag + "> " + key);
 }
 
 void normalized3(const double in[3], double out[3], const std::string& label) {
@@ -181,103 +64,6 @@ void normalized3(const double in[3], double out[3], const std::string& label) {
     throw std::runtime_error(label + " must be non-zero");
   }
   detail::scale3(in, 1.0 / norm, out);
-}
-
-std::vector<RawElement> parse_mjorbit_children(const std::string& body) {
-  std::vector<RawElement> children;
-  const std::regex child_re(R"(<([A-Za-z_][A-Za-z0-9_\-]*)\b([^>]*)/>)");
-  for (std::sregex_iterator it(body.begin(), body.end(), child_re), end; it != end; ++it) {
-    children.push_back(RawElement{(*it)[1].str(), parse_attrs((*it)[2].str())});
-  }
-  return children;
-}
-
-ParsedOrbitXml parse_mjorbit_block(std::string* xml) {
-  ParsedOrbitXml parsed;
-  const std::regex block_re(R"(<mjorbit\b([^>]*)>([\s\S]*?)</mjorbit>)");
-  std::smatch match;
-  if (!std::regex_search(*xml, match, block_re)) {
-    return parsed;
-  }
-
-  const auto attrs = parse_attrs(match[1].str());
-  auto plugin_body_it = attrs.find("plugin_body");
-  if (plugin_body_it != attrs.end()) {
-    parsed.plugin_body = plugin_body_it->second;
-  }
-  parsed.use_j2 = parse_bool(attrs, "use_j2", true);
-  parsed.use_drag = parse_bool(attrs, "use_drag", true);
-  parsed.use_srp = parse_bool(attrs, "use_srp", true);
-  parsed.use_magnetic = parse_bool(attrs, "use_magnetic", true);
-  parsed.use_gravity_gradient = parse_bool(attrs, "use_gravity_gradient", true);
-  parsed.orbit_dt = parse_double(attrs, "orbit_dt", 0.0);
-
-  for (const RawElement& child : parse_mjorbit_children(match[2].str())) {
-    if (child.tag == "surface") {
-      SurfaceSpecXml spec;
-      spec.body_name = parse_required_string(child.attrs, "body", child.tag);
-      parse_required_vec3(child.attrs, "cop", child.tag, spec.cop);
-      parse_required_vec3(child.attrs, "normal", child.tag, spec.normal);
-      spec.area = parse_double(child.attrs, "area", spec.area);
-      spec.drag_coeff = parse_double(child.attrs, "drag_coeff", spec.drag_coeff);
-      spec.srp_coeff = parse_double(child.attrs, "srp_coeff", spec.srp_coeff);
-      spec.use_drag = parse_bool(child.attrs, "use_drag", true);
-      spec.use_srp = parse_bool(child.attrs, "use_srp", true);
-      parsed.surfaces.push_back(spec);
-    } else if (child.tag == "magnetic_body") {
-      MagneticSpecXml spec;
-      spec.body_name = parse_required_string(child.attrs, "body", child.tag);
-      parse_required_vec3(child.attrs, "dipole", child.tag, spec.dipole);
-      parsed.magnetic_bodies.push_back(spec);
-    } else if (child.tag == "reaction_wheel") {
-      ReactionWheelSpecXml spec;
-      spec.body_name = parse_required_string(child.attrs, "body", child.tag);
-      parse_required_vec3(child.attrs, "axis", child.tag, spec.axis);
-      spec.inertia = parse_double(child.attrs, "inertia", spec.inertia);
-      spec.speed_limit = parse_optional_double(child.attrs, "speed_limit");
-      spec.torque_limit = parse_optional_double(child.attrs, "torque_limit");
-      parsed.reaction_wheels.push_back(spec);
-    } else if (child.tag == "magnetorquer") {
-      MagnetorquerSpecXml spec;
-      spec.body_name = parse_required_string(child.attrs, "body", child.tag);
-      parse_required_vec3(child.attrs, "axis", child.tag, spec.axis);
-      spec.dipole_limit = parse_double(child.attrs, "dipole_limit", spec.dipole_limit);
-      parsed.magnetorquers.push_back(spec);
-    } else if (child.tag == "thruster") {
-      ThrusterSpecXml spec;
-      spec.body_name = parse_required_string(child.attrs, "body", child.tag);
-      parse_required_vec3(child.attrs, "pos", child.tag, spec.position);
-      parse_required_vec3(child.attrs, "dir", child.tag, spec.direction);
-      spec.force_limit = parse_double(child.attrs, "force_limit", spec.force_limit);
-      parsed.thrusters.push_back(spec);
-    } else if (child.tag == "cmg") {
-      CmgSpecXml spec;
-      spec.body_name = parse_required_string(child.attrs, "body", child.tag);
-      parse_required_vec3(child.attrs, "gimbal_axis", child.tag, spec.gimbal_axis);
-      parse_required_vec3(child.attrs, "spin_axis0", child.tag, spec.spin_axis0);
-      spec.rotor_momentum = parse_double(child.attrs, "rotor_momentum", spec.rotor_momentum);
-      spec.gimbal_rate_limit = parse_optional_double(child.attrs, "gimbal_rate_limit");
-      spec.gimbal_angle_limit = parse_optional_double(child.attrs, "gimbal_angle_limit");
-      parsed.cmgs.push_back(spec);
-    }
-  }
-
-  xml->erase(static_cast<std::size_t>(match.position(0)), static_cast<std::size_t>(match.length(0)));
-  return parsed;
-}
-
-std::string first_body_name(const std::string& xml) {
-  const std::regex body_re(R"(<body\b([^>]*)>)");
-  std::smatch match;
-  if (!std::regex_search(xml, match, body_re)) {
-    throw std::runtime_error("MuJoCo model must contain at least one body for the orbit plugin");
-  }
-  auto attrs = parse_attrs(match[1].str());
-  auto it = attrs.find("name");
-  if (it == attrs.end() || it->second.empty()) {
-    return kGeneratedPluginHostName;
-  }
-  return it->second;
 }
 
 void ensure_extension_plugin(std::string* xml) {
@@ -297,33 +83,29 @@ void ensure_extension_plugin(std::string* xml) {
   xml->insert(worldbody, "<extension>" + plugin + "  </extension>\n");
 }
 
-void ensure_plugin_host(std::string* xml, const std::string& plugin_body, bool use_j2) {
+void ensure_plugin_host(
+    std::string* xml,
+    const std::optional<std::string>& plugin_body,
+    bool use_j2) {
   const std::string plugin =
       "\n      <plugin plugin=\"mujoco_orbit.orbit\">"
       "<config key=\"use_j2\" value=\"" +
       std::string(use_j2 ? "true" : "false") + "\"/></plugin>\n";
-  const std::regex body_re(
-      "<body\\b(?=[^>]*\\bname\\s*=\\s*\"" + regex_escape(plugin_body) + "\")[^>]*>");
+  std::regex body_re(R"(<body\b[^>]*>)");
+  if (plugin_body.has_value() && !plugin_body->empty()) {
+    body_re = std::regex(
+        "<body\\b(?=[^>]*\\bname\\s*=\\s*\"" + regex_escape(*plugin_body) + "\")[^>]*>");
+  }
   std::smatch match;
   if (!std::regex_search(*xml, match, body_re)) {
-    throw std::runtime_error("Plugin host body '" + plugin_body + "' was not found");
+    if (plugin_body.has_value() && !plugin_body->empty()) {
+      throw std::runtime_error("Plugin host body '" + *plugin_body + "' was not found");
+    }
+    throw std::runtime_error("MuJoCo model must contain at least one body for the orbit plugin");
   }
   const std::size_t insert_at =
       static_cast<std::size_t>(match.position(0) + match.length(0));
   xml->insert(insert_at, plugin);
-}
-
-std::string write_temp_xml(const std::string& xml) {
-  const auto now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-  const std::filesystem::path path =
-      std::filesystem::temp_directory_path() /
-      ("mujoco_orbit_" + std::to_string(now) + ".xml");
-  std::ofstream out(path);
-  if (!out) {
-    throw std::runtime_error("Could not create temporary MJCF file");
-  }
-  out << xml;
-  return path.string();
 }
 
 int resolve_body_id(const mjModel* model, const std::string& name) {
@@ -477,13 +259,32 @@ std::vector<OrbitSensorDescriptorNative> build_orbit_sensor_descriptors(
   return out;
 }
 
-void resolve_config(const ParsedOrbitXml& parsed, MjoModel* model) {
+int resolve_plugin_body_id(const mjModel* model, const OrbitSpecNative& orbit) {
+  if (orbit.plugin_body.has_value() && !orbit.plugin_body->empty()) {
+    return resolve_body_id(model, *orbit.plugin_body);
+  }
+  if (model->nbody <= 1) {
+    throw std::runtime_error("MuJoCo model must contain at least one body for the orbit plugin");
+  }
+  return 1;
+}
+
+void resolve_config(const OrbitSpecNative& parsed, MjoModel* model) {
   const mjModel* mjm = model->raw();
-  for (const SurfaceSpecXml& spec : parsed.surfaces) {
+  for (const OrbitSurfaceSpecNative& spec : parsed.surfaces) {
+    if (spec.area <= 0.0) {
+      throw std::runtime_error("Surface '" + spec.name + "' area must be positive");
+    }
+    if (spec.drag_coeff < 0.0) {
+      throw std::runtime_error("Surface '" + spec.name + "' drag_coeff must be non-negative");
+    }
+    if (spec.srp_coeff < 0.0) {
+      throw std::runtime_error("Surface '" + spec.name + "' srp_coeff must be non-negative");
+    }
     SurfaceMetadataNative native{};
     native.body_id = resolve_body_id(mjm, spec.body_name);
-    detail::copy3(spec.cop, native.center_of_pressure_body);
-    normalized3(spec.normal, native.normal_body, "Surface '" + spec.body_name + "' normal");
+    detail::copy3(spec.center_of_pressure_body.data(), native.center_of_pressure_body);
+    normalized3(spec.normal_body.data(), native.normal_body, "Surface '" + spec.name + "' normal");
     native.area = spec.area;
     native.drag_coeff = spec.drag_coeff;
     native.srp_coeff = spec.srp_coeff;
@@ -491,16 +292,27 @@ void resolve_config(const ParsedOrbitXml& parsed, MjoModel* model) {
     native.use_srp = spec.use_srp ? 1 : 0;
     model->mutable_surfaces().push_back(native);
   }
-  for (const MagneticSpecXml& spec : parsed.magnetic_bodies) {
+  for (const OrbitMagneticBodySpecNative& spec : parsed.magnetic_bodies) {
     MagneticMetadataNative native{};
     native.body_id = resolve_body_id(mjm, spec.body_name);
-    detail::copy3(spec.dipole, native.dipole_body);
+    detail::copy3(spec.dipole_body.data(), native.dipole_body);
     model->mutable_magnetic_bodies().push_back(native);
   }
-  for (const ReactionWheelSpecXml& spec : parsed.reaction_wheels) {
+  for (const OrbitReactionWheelSpecNative& spec : parsed.reaction_wheels) {
+    if (spec.inertia <= 0.0) {
+      throw std::runtime_error("Reaction wheel '" + spec.name + "' inertia must be positive");
+    }
+    if (spec.speed_limit.has_value() && *spec.speed_limit <= 0.0) {
+      throw std::runtime_error(
+          "Reaction wheel '" + spec.name + "' speed_limit must be positive");
+    }
+    if (spec.torque_limit.has_value() && *spec.torque_limit <= 0.0) {
+      throw std::runtime_error(
+          "Reaction wheel '" + spec.name + "' torque_limit must be positive");
+    }
     ReactionWheelMetadataNative native{};
     native.body_id = resolve_body_id(mjm, spec.body_name);
-    normalized3(spec.axis, native.axis_body, "Reaction wheel '" + spec.body_name + "' axis");
+    normalized3(spec.axis_body.data(), native.axis_body, "Reaction wheel '" + spec.name + "' axis");
     native.inertia = spec.inertia;
     native.has_speed_limit = spec.speed_limit.has_value() ? 1 : 0;
     native.speed_limit = spec.speed_limit.value_or(0.0);
@@ -508,32 +320,44 @@ void resolve_config(const ParsedOrbitXml& parsed, MjoModel* model) {
     native.torque_limit = spec.torque_limit.value_or(0.0);
     model->mutable_reaction_wheels().push_back(native);
   }
-  for (const MagnetorquerSpecXml& spec : parsed.magnetorquers) {
+  for (const OrbitMagnetorquerSpecNative& spec : parsed.magnetorquers) {
+    if (spec.dipole_limit <= 0.0) {
+      throw std::runtime_error("Magnetorquer '" + spec.name + "' dipole_limit must be positive");
+    }
     MagnetorquerMetadataNative native{};
     native.body_id = resolve_body_id(mjm, spec.body_name);
-    normalized3(spec.axis, native.axis_body, "Magnetorquer '" + spec.body_name + "' axis");
+    normalized3(spec.axis_body.data(), native.axis_body, "Magnetorquer '" + spec.name + "' axis");
     native.dipole_limit = spec.dipole_limit;
     model->mutable_magnetorquers().push_back(native);
   }
-  for (const ThrusterSpecXml& spec : parsed.thrusters) {
+  for (const OrbitThrusterSpecNative& spec : parsed.thrusters) {
+    if (spec.force_limit <= 0.0) {
+      throw std::runtime_error("Thruster '" + spec.name + "' force_limit must be positive");
+    }
     ThrusterMetadataNative native{};
     native.body_id = resolve_body_id(mjm, spec.body_name);
-    detail::copy3(spec.position, native.position_body);
-    normalized3(spec.direction, native.direction_body, "Thruster '" + spec.body_name + "' direction");
+    detail::copy3(spec.position_body.data(), native.position_body);
+    normalized3(spec.direction_body.data(), native.direction_body, "Thruster '" + spec.name + "' direction");
     native.force_limit = spec.force_limit;
     model->mutable_thrusters().push_back(native);
   }
-  for (const CmgSpecXml& spec : parsed.cmgs) {
+  for (const OrbitCmgSpecNative& spec : parsed.cmgs) {
     ControlMomentGyroMetadataNative native{};
     native.body_id = resolve_body_id(mjm, spec.body_name);
-    normalized3(spec.gimbal_axis, native.gimbal_axis_body, "CMG '" + spec.body_name + "' gimbal axis");
-    normalized3(spec.spin_axis0, native.spin_axis_body_0, "CMG '" + spec.body_name + "' spin axis");
+    normalized3(spec.gimbal_axis_body.data(), native.gimbal_axis_body, "CMG '" + spec.name + "' gimbal axis");
+    normalized3(spec.spin_axis_body_0.data(), native.spin_axis_body_0, "CMG '" + spec.name + "' spin axis");
     const double dot = detail::dot3(native.gimbal_axis_body, native.spin_axis_body_0);
     if (std::abs(dot) > 1.0e-8) {
-      throw std::runtime_error("CMG '" + spec.body_name + "' spin axis must be orthogonal to gimbal axis");
+      throw std::runtime_error("CMG '" + spec.name + "' spin axis must be orthogonal to gimbal axis");
     }
     if (spec.rotor_momentum <= 0.0) {
-      throw std::runtime_error("CMG '" + spec.body_name + "' rotor_momentum must be positive");
+      throw std::runtime_error("CMG '" + spec.name + "' rotor_momentum must be positive");
+    }
+    if (spec.gimbal_rate_limit.has_value() && *spec.gimbal_rate_limit <= 0.0) {
+      throw std::runtime_error("CMG '" + spec.name + "' gimbal_rate_limit must be positive");
+    }
+    if (spec.gimbal_angle_limit.has_value() && *spec.gimbal_angle_limit <= 0.0) {
+      throw std::runtime_error("CMG '" + spec.name + "' gimbal_angle_limit must be positive");
     }
     detail::cross3(native.gimbal_axis_body, native.spin_axis_body_0, native.torque_axis_body_0);
     native.rotor_momentum = spec.rotor_momentum;
@@ -557,22 +381,35 @@ MjoModel::~MjoModel() {
 std::unique_ptr<MjoModel> MjoModel::FromXmlPath(
     const std::string& xml_path,
     std::optional<double> mj_timestep) {
-  std::string xml = read_file(xml_path);
-  ParsedOrbitXml parsed = parse_mjorbit_block(&xml);
-  if (parsed.plugin_body.empty()) {
-    parsed.plugin_body = first_body_name(xml);
-  }
-  ensure_extension_plugin(&xml);
-  ensure_plugin_host(&xml, parsed.plugin_body, parsed.use_j2);
+  return MjoSpec::FromXmlPath(xml_path)->Compile(mj_timestep);
+}
 
-  const std::string temp_path = write_temp_xml(xml);
+std::unique_ptr<MjoModel> MjoModel::FromSpecXml(
+    const std::string& xml,
+    const OrbitSpecNative& orbit,
+    const AssetMap& assets,
+    std::optional<double> mj_timestep) {
+  std::string compiled_xml = xml;
+  ensure_extension_plugin(&compiled_xml);
+  ensure_plugin_host(&compiled_xml, orbit.plugin_body, orbit.use_j2);
+
   char error[2048] = {0};
-  mjModel* raw_model = mj_loadXML(temp_path.c_str(), nullptr, error, sizeof(error));
-  std::error_code ec;
-  std::filesystem::remove(temp_path, ec);
-  if (!raw_model) {
-    throw std::runtime_error(std::string("MuJoCo XML compile failed: ") + error);
+  VfsHolder vfs(assets);
+  mjSpec* compiled_spec =
+      mj_parseXMLString(compiled_xml.c_str(), vfs.get(), error, sizeof(error));
+  if (!compiled_spec) {
+    throw std::runtime_error(std::string("MuJoCo XML parse failed: ") + error);
   }
+  mjModel* raw_model = mj_compile(compiled_spec, vfs.get());
+  if (!raw_model) {
+    const char* compile_error = mjs_getError(compiled_spec);
+    std::string message = compile_error && compile_error[0] != '\0'
+                              ? compile_error
+                              : "unknown compiler error";
+    mj_deleteSpec(compiled_spec);
+    throw std::runtime_error("MuJoCo XML compile failed: " + message);
+  }
+  mj_deleteSpec(compiled_spec);
 
   std::unique_ptr<MjoModel> model(new MjoModel());
   model->model_ = raw_model;
@@ -582,20 +419,21 @@ std::unique_ptr<MjoModel> MjoModel::FromXmlPath(
   model->model_->opt.gravity[0] = 0.0;
   model->model_->opt.gravity[1] = 0.0;
   model->model_->opt.gravity[2] = 0.0;
-  model->use_j2_ = parsed.use_j2;
-  model->use_drag_ = parsed.use_drag;
-  model->use_srp_ = parsed.use_srp;
-  model->use_magnetic_ = parsed.use_magnetic;
-  model->use_gravity_gradient_ = parsed.use_gravity_gradient;
-  model->orbit_dt_ = parsed.orbit_dt;
+  model->central_body_ = orbit.central_body;
+  model->use_j2_ = orbit.use_j2;
+  model->use_drag_ = orbit.use_drag;
+  model->use_srp_ = orbit.use_srp;
+  model->use_magnetic_ = orbit.use_magnetic;
+  model->use_gravity_gradient_ = orbit.use_gravity_gradient;
+  model->orbit_dt_ = orbit.orbit_dt.value_or(0.0);
 
-  const int plugin_body_id = resolve_body_id(model->model_, parsed.plugin_body);
+  const int plugin_body_id = resolve_plugin_body_id(model->model_, orbit);
   model->orbit_plugin_instance_ = model->model_->body_plugin[plugin_body_id];
   if (model->orbit_plugin_instance_ < 0) {
-    throw std::runtime_error("Failed to attach mujoco_orbit plugin to body '" + parsed.plugin_body + "'");
+    throw std::runtime_error("Failed to attach mujoco_orbit plugin to host body");
   }
 
-  resolve_config(parsed, model.get());
+  resolve_config(orbit, model.get());
   model->sensors_ = compile_sensor_catalog(model->model_);
   model->orbit_sensors_ = build_orbit_sensor_descriptors(model->sensors_);
   return model;

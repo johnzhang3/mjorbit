@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from mujoco_orbit._native import load_native_bindings as _load_native_bindings
 from mujoco_orbit._native import load_native_plugin as _load_native_plugin
 
 _load_native_plugin()
+_load_native_bindings()
 
 
 from mujoco_orbit.config import (  # noqa: E402
@@ -25,14 +27,18 @@ from mujoco_orbit.rollout import (  # noqa: E402
     mjo_state_size,
     rollout,
 )
+from mujoco_orbit.spec import CentralBodySpec, MjoOrbitSpec, MjoSpec  # noqa: E402
 from mujoco_orbit.step import mjo_forward, mjo_step  # noqa: E402
 
 __all__ = [
+    "CentralBodySpec",
     "ControlMomentGyroSpec",
     "MagneticBodySpec",
     "MagnetorquerSpec",
     "MjoData",
     "MjoModel",
+    "MjoOrbitSpec",
+    "MjoSpec",
     "OrbitInit",
     "ReactionWheelSpec",
     "SurfaceSpec",

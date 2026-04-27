@@ -216,6 +216,73 @@ NB_MODULE(_bindings, m) {
       .def_ro("by_name", &SensorCatalog::by_name)
       .def_ro("custom_descriptors", &SensorCatalog::custom_descriptors);
 
+  nb::class_<CentralBodySpecNative>(m, "CentralBodySpec")
+      .def(nb::init<>())
+      .def_rw("name", &CentralBodySpecNative::name)
+      .def_rw("gm", &CentralBodySpecNative::gm)
+      .def_rw("radius", &CentralBodySpecNative::radius)
+      .def_rw("j2", &CentralBodySpecNative::j2)
+      .def_rw("omega", &CentralBodySpecNative::omega)
+      .def_rw("magnetic_b0", &CentralBodySpecNative::magnetic_b0)
+      .def_rw("magnetic_axis", &CentralBodySpecNative::magnetic_axis)
+      .def_rw("atmosphere_h0", &CentralBodySpecNative::atmosphere_h0)
+      .def_rw("atmosphere_rho0", &CentralBodySpecNative::atmosphere_rho0)
+      .def_rw("atmosphere_scale_height", &CentralBodySpecNative::atmosphere_scale_height);
+
+  nb::class_<OrbitSurfaceSpecNative>(m, "OrbitSurfaceSpec")
+      .def(nb::init<>())
+      .def_rw("name", &OrbitSurfaceSpecNative::name)
+      .def_rw("body_name", &OrbitSurfaceSpecNative::body_name)
+      .def_rw(
+          "center_of_pressure_body",
+          &OrbitSurfaceSpecNative::center_of_pressure_body)
+      .def_rw("normal_body", &OrbitSurfaceSpecNative::normal_body)
+      .def_rw("area", &OrbitSurfaceSpecNative::area)
+      .def_rw("drag_coeff", &OrbitSurfaceSpecNative::drag_coeff)
+      .def_rw("srp_coeff", &OrbitSurfaceSpecNative::srp_coeff)
+      .def_rw("use_drag", &OrbitSurfaceSpecNative::use_drag)
+      .def_rw("use_srp", &OrbitSurfaceSpecNative::use_srp);
+
+  nb::class_<OrbitMagneticBodySpecNative>(m, "OrbitMagneticBodySpec")
+      .def(nb::init<>())
+      .def_rw("name", &OrbitMagneticBodySpecNative::name)
+      .def_rw("body_name", &OrbitMagneticBodySpecNative::body_name)
+      .def_rw("dipole_body", &OrbitMagneticBodySpecNative::dipole_body);
+
+  nb::class_<OrbitReactionWheelSpecNative>(m, "OrbitReactionWheelSpec")
+      .def(nb::init<>())
+      .def_rw("name", &OrbitReactionWheelSpecNative::name)
+      .def_rw("body_name", &OrbitReactionWheelSpecNative::body_name)
+      .def_rw("axis_body", &OrbitReactionWheelSpecNative::axis_body)
+      .def_rw("inertia", &OrbitReactionWheelSpecNative::inertia)
+      .def_rw("speed_limit", &OrbitReactionWheelSpecNative::speed_limit)
+      .def_rw("torque_limit", &OrbitReactionWheelSpecNative::torque_limit);
+
+  nb::class_<OrbitMagnetorquerSpecNative>(m, "OrbitMagnetorquerSpec")
+      .def(nb::init<>())
+      .def_rw("name", &OrbitMagnetorquerSpecNative::name)
+      .def_rw("body_name", &OrbitMagnetorquerSpecNative::body_name)
+      .def_rw("axis_body", &OrbitMagnetorquerSpecNative::axis_body)
+      .def_rw("dipole_limit", &OrbitMagnetorquerSpecNative::dipole_limit);
+
+  nb::class_<OrbitThrusterSpecNative>(m, "OrbitThrusterSpec")
+      .def(nb::init<>())
+      .def_rw("name", &OrbitThrusterSpecNative::name)
+      .def_rw("body_name", &OrbitThrusterSpecNative::body_name)
+      .def_rw("position_body", &OrbitThrusterSpecNative::position_body)
+      .def_rw("direction_body", &OrbitThrusterSpecNative::direction_body)
+      .def_rw("force_limit", &OrbitThrusterSpecNative::force_limit);
+
+  nb::class_<OrbitCmgSpecNative>(m, "OrbitCmgSpec")
+      .def(nb::init<>())
+      .def_rw("name", &OrbitCmgSpecNative::name)
+      .def_rw("body_name", &OrbitCmgSpecNative::body_name)
+      .def_rw("gimbal_axis_body", &OrbitCmgSpecNative::gimbal_axis_body)
+      .def_rw("spin_axis_body_0", &OrbitCmgSpecNative::spin_axis_body_0)
+      .def_rw("rotor_momentum", &OrbitCmgSpecNative::rotor_momentum)
+      .def_rw("gimbal_rate_limit", &OrbitCmgSpecNative::gimbal_rate_limit)
+      .def_rw("gimbal_angle_limit", &OrbitCmgSpecNative::gimbal_angle_limit);
+
   nb::class_<SurfaceMetadataNative>(m, "SurfaceMetadata")
       .def_ro("body_id", &SurfaceMetadataNative::body_id)
       .def_prop_ro("center_of_pressure_body", [](SurfaceMetadataNative& self) {
@@ -293,6 +360,81 @@ NB_MODULE(_bindings, m) {
         return self.has_gimbal_angle_limit != 0;
       });
 
+  nb::class_<MjoSpec>(m, "MjoSpec")
+      .def_static("from_xml_path", &MjoSpec::FromXmlPath, "xml_path"_a)
+      .def_static(
+          "from_xml_string",
+          &MjoSpec::FromXmlString,
+          "xml"_a,
+          "assets"_a = AssetMap{})
+      .def("copy", &MjoSpec::Copy)
+      .def("compile", &MjoSpec::Compile, "mj_timestep"_a = nb::none())
+      .def("to_xml", &MjoSpec::ToXml)
+      .def_prop_rw("plugin_body", &MjoSpec::plugin_body, &MjoSpec::set_plugin_body)
+      .def_prop_rw("use_j2", &MjoSpec::use_j2, &MjoSpec::set_use_j2)
+      .def_prop_rw("use_drag", &MjoSpec::use_drag, &MjoSpec::set_use_drag)
+      .def_prop_rw("use_srp", &MjoSpec::use_srp, &MjoSpec::set_use_srp)
+      .def_prop_rw("use_magnetic", &MjoSpec::use_magnetic, &MjoSpec::set_use_magnetic)
+      .def_prop_rw(
+          "use_gravity_gradient",
+          &MjoSpec::use_gravity_gradient,
+          &MjoSpec::set_use_gravity_gradient)
+      .def_prop_rw("orbit_dt", &MjoSpec::orbit_dt, &MjoSpec::set_orbit_dt)
+      .def_prop_rw(
+          "central_body",
+          [](MjoSpec& self) -> CentralBodySpecNative& {
+            return self.orbit().central_body;
+          },
+          [](MjoSpec& self, const CentralBodySpecNative& value) {
+            self.set_central_body(value);
+          },
+          nb::rv_policy::reference_internal)
+      .def_prop_ro("surfaces", [](MjoSpec& self) -> const std::vector<OrbitSurfaceSpecNative>& {
+        return self.orbit().surfaces;
+      }, nb::rv_policy::reference_internal)
+      .def_prop_ro(
+          "magnetic_bodies",
+          [](MjoSpec& self) -> const std::vector<OrbitMagneticBodySpecNative>& {
+            return self.orbit().magnetic_bodies;
+          },
+          nb::rv_policy::reference_internal)
+      .def_prop_ro(
+          "reaction_wheels",
+          [](MjoSpec& self) -> const std::vector<OrbitReactionWheelSpecNative>& {
+            return self.orbit().reaction_wheels;
+          },
+          nb::rv_policy::reference_internal)
+      .def_prop_ro(
+          "magnetorquers",
+          [](MjoSpec& self) -> const std::vector<OrbitMagnetorquerSpecNative>& {
+            return self.orbit().magnetorquers;
+          },
+          nb::rv_policy::reference_internal)
+      .def_prop_ro("thrusters", [](MjoSpec& self) -> const std::vector<OrbitThrusterSpecNative>& {
+        return self.orbit().thrusters;
+      }, nb::rv_policy::reference_internal)
+      .def_prop_ro("cmgs", [](MjoSpec& self) -> const std::vector<OrbitCmgSpecNative>& {
+        return self.orbit().cmgs;
+      }, nb::rv_policy::reference_internal)
+      .def("add_surface", &MjoSpec::AddSurface, "spec"_a)
+      .def("update_surface", &MjoSpec::SetSurface, "name"_a, "spec"_a)
+      .def("remove_surface", &MjoSpec::RemoveSurface, "name"_a)
+      .def("add_magnetic_body", &MjoSpec::AddMagneticBody, "spec"_a)
+      .def("update_magnetic_body", &MjoSpec::SetMagneticBody, "name"_a, "spec"_a)
+      .def("remove_magnetic_body", &MjoSpec::RemoveMagneticBody, "name"_a)
+      .def("add_reaction_wheel", &MjoSpec::AddReactionWheel, "spec"_a)
+      .def("update_reaction_wheel", &MjoSpec::SetReactionWheel, "name"_a, "spec"_a)
+      .def("remove_reaction_wheel", &MjoSpec::RemoveReactionWheel, "name"_a)
+      .def("add_magnetorquer", &MjoSpec::AddMagnetorquer, "spec"_a)
+      .def("update_magnetorquer", &MjoSpec::SetMagnetorquer, "name"_a, "spec"_a)
+      .def("remove_magnetorquer", &MjoSpec::RemoveMagnetorquer, "name"_a)
+      .def("add_thruster", &MjoSpec::AddThruster, "spec"_a)
+      .def("update_thruster", &MjoSpec::SetThruster, "name"_a, "spec"_a)
+      .def("remove_thruster", &MjoSpec::RemoveThruster, "name"_a)
+      .def("add_cmg", &MjoSpec::AddCmg, "spec"_a)
+      .def("update_cmg", &MjoSpec::SetCmg, "name"_a, "spec"_a)
+      .def("remove_cmg", &MjoSpec::RemoveCmg, "name"_a);
+
   nb::class_<MjoModel>(m, "MjoModel")
       .def_static("from_xml_path", &MjoModel::FromXmlPath, "xml_path"_a, "mj_timestep"_a = nb::none())
       .def("body_id", &MjoModel::body_id)
@@ -342,6 +484,9 @@ NB_MODULE(_bindings, m) {
       .def_prop_ro("use_magnetic", &MjoModel::use_magnetic)
       .def_prop_ro("use_gravity_gradient", &MjoModel::use_gravity_gradient)
       .def_prop_ro("orbit_dt", &MjoModel::orbit_dt)
+      .def_prop_ro("central_body", [](const MjoModel& self) {
+        return self.central_body();
+      })
       .def_prop_ro("body_mass", [](MjoModel& self) {
         return view(self.raw()->body_mass, {static_cast<size_t>(self.nbody())});
       })

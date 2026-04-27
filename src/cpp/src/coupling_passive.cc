@@ -5,7 +5,6 @@
 
 #include <mujoco/mujoco.h>
 
-#include "mujoco_orbit/constants.h"
 #include "mujoco_orbit/gravity.h"
 #include "mujoco_orbit/math_utils.h"
 
@@ -97,7 +96,7 @@ void body_angular_velocity_world(const mjData* d, int body_id, double out_w_worl
 
 void apply_inertial_wrenches(const mjModel* m, mjData* d, OrbitInstance* inst) {
   double chief_accel[3];
-  total_accel(inst->R_eci, chief_accel, inst->use_j2 != 0);
+  total_accel(inst->R_eci, chief_accel, inst->use_j2 != 0, inst->central_body);
 
   for (int body_id = 1; body_id < m->nbody; ++body_id) {
     const double mass = m->body_mass[body_id];
@@ -110,7 +109,7 @@ void apply_inertial_wrenches(const mjModel* m, mjData* d, OrbitInstance* inst) {
     body_eci_position_km(inst, d, body_id, zero, r_body_eci);
 
     double g_body[3];
-    total_accel(r_body_eci, g_body, inst->use_j2 != 0);
+    total_accel(r_body_eci, g_body, inst->use_j2 != 0, inst->central_body);
 
     double diff_force[3];
     for (int i = 0; i < 3; ++i) {
@@ -162,7 +161,7 @@ void apply_gravity_gradient_torques(const mjModel* m, mjData* d, OrbitInstance* 
 
     double torque_world[3];
     detail::cross3(r_hat, J_rhat, torque_world);
-    const double coeff = 3.0 * kGmEarth / std::pow(r_mag, 3);
+    const double coeff = 3.0 * inst->central_body.gm / std::pow(r_mag, 3);
     detail::scale3(torque_world, coeff, torque_world);
 
     add_force_torque_at_com(m, d, inst, body_id, zero, torque_world);

@@ -104,7 +104,7 @@ def _xml_with_mjorbit(
     children: list[str] = []
     for i, surface in enumerate(surfaces):
         children.append(
-            f'<surface name="surface_{i}" body="{surface.body_name}" '
+            f'<surface name="{surface.name or f"surface_{i}"}" body="{surface.body_name}" '
             f'cop="{_vec(surface.center_of_pressure_body)}" '
             f'normal="{_vec(surface.normal_body)}" area="{surface.area:.17g}" '
             f'drag_coeff="{surface.drag_coeff:.17g}" srp_coeff="{surface.srp_coeff:.17g}" '
@@ -112,7 +112,7 @@ def _xml_with_mjorbit(
         )
     for i, magnetic in enumerate(magnetic_bodies):
         children.append(
-            f'<magnetic_body name="magnetic_{i}" body="{magnetic.body_name}" '
+            f'<magnetic_body name="{magnetic.name or f"magnetic_{i}"}" body="{magnetic.body_name}" '
             f'dipole="{_vec(magnetic.dipole_body)}"/>'
         )
     for i, wheel in enumerate(reaction_wheels):
@@ -122,17 +122,17 @@ def _xml_with_mjorbit(
         if wheel.torque_limit is not None:
             extra += f' torque_limit="{wheel.torque_limit:.17g}"'
         children.append(
-            f'<reaction_wheel name="rw_{i}" body="{wheel.body_name}" '
+            f'<reaction_wheel name="{wheel.name or f"rw_{i}"}" body="{wheel.body_name}" '
             f'axis="{_vec(wheel.axis_body)}" inertia="{wheel.inertia:.17g}"{extra}/>'
         )
     for i, mtq in enumerate(magnetorquers):
         children.append(
-            f'<magnetorquer name="mtq_{i}" body="{mtq.body_name}" '
+            f'<magnetorquer name="{mtq.name or f"mtq_{i}"}" body="{mtq.body_name}" '
             f'axis="{_vec(mtq.axis_body)}" dipole_limit="{mtq.dipole_limit:.17g}"/>'
         )
     for i, thruster in enumerate(thrusters):
         children.append(
-            f'<thruster name="thr_{i}" body="{thruster.body_name}" '
+            f'<thruster name="{thruster.name or f"thr_{i}"}" body="{thruster.body_name}" '
             f'pos="{_vec(thruster.position_body)}" dir="{_vec(thruster.direction_body)}" '
             f'force_limit="{thruster.force_limit:.17g}"/>'
         )
@@ -143,7 +143,7 @@ def _xml_with_mjorbit(
         if cmg.gimbal_angle_limit is not None:
             extra += f' gimbal_angle_limit="{cmg.gimbal_angle_limit:.17g}"'
         children.append(
-            f'<cmg name="cmg_{i}" body="{cmg.body_name}" '
+            f'<cmg name="{cmg.name or f"cmg_{i}"}" body="{cmg.body_name}" '
             f'gimbal_axis="{_vec(cmg.gimbal_axis_body)}" '
             f'spin_axis0="{_vec(cmg.spin_axis_body_0)}" '
             f'rotor_momentum="{cmg.rotor_momentum:.17g}"{extra}/>'

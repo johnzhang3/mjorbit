@@ -53,6 +53,7 @@ MjoData::~MjoData() {
 
 void MjoData::bind_native_metadata() {
   OrbitInstance* inst = orbit_instance_;
+  inst->central_body = model_->central_body();
   inst->use_j2 = model_->use_j2() ? 1 : 0;
   inst->use_drag = model_->use_drag() ? 1 : 0;
   inst->use_srp = model_->use_srp() ? 1 : 0;

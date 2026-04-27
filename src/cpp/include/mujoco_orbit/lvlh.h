@@ -2,6 +2,7 @@
 #define MUJOCO_ORBIT_LVLH_H_
 
 #include "mujoco_orbit/orbit_state.h"
+#include "mujoco_orbit/spec.h"
 
 namespace mujoco_orbit {
 
@@ -11,8 +12,23 @@ void update_frame_cache(
     FrameCache* out_cache,
     bool use_j2 = false);
 
+void update_frame_cache(
+    const double R_eci[3],
+    const double V_eci[3],
+    FrameCache* out_cache,
+    bool use_j2,
+    const CentralBodySpecNative& central_body);
+
 inline void update_frame_cache(const OrbitState& orbit, FrameCache* out_cache, bool use_j2 = false) {
   update_frame_cache(orbit.R_eci, orbit.V_eci, out_cache, use_j2);
+}
+
+inline void update_frame_cache(
+    const OrbitState& orbit,
+    FrameCache* out_cache,
+    bool use_j2,
+    const CentralBodySpecNative& central_body) {
+  update_frame_cache(orbit.R_eci, orbit.V_eci, out_cache, use_j2, central_body);
 }
 
 void eci_to_lvlh_pos(

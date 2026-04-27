@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import ctypes
+import importlib
+import importlib.util
 import os
 import pathlib
 import site
+import sys
 import sysconfig
+from types import ModuleType
 
 import mujoco
 
+_BINDINGS_MODULE: ModuleType | None = None
 _PLUGIN_LIBRARY: ctypes.CDLL | None = None
 _PLUGIN_PATH: str | None = None
 _MUJOCO_LIBRARY: ctypes.CDLL | None = None
@@ -40,6 +45,47 @@ def find_native_plugin_path() -> str | None:
             ):
                 return os.path.join(plugins_dir, fname)
     return None
+
+
+def _candidate_binding_paths() -> list[pathlib.Path]:
+    source_pkg_dir = pathlib.Path(__file__).resolve().parent
+    repo_root = source_pkg_dir.parent.parent
+    candidates: list[pathlib.Path] = []
+    build_dir = repo_root / "build" / "cpp"
+    for pattern in ("_bindings*.so", "_bindings*.pyd", "_bindings*.dylib"):
+        candidates.extend(sorted(build_dir.glob(pattern)))
+    return candidates
+
+
+def load_native_bindings() -> ModuleType:
+    """Import the nanobind extension, falling back to the in-tree build output."""
+    global _BINDINGS_MODULE
+    if _BINDINGS_MODULE is not None:
+        return _BINDINGS_MODULE
+
+    _preload_mujoco_library()
+    try:
+        _BINDINGS_MODULE = importlib.import_module("mujoco_orbit._bindings")
+        return _BINDINGS_MODULE
+    except ImportError as first_error:
+        sys.modules.pop("mujoco_orbit._bindings", None)
+        for path in _candidate_binding_paths():
+            spec = importlib.util.spec_from_file_location("mujoco_orbit._bindings", path)
+            if spec is None or spec.loader is None:
+                continue
+            module = importlib.util.module_from_spec(spec)
+            sys.modules["mujoco_orbit._bindings"] = module
+            try:
+                spec.loader.exec_module(module)
+            except ImportError:
+                sys.modules.pop("mujoco_orbit._bindings", None)
+                continue
+            package = sys.modules.get("mujoco_orbit")
+            if package is not None:
+                setattr(package, "_bindings", module)
+            _BINDINGS_MODULE = module
+            return module
+        raise first_error
 
 
 def load_native_plugin() -> str | None:
@@ -83,4 +129,4 @@ def _preload_mujoco_library() -> None:
     )
 
 
-__all__ = ["find_native_plugin_path", "load_native_plugin"]
+__all__ = ["find_native_plugin_path", "load_native_bindings", "load_native_plugin"]
