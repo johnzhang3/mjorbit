@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <stdexcept>
 
+#include "mujoco_orbit/orbit_cache.h"
 #include "mujoco_orbit/orbit_schedule.h"
 
 extern "C" int mjo_rollout(
@@ -44,6 +45,10 @@ void update_reaction_wheel_momentum(MjoData& data) {
 }  // namespace
 
 void mjo_forward(MjoModel& model, MjoData& data) {
+  // mjo_forward is the user-facing sync after mutating data.orbit/qpos/qvel,
+  // so refresh derived caches here. The hot mjo_step path skips this — its
+  // caches are kept current by the previous step's Advance().
+  refresh_orbit_caches(data.orbit_instance());
   data.clear_wrench_buffer();
   mj_forward(model.raw(), data.raw());
   mju_copy(data.raw()->xfrc_applied, data.wrench_buffer(), 6 * model.nbody());

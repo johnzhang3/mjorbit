@@ -132,7 +132,9 @@ void Compute(const mjModel* m, mjData* d, int instance, int capability_bit) {
     return;
   }
   auto* inst = GetInstance(d, instance);
-  mujoco_orbit::refresh_orbit_caches(inst);
+  // Caches are kept current by Advance() at the end of the previous step (and
+  // by initialize_orbit_schedule on construction / set_orbit / mjo_set_state),
+  // so we don't refresh again here on the hot step path.
   mujoco_orbit::apply_passive_wrenches(m, d, inst);
 }
 

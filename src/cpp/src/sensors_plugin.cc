@@ -64,7 +64,7 @@ void orbit_sensor_callback(const mjModel* m, mjData* d, int stage) {
     return;
   }
   auto* inst = reinterpret_cast<OrbitInstance*>(d->plugin_data[instance]);
-  if (!inst) {
+  if (!inst || inst->num_orbit_sensors <= 0) {
     return;
   }
   if (stage == kPosStage) {
