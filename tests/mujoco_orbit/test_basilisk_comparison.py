@@ -1,0 +1,37 @@
+"""Tests for the Basilisk-MuJoCo comparison harness."""
+
+from __future__ import annotations
+
+import numpy as np
+
+from comparisons.basilisk_mujoco.cases import run_single_body_mujoco_orbit
+from comparisons.basilisk_mujoco.common import (
+    circular_orbit_state_at,
+    make_circular_orbit,
+    sample_steps,
+)
+
+
+def test_circular_orbit_samples_close_after_one_period() -> None:
+    orbit = make_circular_orbit()
+    r_eci, v_eci = circular_orbit_state_at([0.0, orbit.period_s])
+
+    np.testing.assert_allclose(r_eci[1], r_eci[0], atol=1.0e-9)
+    np.testing.assert_allclose(v_eci[1], v_eci[0], atol=1.0e-12)
+
+
+def test_sample_steps_include_endpoints_and_are_unique() -> None:
+    steps = sample_steps(10, 5)
+
+    assert steps[0] == 0
+    assert steps[-1] == 10
+    assert len(steps) == len(set(int(x) for x in steps))
+
+
+def test_single_body_one_orbit_matches_exact_reference() -> None:
+    result = run_single_body_mujoco_orbit(n_steps=1000, orbit_dt=0.1, max_samples=64)
+
+    assert abs(result.summary["period_error_s"]) < 1.0e-8
+    assert result.summary["final_position_error_m"] < 1.0
+    assert result.summary["final_velocity_error_m_s"] < 1.0e-3
+    assert result.r_eci_km.shape == result.r_ref_eci_km.shape

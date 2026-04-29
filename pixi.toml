@@ -44,6 +44,9 @@ lint = "ruff check ."
 typecheck = "pyright --pythonpath $(python -c 'import sys; print(sys.executable)')"
 check = { depends-on = ["lint", "typecheck", "test"] }
 example-free-drift = { cmd = "python examples/free_drift.py", depends-on = ["sync-package"] }
+compare-basilisk-single = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_orbit", depends-on = ["sync-package"] }
+compare-basilisk-hinges = { cmd = "python -m comparisons.basilisk_mujoco.run_articulated_hinges", depends-on = ["sync-package"] }
+compare-basilisk = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_orbit && python -m comparisons.basilisk_mujoco.run_articulated_hinges", depends-on = ["sync-package"] }
 iss-hw2 = { cmd = "python ISS/hw2/spacecraft_dynamics.py", depends-on = ["sync-package"] }
 cpp-configure = "cmake -S src/cpp -B build/cpp -DPython_EXECUTABLE=$(python -c 'import sys; print(sys.executable)') -DCMAKE_BUILD_TYPE=Release"
 cpp-build = { cmd = "cmake --build build/cpp -j", depends-on = ["cpp-configure"] }

@@ -34,3 +34,4 @@ build/
 
 /Testing/
 build-tsan/
+comparisons/basilisk_mujoco/out/
