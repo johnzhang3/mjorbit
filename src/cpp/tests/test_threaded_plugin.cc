@@ -300,9 +300,27 @@ bool plugin_instances_are_distinct(const mjModel* model, const std::vector<Worke
   return true;
 }
 
+bool passive_forces_apply_without_wrench_buffer(const mjModel* model, mjData* data) {
+  const auto* inst = orbit_instance(model, data);
+  if (!inst || inst->wrench_buffer) {
+    return false;
+  }
+  mj_forward(model, data);
+  for (int i = 0; i < model->nv; ++i) {
+    if (std::abs(data->qfrc_passive[i]) > 0.0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 int run_threaded_step_test(const mjModel* model) {
   WorkerData expected;
   if (!init_worker(model, &expected)) {
+    return 1;
+  }
+  if (!passive_forces_apply_without_wrench_buffer(model, expected.data.get())) {
+    std::cerr << "plain plugin data did not apply passive forces without wrench buffer\n";
     return 1;
   }
   run_steps(model, &expected);

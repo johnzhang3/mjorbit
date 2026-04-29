@@ -237,6 +237,30 @@ class TestSensorMeasurements:
         np.testing.assert_allclose(truth_after, truth_before)
         assert not np.allclose(noisy, truth_before[:3])
 
+    def test_measure_uses_supplied_rng_for_noise(self):
+        model, data = _make_model_data(rng_seed=123)
+        _set_attitude(
+            model,
+            data,
+            _quat_from_axis_angle(np.array([1.0, 2.0, -0.5]), 0.6),
+            np.array([0.1, -0.2, 0.3]),
+        )
+
+        descriptor = model.sensors.by_name["gyro_body"]
+        truth = data.sensors.measure("gyro_body", noisy=False)
+        bias = data.sensors.bias("gyro_body")
+        seed = 7
+
+        measurement = data.sensors.measure("gyro_body", noisy=True, rng=np.random.default_rng(seed))
+        expected = _apply_sensor_noise(
+            np.random.default_rng(seed),
+            descriptor,
+            truth,
+            bias=bias,
+        )
+
+        np.testing.assert_allclose(measurement, expected)
+
     def test_gyro_bias_is_constant_per_data_instance(self, tmp_path: pathlib.Path):
         gyro_xml = """\
 <mujoco model="gyro_only">

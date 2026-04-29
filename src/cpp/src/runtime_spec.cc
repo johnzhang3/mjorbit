@@ -1,8 +1,13 @@
 #include "mujoco_orbit/spec.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <filesystem>
 #include <fstream>
+#include <memory>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -13,6 +18,8 @@
 
 namespace mujoco_orbit {
 namespace {
+
+constexpr char kPluginName[] = "mujoco_orbit.orbit";
 
 class VfsHolder {
  public:
@@ -50,6 +57,78 @@ class VfsHolder {
   bool active_ = false;
 };
 
+class WorkingDirectoryGuard {
+ public:
+  explicit WorkingDirectoryGuard(const std::optional<std::string>& source_dir) {
+    if (!source_dir.has_value() || source_dir->empty()) {
+      return;
+    }
+    previous_ = std::filesystem::current_path();
+    std::filesystem::current_path(*source_dir);
+    active_ = true;
+  }
+
+  WorkingDirectoryGuard(const WorkingDirectoryGuard&) = delete;
+  WorkingDirectoryGuard& operator=(const WorkingDirectoryGuard&) = delete;
+
+  ~WorkingDirectoryGuard() {
+    if (active_) {
+      std::filesystem::current_path(previous_);
+    }
+  }
+
+ private:
+  std::filesystem::path previous_;
+  bool active_ = false;
+};
+
+class TemporaryXmlFile {
+ public:
+  TemporaryXmlFile(const std::filesystem::path& source_path, const std::string& xml) {
+    const std::filesystem::path dir =
+        source_path.parent_path().empty() ? std::filesystem::current_path()
+                                          : source_path.parent_path();
+    const std::string prefix =
+        "." + source_path.filename().string() + ".mjorbit." +
+        std::to_string(reinterpret_cast<std::uintptr_t>(this)) + ".";
+    for (int i = 0; i < 100; ++i) {
+      const std::filesystem::path candidate = dir / (prefix + std::to_string(i) + ".xml");
+      if (std::filesystem::exists(candidate)) {
+        continue;
+      }
+      std::ofstream output(candidate);
+      if (!output) {
+        continue;
+      }
+      output << xml;
+      if (!output) {
+        continue;
+      }
+      path_ = candidate;
+      active_ = true;
+      return;
+    }
+    throw std::runtime_error("Could not create temporary stripped XML next to " +
+                             source_path.string());
+  }
+
+  TemporaryXmlFile(const TemporaryXmlFile&) = delete;
+  TemporaryXmlFile& operator=(const TemporaryXmlFile&) = delete;
+
+  ~TemporaryXmlFile() {
+    if (active_) {
+      std::error_code ignored;
+      std::filesystem::remove(path_, ignored);
+    }
+  }
+
+  std::string path_string() const { return path_.string(); }
+
+ private:
+  std::filesystem::path path_;
+  bool active_ = false;
+};
+
 struct RawElement {
   std::string tag;
   std::unordered_map<std::string, std::string> attrs;
@@ -65,13 +144,146 @@ std::string read_file(const std::string& path) {
   return out.str();
 }
 
+std::string save_spec_xml(const mjSpec* spec, std::size_t initial_size) {
+  int size = static_cast<int>(std::max<std::size_t>(initial_size, 4096));
+  for (;;) {
+    std::string xml(static_cast<std::size_t>(size), '\0');
+    char error[2048] = {0};
+    const int result = mj_saveXMLString(spec, xml.data(), size, error, sizeof(error));
+    if (result == 0) {
+      xml.resize(std::strlen(xml.c_str()));
+      return xml;
+    }
+    if (result > size) {
+      size = result + 1;
+      continue;
+    }
+    const std::string message = error[0] != '\0' ? error : "unknown save error";
+    throw std::runtime_error("MuJoCo XML serialize failed: " + message);
+  }
+}
+
 std::unordered_map<std::string, std::string> parse_attrs(const std::string& text) {
   std::unordered_map<std::string, std::string> attrs;
-  const std::regex attr_re(R"ATTR(([A-Za-z_][A-Za-z0-9_\-]*)\s*=\s*"([^"]*)")ATTR");
+  const std::regex attr_re(
+      R"ATTR(([A-Za-z_][A-Za-z0-9_\-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'))ATTR");
   for (std::sregex_iterator it(text.begin(), text.end(), attr_re), end; it != end; ++it) {
-    attrs[(*it)[1].str()] = (*it)[2].str();
+    attrs[(*it)[1].str()] = (*it)[2].matched ? (*it)[2].str() : (*it)[3].str();
   }
   return attrs;
+}
+
+bool attrs_name_orbit_plugin(const std::unordered_map<std::string, std::string>& attrs) {
+  auto it = attrs.find("plugin");
+  return it != attrs.end() && it->second == kPluginName;
+}
+
+bool text_has_orbit_plugin_tag(const std::string& text) {
+  std::size_t pos = 0;
+  while ((pos = text.find("<plugin", pos)) != std::string::npos) {
+    const std::size_t tag_end = text.find('>', pos);
+    if (tag_end == std::string::npos) {
+      return false;
+    }
+    const std::size_t attrs_start = pos + std::string("<plugin").size();
+    if (attrs_name_orbit_plugin(parse_attrs(text.substr(attrs_start, tag_end - attrs_start)))) {
+      return true;
+    }
+    pos = tag_end + 1;
+  }
+  return false;
+}
+
+bool body_has_direct_orbit_plugin(const std::string& xml, std::size_t body_content_start) {
+  int nested_body_depth = 0;
+  std::size_t pos = body_content_start;
+  while (pos < xml.size()) {
+    const std::size_t next_body = xml.find("<body", pos);
+    const std::size_t next_plugin = xml.find("<plugin", pos);
+    const std::size_t next_body_close = xml.find("</body>", pos);
+    const std::size_t next = std::min({next_body, next_plugin, next_body_close});
+    if (next == std::string::npos) {
+      return false;
+    }
+    if (next == next_body_close) {
+      if (nested_body_depth == 0) {
+        return false;
+      }
+      --nested_body_depth;
+      pos = next_body_close + std::string("</body>").size();
+      continue;
+    }
+    const std::size_t tag_end = xml.find('>', next);
+    if (tag_end == std::string::npos) {
+      return false;
+    }
+    if (next == next_body) {
+      ++nested_body_depth;
+      pos = tag_end + 1;
+      continue;
+    }
+    if (nested_body_depth == 0 &&
+        text_has_orbit_plugin_tag(xml.substr(next, tag_end - next + 1))) {
+      return true;
+    }
+    pos = tag_end + 1;
+  }
+  return false;
+}
+
+std::optional<std::string> find_existing_orbit_plugin_body(const std::string& xml) {
+  const std::regex body_re(R"(<body\b([^>]*)>)");
+  for (std::sregex_iterator it(xml.begin(), xml.end(), body_re), end; it != end; ++it) {
+    const std::size_t content_start =
+        static_cast<std::size_t>(it->position(0) + it->length(0));
+    if (!body_has_direct_orbit_plugin(xml, content_start)) {
+      continue;
+    }
+    const auto attrs = parse_attrs((*it)[1].str());
+    auto name_it = attrs.find("name");
+    if (name_it != attrs.end() && !name_it->second.empty()) {
+      return name_it->second;
+    }
+  }
+  return std::nullopt;
+}
+
+std::string strip_orbit_plugin_declarations(const std::string& xml) {
+  std::string out;
+  std::size_t last = 0;
+  std::size_t pos = 0;
+  while ((pos = xml.find("<plugin", pos)) != std::string::npos) {
+    const std::size_t tag_end = xml.find('>', pos);
+    if (tag_end == std::string::npos) {
+      break;
+    }
+    const std::size_t attrs_start = pos + std::string("<plugin").size();
+    const std::string attrs = xml.substr(attrs_start, tag_end - attrs_start);
+    if (!attrs_name_orbit_plugin(parse_attrs(attrs))) {
+      pos = tag_end + 1;
+      continue;
+    }
+
+    out.append(xml, last, pos - last);
+    std::size_t remove_end = tag_end + 1;
+    std::size_t before_slash = tag_end;
+    while (before_slash > pos && std::isspace(static_cast<unsigned char>(xml[before_slash - 1]))) {
+      --before_slash;
+    }
+    if (before_slash == pos || xml[before_slash - 1] != '/') {
+      const std::size_t close = xml.find("</plugin>", tag_end + 1);
+      if (close != std::string::npos) {
+        remove_end = close + std::string("</plugin>").size();
+      }
+    }
+    while (remove_end < xml.size() && std::isspace(static_cast<unsigned char>(xml[remove_end]))) {
+      ++remove_end;
+    }
+    last = remove_end;
+    pos = remove_end;
+  }
+  out.append(xml, last, std::string::npos);
+  return out;
 }
 
 bool parse_bool(
@@ -269,13 +481,28 @@ void validate_central_body(const CentralBodySpecNative& central) {
 
 OrbitSpecNative parse_mjorbit_block(std::string* xml) {
   OrbitSpecNative parsed;
-  const std::regex block_re(R"(<mjorbit\b([^>]*)>([\s\S]*?)</mjorbit>)");
-  std::smatch match;
-  if (!std::regex_search(*xml, match, block_re)) {
+  const std::size_t block_start = xml->find("<mjorbit");
+  if (block_start == std::string::npos) {
     return parsed;
   }
 
-  const auto attrs = parse_attrs(match[1].str());
+  const std::size_t open_end = xml->find('>', block_start);
+  if (open_end == std::string::npos) {
+    throw std::runtime_error("<mjorbit> element is missing a closing '>'");
+  }
+
+  std::size_t attrs_start = block_start + std::string("<mjorbit").size();
+  std::size_t attrs_end = open_end;
+  while (attrs_end > attrs_start &&
+         std::isspace(static_cast<unsigned char>((*xml)[attrs_end - 1]))) {
+    --attrs_end;
+  }
+  const bool self_closing = attrs_end > attrs_start && (*xml)[attrs_end - 1] == '/';
+  if (self_closing) {
+    --attrs_end;
+  }
+
+  const auto attrs = parse_attrs(xml->substr(attrs_start, attrs_end - attrs_start));
   auto plugin_body_it = attrs.find("plugin_body");
   if (plugin_body_it != attrs.end() && !plugin_body_it->second.empty()) {
     parsed.plugin_body = plugin_body_it->second;
@@ -287,7 +514,18 @@ OrbitSpecNative parse_mjorbit_block(std::string* xml) {
   parsed.use_gravity_gradient = parse_bool(attrs, "use_gravity_gradient", true);
   parsed.orbit_dt = parse_optional_double(attrs, "orbit_dt");
 
-  for (const RawElement& child : parse_mjorbit_children(match[2].str())) {
+  std::string body;
+  std::size_t block_end = open_end + 1;
+  if (!self_closing) {
+    const std::size_t close_start = xml->find("</mjorbit>", open_end + 1);
+    if (close_start == std::string::npos) {
+      throw std::runtime_error("<mjorbit> element is missing a closing </mjorbit>");
+    }
+    body = xml->substr(open_end + 1, close_start - open_end - 1);
+    block_end = close_start + std::string("</mjorbit>").size();
+  }
+
+  for (const RawElement& child : parse_mjorbit_children(body)) {
     if (child.tag == "central_body") {
       CentralBodySpecNative central = parsed.central_body;
       central.name = parse_optional_string(child.attrs, "name");
@@ -361,7 +599,7 @@ OrbitSpecNative parse_mjorbit_block(std::string* xml) {
     }
   }
 
-  xml->erase(static_cast<std::size_t>(match.position(0)), static_cast<std::size_t>(match.length(0)));
+  xml->erase(block_start, block_end - block_start);
   return parsed;
 }
 
@@ -517,19 +755,74 @@ struct ParsedSpecXml {
   std::string xml;
   OrbitSpecNative orbit;
   AssetMap assets;
+  std::optional<std::string> source_dir;
 };
 
-ParsedSpecXml parse_spec_xml(std::string xml, AssetMap assets) {
+void cache_resolved_xml(ParsedSpecXml* parsed, VfsHolder* vfs, std::size_t initial_size) {
+  std::unique_ptr<mjModel, decltype(&mj_deleteModel)> resolved_model(
+      mj_compile(parsed->spec, vfs->get()), mj_deleteModel);
+  if (!resolved_model) {
+    const char* compile_error = mjs_getError(parsed->spec);
+    std::string message = compile_error && compile_error[0] != '\0'
+                              ? compile_error
+                              : "unknown compiler error";
+    throw std::runtime_error("MuJoCo XML compile failed: " + message);
+  }
+  parsed->xml = save_spec_xml(parsed->spec, initial_size);
+}
+
+ParsedSpecXml parse_spec_xml(
+    std::string xml,
+    AssetMap assets,
+    std::optional<std::string> source_dir = std::nullopt) {
   ParsedSpecXml out;
   out.orbit = parse_mjorbit_block(&xml);
+  if (!out.orbit.plugin_body.has_value()) {
+    out.orbit.plugin_body = find_existing_orbit_plugin_body(xml);
+  }
+  xml = strip_orbit_plugin_declarations(xml);
   out.xml = xml;
   out.assets = std::move(assets);
+  out.source_dir = std::move(source_dir);
 
   char error[2048] = {0};
   VfsHolder vfs(out.assets);
+  WorkingDirectoryGuard cwd(out.source_dir);
   out.spec = mj_parseXMLString(xml.c_str(), vfs.get(), error, sizeof(error));
   if (!out.spec) {
     throw std::runtime_error(std::string("MuJoCo XML parse failed: ") + error);
+  }
+  return out;
+}
+
+ParsedSpecXml parse_spec_xml_path(const std::string& xml_path) {
+  const std::filesystem::path path = std::filesystem::absolute(xml_path);
+  std::optional<std::string> source_dir;
+  if (!path.parent_path().empty()) {
+    source_dir = path.parent_path().string();
+  }
+
+  std::string xml = read_file(path.string());
+  ParsedSpecXml out;
+  out.orbit = parse_mjorbit_block(&xml);
+  if (!out.orbit.plugin_body.has_value()) {
+    out.orbit.plugin_body = find_existing_orbit_plugin_body(xml);
+  }
+  xml = strip_orbit_plugin_declarations(xml);
+  const bool has_include = xml.find("<include") != std::string::npos;
+  out.xml = xml;
+  out.source_dir = std::move(source_dir);
+
+  char error[2048] = {0};
+  VfsHolder vfs(out.assets);
+  WorkingDirectoryGuard cwd(out.source_dir);
+  TemporaryXmlFile stripped_file(path, xml);
+  out.spec = mj_parseXML(stripped_file.path_string().c_str(), vfs.get(), error, sizeof(error));
+  if (!out.spec) {
+    throw std::runtime_error(std::string("MuJoCo XML parse failed: ") + error);
+  }
+  if (has_include) {
+    cache_resolved_xml(&out, &vfs, xml.size() * 2 + 4096);
   }
   return out;
 }
@@ -544,7 +837,14 @@ MjoSpec::~MjoSpec() {
 }
 
 std::unique_ptr<MjoSpec> MjoSpec::FromXmlPath(const std::string& xml_path) {
-  return FromXmlString(read_file(xml_path), {});
+  ParsedSpecXml parsed = parse_spec_xml_path(xml_path);
+  std::unique_ptr<MjoSpec> out(new MjoSpec());
+  out->spec_ = parsed.spec;
+  out->xml_ = std::move(parsed.xml);
+  out->orbit_ = std::move(parsed.orbit);
+  out->assets_ = std::move(parsed.assets);
+  out->source_dir_ = std::move(parsed.source_dir);
+  return out;
 }
 
 std::unique_ptr<MjoSpec> MjoSpec::FromXmlString(const std::string& xml, AssetMap assets) {
@@ -554,6 +854,7 @@ std::unique_ptr<MjoSpec> MjoSpec::FromXmlString(const std::string& xml, AssetMap
   out->xml_ = std::move(parsed.xml);
   out->orbit_ = std::move(parsed.orbit);
   out->assets_ = std::move(parsed.assets);
+  out->source_dir_ = std::move(parsed.source_dir);
   return out;
 }
 
@@ -566,12 +867,13 @@ std::unique_ptr<MjoSpec> MjoSpec::Copy() const {
   out->xml_ = xml_;
   out->orbit_ = orbit_;
   out->assets_ = assets_;
+  out->source_dir_ = source_dir_;
   return out;
 }
 
 std::unique_ptr<MjoModel> MjoSpec::Compile(std::optional<double> mj_timestep) const {
   validate_central_body(orbit_.central_body);
-  return MjoModel::FromSpecXml(xml_, orbit_, assets_, mj_timestep);
+  return MjoModel::FromSpecXml(xml_, orbit_, assets_, source_dir_, mj_timestep);
 }
 
 std::string MjoSpec::ToXml() const {

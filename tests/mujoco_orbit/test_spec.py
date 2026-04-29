@@ -20,7 +20,7 @@ from mujoco_orbit import (
     SurfaceSpec,
     ThrusterSpec,
 )
-from mujoco_orbit.testdata import FREE_BODY_XML
+from mujoco_orbit.testdata import FREE_BODY_XML, TESTDATA_DIR
 
 from ._helpers import circular_leo_orbit_init
 
@@ -66,6 +66,65 @@ def test_from_xml_string_round_trips_named_mjorbit_block() -> None:
     assert round_trip.mjorbit.central_body.gm == pytest.approx(4902.800066)
     assert round_trip.mjorbit.surfaces[0].name == "panel_x"
     assert '<mjorbit plugin_body="spacecraft"' in round_trip.to_xml()
+
+
+def test_from_xml_path_preserves_relative_include_context(tmp_path: Path) -> None:
+    body_xml = tmp_path / "body.xml"
+    body_xml.write_text(
+        """
+<mujoco>
+  <worldbody>
+    <body name="spacecraft">
+      <freejoint/>
+      <geom type="box" size="0.5 0.5 0.5" mass="100"/>
+    </body>
+  </worldbody>
+</mujoco>
+"""
+    )
+    model_xml = tmp_path / "model.xml"
+    model_xml.write_text(
+        """
+<mujoco model="relative_include">
+  <option timestep="0.01" gravity="0 0 0"/>
+  <include file="body.xml"/>
+  <mjorbit plugin_body="spacecraft" use_j2="false"/>
+</mujoco>
+"""
+    )
+
+    model = MjoSpec.from_xml_path(str(model_xml)).compile()
+
+    assert model.body_id("spacecraft") == 1
+
+
+def test_existing_orbit_plugin_host_is_reused() -> None:
+    spec = MjoSpec.from_xml_path(str(TESTDATA_DIR / "free_body_plugin.xml"))
+    model = spec.compile()
+
+    assert model.nplugin == 1
+    assert model.orbit_plugin_instance >= 0
+
+
+def test_single_quoted_mjorbit_attributes_parse_and_compile() -> None:
+    xml = Path(FREE_BODY_XML).read_text().replace(
+        "</mujoco>",
+        """
+  <mjorbit plugin_body='spacecraft' use_drag='false' use_srp='false'>
+    <surface name='panel' body='spacecraft' cop='0 0 0'
+             normal='1 0 0' area='1.5'/>
+  </mjorbit>
+</mujoco>
+""",
+    )
+
+    spec = MjoSpec.from_xml_string(xml)
+    model = spec.compile()
+
+    assert not spec.mjorbit.use_drag
+    assert len(spec.mjorbit.surfaces) == 1
+    assert spec.mjorbit.surfaces[0].name == "panel"
+    assert len(model.surfaces) == 1
 
 
 def test_from_mj_spec_accepts_mujoco_programmatic_spec() -> None:

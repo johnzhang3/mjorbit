@@ -161,6 +161,7 @@ class MjoSpec {
   std::string xml_;
   OrbitSpecNative orbit_;
   AssetMap assets_;
+  std::optional<std::string> source_dir_;
 };
 
 }  // namespace mujoco_orbit

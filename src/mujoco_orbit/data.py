@@ -12,6 +12,11 @@ from mujoco_orbit import _bindings
 from mujoco_orbit.config import OrbitInit
 from mujoco_orbit.model import MjoModel
 
+_REAL_DATATYPE = 0
+_POSITIVE_DATATYPE = 1
+_AXIS_DATATYPE = 2
+_QUATERNION_DATATYPE = 3
+
 
 class MjoData:
     """Runtime state for one simulation run.
@@ -152,8 +157,17 @@ class _SensorDataNamespace:
         noisy: bool = True,
         rng: Any = None,
     ) -> np.ndarray:
-        del rng
-        return np.asarray(self._native.measure(name, noisy), dtype=np.float64)
+        if not noisy or rng is None:
+            return np.asarray(self._native.measure(name, noisy), dtype=np.float64)
+
+        descriptor = self.descriptor(name)
+        truth = np.asarray(self._native.measure(name, False), dtype=np.float64)
+        return _apply_sensor_noise(
+            rng,
+            descriptor,
+            truth,
+            bias=self.bias(name),
+        )
 
     def measure_all(self, *, noisy: bool = True, rng: Any = None) -> dict[str, np.ndarray]:
         return {
@@ -163,3 +177,122 @@ class _SensorDataNamespace:
 
 
 __all__ = ["MjoData"]
+
+
+def _apply_sensor_noise(
+    rng: Any,
+    descriptor: Any,
+    truth: np.ndarray,
+    *,
+    bias: np.ndarray,
+) -> np.ndarray:
+    measurement = truth.copy()
+    datatype = int(descriptor.datatype)
+    dim = int(descriptor.dim)
+
+    if bias.size > 0:
+        measurement = _apply_sensor_bias(datatype, dim, measurement, bias)
+
+    noise = float(descriptor.noise)
+    if noise > 0.0:
+        if datatype == _REAL_DATATYPE:
+            measurement = measurement + rng.normal(0.0, noise, size=dim)
+        elif datatype == _POSITIVE_DATATYPE:
+            measurement = measurement + rng.normal(0.0, noise, size=dim)
+            measurement = np.maximum(measurement, 0.0)
+        elif datatype == _AXIS_DATATYPE:
+            measurement = _rotate_axis(measurement, rng.normal(0.0, noise, size=3))
+        elif datatype == _QUATERNION_DATATYPE:
+            measurement = _rotate_quaternion(measurement, rng.normal(0.0, noise, size=3))
+        else:
+            measurement = measurement + rng.normal(0.0, noise, size=dim)
+
+    return _apply_cutoff(datatype, float(descriptor.cutoff), measurement)
+
+
+def _apply_sensor_bias(
+    datatype: int,
+    dim: int,
+    measurement: np.ndarray,
+    bias: np.ndarray,
+) -> np.ndarray:
+    if datatype in {_REAL_DATATYPE, _POSITIVE_DATATYPE}:
+        return measurement + bias[:dim]
+    if datatype == _AXIS_DATATYPE:
+        return _rotate_axis(measurement, bias[:3])
+    if datatype == _QUATERNION_DATATYPE:
+        return _rotate_quaternion(measurement, bias[:3])
+    return measurement + bias[:dim]
+
+
+def _apply_cutoff(datatype: int, cutoff: float, measurement: np.ndarray) -> np.ndarray:
+    if cutoff <= 0.0 or datatype in {_AXIS_DATATYPE, _QUATERNION_DATATYPE}:
+        return measurement
+    lower = 0.0 if datatype == _POSITIVE_DATATYPE else -cutoff
+    return np.clip(measurement, lower, cutoff)
+
+
+def _rotate_axis(axis: np.ndarray, rotvec: np.ndarray) -> np.ndarray:
+    rotated = _rotation_matrix_from_rotvec(rotvec) @ axis
+    norm = np.linalg.norm(rotated)
+    if norm < 1.0e-12:
+        raise ValueError("Noisy axis measurement must be non-zero")
+    return rotated / norm
+
+
+def _rotate_quaternion(quat: np.ndarray, rotvec: np.ndarray) -> np.ndarray:
+    rotated = _quat_mul(_quat_from_rotvec(rotvec), quat)
+    norm = np.linalg.norm(rotated)
+    if norm < 1.0e-12:
+        raise ValueError("Noisy quaternion measurement must be non-zero")
+    return rotated / norm
+
+
+def _rotation_matrix_from_rotvec(rotvec: np.ndarray) -> np.ndarray:
+    theta = np.linalg.norm(rotvec)
+    if theta < 1.0e-12:
+        return np.eye(3) + _skew(rotvec)
+    axis = rotvec / theta
+    k = _skew(axis)
+    return np.eye(3) + np.sin(theta) * k + (1.0 - np.cos(theta)) * (k @ k)
+
+
+def _quat_from_rotvec(rotvec: np.ndarray) -> np.ndarray:
+    theta = np.linalg.norm(rotvec)
+    if theta < 1.0e-12:
+        quat = np.array([1.0, 0.5 * rotvec[0], 0.5 * rotvec[1], 0.5 * rotvec[2]])
+    else:
+        half = 0.5 * theta
+        scale = np.sin(half) / theta
+        quat = np.array(
+            [
+                np.cos(half),
+                scale * rotvec[0],
+                scale * rotvec[1],
+                scale * rotvec[2],
+            ]
+        )
+    return quat / np.linalg.norm(quat)
+
+
+def _quat_mul(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    lw, lx, ly, lz = left
+    rw, rx, ry, rz = right
+    return np.array(
+        [
+            lw * rw - lx * rx - ly * ry - lz * rz,
+            lw * rx + lx * rw + ly * rz - lz * ry,
+            lw * ry - lx * rz + ly * rw + lz * rx,
+            lw * rz + lx * ry - ly * rx + lz * rw,
+        ]
+    )
+
+
+def _skew(value: np.ndarray) -> np.ndarray:
+    return np.array(
+        [
+            [0.0, -value[2], value[1]],
+            [value[2], 0.0, -value[0]],
+            [-value[1], value[0], 0.0],
+        ]
+    )

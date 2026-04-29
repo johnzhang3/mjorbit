@@ -36,8 +36,8 @@ void body_eci_velocity_km_s(
 }
 
 void add_force_torque_at_com(
-    const mjModel* /*m*/,
-    mjData* /*d*/,
+    const mjModel* m,
+    mjData* d,
     OrbitInstance* inst,
     int body_id,
     const double force_world[3],
@@ -51,7 +51,20 @@ void add_force_torque_at_com(
       wrench[i] += force_world[i];
       wrench[3 + i] += torque_world[i];
     }
+    return;
   }
+
+  if (!m || !d || body_id < 0 || body_id >= m->nbody) {
+    return;
+  }
+  const mjtNum point[3] = {
+      d->xipos[3 * body_id + 0],
+      d->xipos[3 * body_id + 1],
+      d->xipos[3 * body_id + 2],
+  };
+  const mjtNum force[3] = {force_world[0], force_world[1], force_world[2]};
+  const mjtNum torque[3] = {torque_world[0], torque_world[1], torque_world[2]};
+  mj_applyFT(m, d, force, torque, point, body_id, d->qfrc_passive);
 }
 
 void flush_wrenches_to_qfrc(const mjModel* m, mjData* d, const OrbitInstance* inst) {

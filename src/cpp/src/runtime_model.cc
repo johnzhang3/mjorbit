@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <regex>
 #include <stdexcept>
 #include <string>
@@ -58,6 +59,31 @@ std::string regex_escape(const std::string& value) {
   return std::regex_replace(value, special, R"(\$&)");
 }
 
+class WorkingDirectoryGuard {
+ public:
+  explicit WorkingDirectoryGuard(const std::optional<std::string>& source_dir) {
+    if (!source_dir.has_value() || source_dir->empty()) {
+      return;
+    }
+    previous_ = std::filesystem::current_path();
+    std::filesystem::current_path(*source_dir);
+    active_ = true;
+  }
+
+  WorkingDirectoryGuard(const WorkingDirectoryGuard&) = delete;
+  WorkingDirectoryGuard& operator=(const WorkingDirectoryGuard&) = delete;
+
+  ~WorkingDirectoryGuard() {
+    if (active_) {
+      std::filesystem::current_path(previous_);
+    }
+  }
+
+ private:
+  std::filesystem::path previous_;
+  bool active_ = false;
+};
+
 void normalized3(const double in[3], double out[3], const std::string& label) {
   const double norm = detail::norm3(in);
   if (norm < 1.0e-12) {
@@ -66,10 +92,81 @@ void normalized3(const double in[3], double out[3], const std::string& label) {
   detail::scale3(in, 1.0 / norm, out);
 }
 
-void ensure_extension_plugin(std::string* xml) {
-  if (xml->find("plugin=\"" + std::string(kPluginName) + "\"") != std::string::npos) {
-    return;
+bool plugin_attrs_name_orbit(const std::string& attrs) {
+  const std::regex attr_re(R"ATTR(\bplugin\s*=\s*(?:"([^"]*)"|'([^']*)'))ATTR");
+  std::smatch match;
+  if (!std::regex_search(attrs, match, attr_re)) {
+    return false;
   }
+  const std::string value = match[1].matched ? match[1].str() : match[2].str();
+  return value == kPluginName;
+}
+
+bool text_has_orbit_plugin_tag(const std::string& text) {
+  std::size_t pos = 0;
+  while ((pos = text.find("<plugin", pos)) != std::string::npos) {
+    const std::size_t tag_end = text.find('>', pos);
+    if (tag_end == std::string::npos) {
+      return false;
+    }
+    const std::size_t attrs_start = pos + std::string("<plugin").size();
+    if (plugin_attrs_name_orbit(text.substr(attrs_start, tag_end - attrs_start))) {
+      return true;
+    }
+    pos = tag_end + 1;
+  }
+  return false;
+}
+
+bool extension_has_orbit_plugin(const std::string& xml) {
+  const std::regex extension_re(R"(<extension\b[^>]*>([\s\S]*?)</extension>)");
+  for (std::sregex_iterator it(xml.begin(), xml.end(), extension_re), end; it != end; ++it) {
+    if (text_has_orbit_plugin_tag((*it)[1].str())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool body_has_direct_orbit_plugin(const std::string& xml, std::size_t body_content_start) {
+  int nested_body_depth = 0;
+  std::size_t pos = body_content_start;
+  while (pos < xml.size()) {
+    const std::size_t next_body = xml.find("<body", pos);
+    const std::size_t next_plugin = xml.find("<plugin", pos);
+    const std::size_t next_body_close = xml.find("</body>", pos);
+    const std::size_t next = std::min({next_body, next_plugin, next_body_close});
+    if (next == std::string::npos) {
+      return false;
+    }
+    if (next == next_body_close) {
+      if (nested_body_depth == 0) {
+        return false;
+      }
+      --nested_body_depth;
+      pos = next_body_close + std::string("</body>").size();
+      continue;
+    }
+    const std::size_t tag_end = xml.find('>', next);
+    if (tag_end == std::string::npos) {
+      return false;
+    }
+    if (next == next_body) {
+      ++nested_body_depth;
+      pos = tag_end + 1;
+      continue;
+    }
+    if (nested_body_depth == 0 &&
+        text_has_orbit_plugin_tag(xml.substr(next, tag_end - next + 1))) {
+      return true;
+    }
+    pos = tag_end + 1;
+  }
+  return false;
+}
+
+void ensure_extension_plugin(std::string* xml) {
+  if (extension_has_orbit_plugin(*xml)) return;
   const std::string plugin = "\n    <plugin plugin=\"mujoco_orbit.orbit\"/>\n";
   const std::size_t extension_close = xml->find("</extension>");
   if (extension_close != std::string::npos) {
@@ -94,7 +191,8 @@ void ensure_plugin_host(
   std::regex body_re(R"(<body\b[^>]*>)");
   if (plugin_body.has_value() && !plugin_body->empty()) {
     body_re = std::regex(
-        "<body\\b(?=[^>]*\\bname\\s*=\\s*\"" + regex_escape(*plugin_body) + "\")[^>]*>");
+        "<body\\b(?=[^>]*\\bname\\s*=\\s*\"" + regex_escape(*plugin_body) + "\")[^>]*>|"
+        "<body\\b(?=[^>]*\\bname\\s*=\\s*'" + regex_escape(*plugin_body) + "')[^>]*>");
   }
   std::smatch match;
   if (!std::regex_search(*xml, match, body_re)) {
@@ -105,6 +203,9 @@ void ensure_plugin_host(
   }
   const std::size_t insert_at =
       static_cast<std::size_t>(match.position(0) + match.length(0));
+  if (body_has_direct_orbit_plugin(*xml, insert_at)) {
+    return;
+  }
   xml->insert(insert_at, plugin);
 }
 
@@ -388,6 +489,7 @@ std::unique_ptr<MjoModel> MjoModel::FromSpecXml(
     const std::string& xml,
     const OrbitSpecNative& orbit,
     const AssetMap& assets,
+    std::optional<std::string> source_dir,
     std::optional<double> mj_timestep) {
   std::string compiled_xml = xml;
   ensure_extension_plugin(&compiled_xml);
@@ -395,6 +497,7 @@ std::unique_ptr<MjoModel> MjoModel::FromSpecXml(
 
   char error[2048] = {0};
   VfsHolder vfs(assets);
+  WorkingDirectoryGuard cwd(source_dir);
   mjSpec* compiled_spec =
       mj_parseXMLString(compiled_xml.c_str(), vfs.get(), error, sizeof(error));
   if (!compiled_spec) {

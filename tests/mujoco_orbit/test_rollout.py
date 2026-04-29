@@ -104,6 +104,32 @@ def test_rollout_resets_orbit_state_for_each_batch_member():
     assert state[0, -1, 0] != state[1, -1, 0]
 
 
+def test_rollout_reinitializes_multirate_orbit_schedule_per_batch_member():
+    model, data = make_model_data(
+        xml_path=FREE_BODY_XML,
+        mj_timestep=0.01,
+        orbit_dt=0.1,
+        use_gravity_gradient=False,
+    )
+    first = mjo_get_state(model, data)
+
+    second_data = MjoData(model, orbit=circular_leo_orbit_init(alt_km=500.0))
+    mjo_forward(model, second_data)
+    second = mjo_get_state(model, second_data)
+
+    initial = np.vstack([first, second])
+    state, _ = rollout(model, data, initial, nstep=5)
+
+    for batch_id, packed in enumerate(initial):
+        ref = MjoData(model, orbit=circular_leo_orbit_init())
+        mjo_set_state(model, ref, packed)
+        expected = np.empty_like(state[batch_id])
+        for step in range(state.shape[1]):
+            mjo_step(model, ref)
+            expected[step] = mjo_get_state(model, ref)
+        np.testing.assert_allclose(state[batch_id], expected, rtol=0.0, atol=1e-12)
+
+
 def test_rollout_applies_external_actuator_controls():
     model, data = make_model_data(
         xml_path=FREE_BODY_XML,

@@ -111,6 +111,7 @@ class MjoModel {
       const std::string& xml,
       const OrbitSpecNative& orbit,
       const AssetMap& assets,
+      std::optional<std::string> source_dir = std::nullopt,
       std::optional<double> mj_timestep = std::nullopt);
 
   mjModel* model_ = nullptr;
