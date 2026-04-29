@@ -111,6 +111,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b5/d1/d4cd9fe89c7d400d7a18f86ccc94daa3f0927f53558846fcb60791dce5d6/msgspec-0.21.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/97/fa/a8698b7bb0168483845f8e492991ee5cf01695eb0d1f20ea7d8bf3d61344/mujoco-3.7.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0f/50/de23fde84e45f5c4fda2488c759b69990fd4512387a8632860f3ac9cd225/numpy-1.26.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/03/13/45db581134dab5942e723622bf994f30a79fe00029b90127625f3464bb3f/osqp-1.1.1-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
@@ -249,6 +250,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/6e/cf/317224852c00248c620a9bcf4b26e2e4ab8afd752f18d2a6ef73ebd423b6/msgspec-0.21.1-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/dc/7d/e1ad3b1b604b009c0df7246b50b5c5cf9e8e0689a10279661951c69850ea/mujoco-3.7.0-cp312-cp312-macosx_10_16_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/12/8f2020a8e8b8383ac0177dc9570aad031a3beb12e38847f7129bacd96228/numpy-1.26.4-cp312-cp312-macosx_10_9_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/07/49/0ac80ef771eeb985b12a0c7fad86279a59269bce192110dc499890013b9f/osqp-1.1.1-cp312-cp312-macosx_10_13_x86_64.whl
@@ -387,6 +389,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/6d/81/074612945c0666078f7366f40000013de9f6ba687491d450df699bceebc9/msgspec-0.21.1-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/5b/fc/225a068a2bec3de5029ba08866e03df9f159719cecedfc0cf100d4db6a18/mujoco-3.7.0-cp312-cp312-macosx_11_0_arm64.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/75/5b/ca6c8bd14007e5ca171c7c03102d17b4f4e0ceb53957e8c44343a9546dcc/numpy-1.26.4-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/4c/7f/39437ab1c73ea432c6510741f954ccec87bda9a2b9b3233439384363cd92/osqp-1.1.1-cp312-cp312-macosx_11_0_arm64.whl
@@ -527,6 +530,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9f/75/bb79c8b89a93ae23cd33c0d802373f16feaf9633f05d8af77091350dda0a/msgspec-0.21.1-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/bf/9c/84b809bab92f3814479d183db85b95a2cfd3455eb3f5b55d8cfe85837938/mujoco-3.7.0-cp311-cp311-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/3a/d0/edc009c27b406c4f9cbc79274d6e46d634d139075492ad055e3d68445925/numpy-1.26.4-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/f2/f7/351c42d12b2632d1512ec6e67f42c1367599f0b224d0621c94e9c76d06ab/osqp-1.1.1-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
@@ -665,6 +669,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ba/7f/bbc4e74cd33d316b75541149e4d35b163b63bce066530ae185a2ec3b5bfc/msgspec-0.21.1-cp311-cp311-macosx_10_9_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/03/14/cfab6e99c56649d97e650abdca7d955937b6102073535e0df29b3a82130a/mujoco-3.7.0-cp311-cp311-macosx_10_16_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/11/57/baae43d14fe163fa0e4c47f307b6b2511ab8d7d30177c491960504252053/numpy-1.26.4-cp311-cp311-macosx_10_9_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/f2/7e/b821d6819cbae6c7a0d76b5db23836c8b3b6db7684332414a1ff9cf737eb/osqp-1.1.1-cp311-cp311-macosx_10_9_x86_64.whl
@@ -803,6 +808,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/c1/60/504886af1aaf854112663b842d5eea9a15d9588f9bf7d0d2df736424b84d/msgspec-0.21.1-cp311-cp311-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/06/b6/04714e68f820806657d28593bdc18776e9e2edb76904423a8601b24a29ab/mujoco-3.7.0-cp311-cp311-macosx_11_0_arm64.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/1a/2e/151484f49fd03944c4a3ad9c418ed193cfd02724e138ac8a9505d056c582/numpy-1.26.4-cp311-cp311-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/81/ac/1d5361ddfad9e23ca56a0c580024ca1c99535f11b16d94b3d4c9fbc543af/osqp-1.1.1-cp311-cp311-macosx_11_0_arm64.whl
@@ -943,6 +949,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b5/d1/d4cd9fe89c7d400d7a18f86ccc94daa3f0927f53558846fcb60791dce5d6/msgspec-0.21.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/97/fa/a8698b7bb0168483845f8e492991ee5cf01695eb0d1f20ea7d8bf3d61344/mujoco-3.7.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0f/50/de23fde84e45f5c4fda2488c759b69990fd4512387a8632860f3ac9cd225/numpy-1.26.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/03/13/45db581134dab5942e723622bf994f30a79fe00029b90127625f3464bb3f/osqp-1.1.1-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
@@ -1081,6 +1088,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/6e/cf/317224852c00248c620a9bcf4b26e2e4ab8afd752f18d2a6ef73ebd423b6/msgspec-0.21.1-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/dc/7d/e1ad3b1b604b009c0df7246b50b5c5cf9e8e0689a10279661951c69850ea/mujoco-3.7.0-cp312-cp312-macosx_10_16_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/12/8f2020a8e8b8383ac0177dc9570aad031a3beb12e38847f7129bacd96228/numpy-1.26.4-cp312-cp312-macosx_10_9_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/07/49/0ac80ef771eeb985b12a0c7fad86279a59269bce192110dc499890013b9f/osqp-1.1.1-cp312-cp312-macosx_10_13_x86_64.whl
@@ -1219,6 +1227,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/6d/81/074612945c0666078f7366f40000013de9f6ba687491d450df699bceebc9/msgspec-0.21.1-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/5b/fc/225a068a2bec3de5029ba08866e03df9f159719cecedfc0cf100d4db6a18/mujoco-3.7.0-cp312-cp312-macosx_11_0_arm64.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/75/5b/ca6c8bd14007e5ca171c7c03102d17b4f4e0ceb53957e8c44343a9546dcc/numpy-1.26.4-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/4c/7f/39437ab1c73ea432c6510741f954ccec87bda9a2b9b3233439384363cd92/osqp-1.1.1-cp312-cp312-macosx_11_0_arm64.whl
@@ -1364,6 +1373,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b5/d1/d4cd9fe89c7d400d7a18f86ccc94daa3f0927f53558846fcb60791dce5d6/msgspec-0.21.1-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/97/fa/a8698b7bb0168483845f8e492991ee5cf01695eb0d1f20ea7d8bf3d61344/mujoco-3.7.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/0f/50/de23fde84e45f5c4fda2488c759b69990fd4512387a8632860f3ac9cd225/numpy-1.26.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/03/13/45db581134dab5942e723622bf994f30a79fe00029b90127625f3464bb3f/osqp-1.1.1-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl
@@ -1508,6 +1518,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/6e/cf/317224852c00248c620a9bcf4b26e2e4ab8afd752f18d2a6ef73ebd423b6/msgspec-0.21.1-cp312-cp312-macosx_10_13_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/dc/7d/e1ad3b1b604b009c0df7246b50b5c5cf9e8e0689a10279661951c69850ea/mujoco-3.7.0-cp312-cp312-macosx_10_16_x86_64.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/95/12/8f2020a8e8b8383ac0177dc9570aad031a3beb12e38847f7129bacd96228/numpy-1.26.4-cp312-cp312-macosx_10_9_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/07/49/0ac80ef771eeb985b12a0c7fad86279a59269bce192110dc499890013b9f/osqp-1.1.1-cp312-cp312-macosx_10_13_x86_64.whl
@@ -1652,6 +1663,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/6d/81/074612945c0666078f7366f40000013de9f6ba687491d450df699bceebc9/msgspec-0.21.1-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/5b/fc/225a068a2bec3de5029ba08866e03df9f159719cecedfc0cf100d4db6a18/mujoco-3.7.0-cp312-cp312-macosx_11_0_arm64.whl
+      - pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/9e/c9/b2622292ea83fbb4ec318f5b9ab867d0a28ab43c5717bb85b0a5f6b3b0a4/networkx-3.6.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/75/5b/ca6c8bd14007e5ca171c7c03102d17b4f4e0ceb53957e8c44343a9546dcc/numpy-1.26.4-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/4c/7f/39437ab1c73ea432c6510741f954ccec87bda9a2b9b3233439384363cd92/osqp-1.1.1-cp312-cp312-macosx_11_0_arm64.whl
@@ -4943,10 +4955,10 @@ packages:
 - pypi: ./
   name: mujoco-orbit
   version: 0.1.0
-  sha256: cf954e0ee8a0c81e73536f64d3b6ceab207e741da1fb63ea184e5eb112428393
+  sha256: 3c10097c11fda8ca0d87beed2306453cbe1029a91173d85e3fa0a6d8f23ebbea
   requires_dist:
   - cvxpy>=1.7.5
-  - mujoco>=3.3
+  - mujoco>=3.7,<3.8
   - numpy>=1.26,<2
   - trimesh>=4.0
   - viser>=0.2.0
@@ -4954,6 +4966,10 @@ packages:
   - scipy>=1.17.1 ; extra == 'report'
   requires_python: '>=3.11,<3.13'
   editable: true
+- pypi: https://files.pythonhosted.org/packages/5a/bf/1a54e3573736f3ad15fc599c5dde007937234652a1a7efd62573b4ce3a7e/nanobind-2.12.0-py3-none-any.whl
+  name: nanobind
+  version: 2.12.0
+  sha256: a10d3d88e691dcdf22696f9acd893fda3c5a05635763aea238829d274fcad480
 - conda: https://conda.anaconda.org/conda-forge/linux-64/ncurses-6.5-h2d0b736_3.conda
   sha256: 3fde293232fa3fca98635e1167de6b7c7fda83caf24b9d6c91ec9eefb4f4d586
   md5: 47e340acb35de30501a76c7c799c41d7

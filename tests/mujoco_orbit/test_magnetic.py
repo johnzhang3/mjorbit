@@ -3,8 +3,8 @@
 import numpy as np
 
 from mujoco_orbit import MagneticBodySpec, mjo_forward
-from mujoco_orbit.coupling.magnetic import apply_magnetic_wrenches
 from mujoco_orbit.testdata import FREE_BODY_XML
+from tests.mujoco_orbit.reference.coupling.magnetic import apply_magnetic_wrenches
 
 from ._helpers import make_model_data
 

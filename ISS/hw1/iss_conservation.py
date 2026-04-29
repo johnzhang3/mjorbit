@@ -25,7 +25,7 @@ import numpy as np
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
 # ---------------------------------------------------------------------------
 # Parameters

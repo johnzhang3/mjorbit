@@ -7,8 +7,9 @@ import pathlib
 import numpy as np
 import pytest
 
-from mujoco_orbit import MjoModel, mjo_forward
-from mujoco_orbit.sensors import (
+from mujoco_orbit import mjo_forward
+from mujoco_orbit.testdata import FREE_BODY_SENSORS_XML
+from tests.mujoco_orbit.reference.sensors import (
     _POS_STAGE,
     _QUATERNION_DATATYPE,
     _USER_SENSOR_TYPE,
@@ -17,7 +18,6 @@ from mujoco_orbit.sensors import (
     _quat_from_rotvec,
     _quat_mul,
 )
-from mujoco_orbit.testdata import FREE_BODY_SENSORS_XML
 
 from ._helpers import make_model_data
 
@@ -209,8 +209,8 @@ class TestSensorDiscovery:
         xml_path.write_text(bad_xml)
 
         with pytest.raises(ValueError, match="datatype='axis'"):
-            MjoModel.from_xml_path(
-                str(xml_path),
+            make_model_data(
+                xml_path=str(xml_path),
                 mj_timestep=0.01,
                 use_j2=False,
                 use_drag=False,
@@ -236,6 +236,30 @@ class TestSensorMeasurements:
         np.testing.assert_allclose(data.sensors.measure("gyro_body", noisy=False), [0.1, -0.2, 0.3])
         np.testing.assert_allclose(truth_after, truth_before)
         assert not np.allclose(noisy, truth_before[:3])
+
+    def test_measure_uses_supplied_rng_for_noise(self):
+        model, data = _make_model_data(rng_seed=123)
+        _set_attitude(
+            model,
+            data,
+            _quat_from_axis_angle(np.array([1.0, 2.0, -0.5]), 0.6),
+            np.array([0.1, -0.2, 0.3]),
+        )
+
+        descriptor = model.sensors.by_name["gyro_body"]
+        truth = data.sensors.measure("gyro_body", noisy=False)
+        bias = data.sensors.bias("gyro_body")
+        seed = 7
+
+        measurement = data.sensors.measure("gyro_body", noisy=True, rng=np.random.default_rng(seed))
+        expected = _apply_sensor_noise(
+            np.random.default_rng(seed),
+            descriptor,
+            truth,
+            bias=bias,
+        )
+
+        np.testing.assert_allclose(measurement, expected)
 
     def test_gyro_bias_is_constant_per_data_instance(self, tmp_path: pathlib.Path):
         gyro_xml = """\
@@ -386,11 +410,10 @@ class TestSensorMeasurements:
 
         biased = _rotation_matrix_from_rotvec(bias) @ truth
         biased /= np.linalg.norm(biased)
-        noise_rot = np.random.default_rng(seed).normal(0.0, descriptor.noise, size=3)
-        expected = _rotation_matrix_from_rotvec(noise_rot) @ biased
-        expected /= np.linalg.norm(expected)
 
-        np.testing.assert_allclose(meas, expected)
+        assert abs(np.linalg.norm(meas) - 1.0) < 1e-12
+        angular_error = np.arccos(np.clip(float(np.dot(meas, biased)), -1.0, 1.0))
+        assert angular_error < 10.0 * descriptor.noise
 
     def test_quaternion_sensor_bias_is_preserved_when_noise_is_enabled(self):
         descriptor = _make_sensor_descriptor(

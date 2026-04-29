@@ -18,14 +18,14 @@ void refresh_orbit_caches(OrbitInstance* inst) {
   orbit.t = inst->t;
 
   FrameCache frame{};
-  update_frame_cache(orbit, &frame, inst->use_j2 != 0);
+  update_frame_cache(orbit, &frame, inst->use_j2 != 0, inst->central_body);
   std::memcpy(inst->C_LI, frame.C_LI, sizeof(inst->C_LI));
   std::memcpy(inst->C_IL, frame.C_IL, sizeof(inst->C_IL));
   std::memcpy(inst->omega_lvlh, frame.omega_lvlh, sizeof(inst->omega_lvlh));
   std::memcpy(inst->omega_dot_lvlh, frame.omega_dot_lvlh, sizeof(inst->omega_dot_lvlh));
 
   EnvironmentCache env{};
-  update_environment_cache(orbit, frame, &env);
+  update_environment_cache(orbit, frame, &env, inst->central_body);
   std::memcpy(inst->sun_vector_eci, env.sun_vector_eci, sizeof(inst->sun_vector_eci));
   std::memcpy(inst->mag_field_eci, env.mag_field_eci, sizeof(inst->mag_field_eci));
   std::memcpy(

@@ -1,0 +1,499 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage[hidelinks]{hyperref}
+
+\newcommand{\mjorbit}{MuJoCo-Orbit}
+\newcommand{\mj}{MuJoCo}
+\newcommand{\R}{\mathbb{R}}
+
+\begin{document}
+
+\section{Methods}
+\label{sec:methods}
+
+This section describes the equations integrated by \mjorbit{}, the frames in
+which they live, and how the chief-orbit propagator and the \mj{}
+multibody/contact solver are coupled in a single step. We begin with the
+standard inertial equations of orbit mechanics, then derive the
+chief-centered equations that \mj{} actually integrates, and finally
+specify the force model and coupling architecture.
+
+\subsection{Notation}
+\label{subsec:notation}
+
+We use the following symbols throughout. SI units are used inside \mj{};
+the orbital layer uses \si{km}, \si{km/s}, \si{km/s\squared}.
+
+\begin{description}\setlength{\itemsep}{0pt}
+  \item[$\bm R \in \R^3$] Chief reference position in the Earth-centered
+    inertial (ECI) frame, in km.
+  \item[$\bm V \in \R^3$] Chief reference velocity in ECI, in \si{km/s}.
+  \item[$t \in \R$] Mission elapsed time, in s.
+  \item[$\bm r_i \in \R^3$] Position of body $i$'s center of mass in the
+    \mj{} world frame (chief-centered, ECI-parallel axes), in m.
+  \item[$\bm v_i \in \R^3$] Linear velocity of body $i$'s COM in the world
+    frame, in \si{m/s}.
+  \item[$\bm\omega_i \in \R^3$] Angular velocity of body $i$, expressed in
+    the body frame, in \si{rad/s}.
+  \item[$\bm R_i = \bm R + 10^{-3}\bm r_i$] Absolute ECI position of body
+    $i$, in km.
+  \item[$m_i$] Mass of body $i$, in kg.
+  \item[$J_i \in \R^{3\times 3}$] Inertia tensor of body $i$ about its COM,
+    in body frame, in \si{kg.m\squared}.
+  \item[$\mu = GM_\oplus$] Earth standard gravitational parameter,
+    \SI{398600.4418}{km^3/s^2}.
+  \item[$R_\oplus$] Earth equatorial radius, \SI{6378.137}{km}.
+  \item[$J_2$] Earth second zonal coefficient, $1.082626\times 10^{-3}$.
+  \item[$\bm B(\bm R, t)$] Geomagnetic flux density at $\bm R$, in T.
+  \item[$\rho(\bm R)$] Atmospheric mass density at $\bm R$, in
+    \si{kg/m^3}.
+  \item[$\bm\omega_\oplus$] Earth angular velocity vector in ECI,
+    $\bm\omega_\oplus = (0, 0, \omega_\oplus)$.
+  \item[$C_{IL}, C_{LI}$] Direction cosine matrices ECI$\leftrightarrow$LVLH;
+    $C_{LI}$ maps ECI vectors to LVLH coordinates and
+    $C_{IL} = C_{LI}^\top$.
+  \item[$R_i^{wb}$] Rotation matrix world-from-body for body $i$ (\mj{}
+    \texttt{xmat}); $R_i^{wp}$ is world-from-principal-axes (\mj{}
+    \texttt{ximat}).
+\end{description}
+
+We denote the absolute ECI velocity of body $i$ by
+$\bm V_i = \bm V + 10^{-3}\bm v_i$.
+
+\subsection{Frames}
+\label{subsec:frames}
+
+Three frames are used.
+
+\paragraph{ECI ($\mathcal{F}_I$)} A non-rotating geocentric inertial frame.
+The chief reference state $(\bm R, \bm V, t)$ and all environmental fields
+($\bm B$, $\rho$, sun direction $\hat{\bm s}$) are expressed here.
+
+\paragraph{World ($\mathcal{F}_W$)} A chief-centered, ECI-axis-parallel
+frame. Its origin follows $\bm R(t)$, its axes are parallel to ECI axes,
+and consequently its angular velocity in $\mathcal{F}_I$ is zero. This is
+the frame in which \mj{} represents $\bm r_i$, $\bm v_i$, $R_i^{wb}$, and
+all applied wrenches. $\mathcal{F}_W$ is non-inertial because its origin
+accelerates, but it is non-rotating: only a translational pseudo-force
+appears in it (Section~\ref{subsec:chief-frame-eom}).
+
+\paragraph{LVLH ($\mathcal{F}_L$)} A chief-centered rotating frame defined
+by
+\begin{equation}
+  \hat{\bm x}_L = \frac{\bm R}{\|\bm R\|},\quad
+  \hat{\bm z}_L = \frac{\bm R\times\bm V}{\|\bm R\times\bm V\|},\quad
+  \hat{\bm y}_L = \hat{\bm z}_L\times\hat{\bm x}_L,
+  \label{eq:lvlh-basis}
+\end{equation}
+with angular velocity (in LVLH coordinates)
+\begin{equation}
+  \bm\omega_L \;=\; C_{LI}\frac{\bm R\times\bm V}{\|\bm R\|^2}.
+  \label{eq:omega-lvlh}
+\end{equation}
+$\mathcal{F}_L$ is a derived frame used for analysis and IO; it is not the
+frame in which \mj{} integrates.
+
+\subsection{Orbit Mechanics: Inertial Equations}
+\label{subsec:orbit-eom}
+
+For a point mass at ECI position $\bm R$, the Newtonian equation of motion
+under Earth's gravity field plus arbitrary perturbations is
+\begin{equation}
+  \ddot{\bm R} \;=\; \bm g(\bm R) + \bm a^{\text{pert}}(\bm R, \bm V, t),
+  \label{eq:point-mass-eom}
+\end{equation}
+where $\bm g(\bm R)$ is the gravitational acceleration and
+$\bm a^{\text{pert}}$ aggregates non-gravitational perturbations.
+
+\paragraph{Two-body gravity}
+\begin{equation}
+  \bm g_{2B}(\bm R) \;=\; -\frac{\mu}{\|\bm R\|^3}\,\bm R.
+  \label{eq:two-body}
+\end{equation}
+
+\paragraph{$J_2$ correction} The dominant zonal harmonic adds
+\begin{equation}
+  \bm g_{J_2}(\bm R) \;=\;
+  -\frac{3}{2}\,\mu\,J_2\,\frac{R_\oplus^2}{\|\bm R\|^5}
+  \begin{bmatrix}
+    \bigl(1 - 5(R_z/\|\bm R\|)^2\bigr)\,R_x \\
+    \bigl(1 - 5(R_z/\|\bm R\|)^2\bigr)\,R_y \\
+    \bigl(3 - 5(R_z/\|\bm R\|)^2\bigr)\,R_z
+  \end{bmatrix},
+  \label{eq:j2}
+\end{equation}
+so the gravity model used by \mjorbit{} is
+$\bm g(\bm R) = \bm g_{2B}(\bm R) + \bm g_{J_2}(\bm R)$ when $J_2$ is
+enabled, and $\bm g_{2B}(\bm R)$ otherwise.
+
+\subsection{Chief Orbit Propagation}
+\label{subsec:chief-prop}
+
+The chief is integrated as a point mass under gravity plus a swarm-averaged
+non-gravity feedback acceleration $\bm a_\text{fb}$ (defined in
+Section~\ref{subsec:swarm-feedback}):
+\begin{equation}
+  \frac{d}{dt}
+  \begin{bmatrix}\bm R\\\bm V\end{bmatrix}
+  =
+  \begin{bmatrix}\bm V\\\bm g(\bm R) + \bm a_\text{fb}\end{bmatrix}.
+  \label{eq:chief-ivp}
+\end{equation}
+Equation~\eqref{eq:chief-ivp} is integrated by classical fourth-order
+Runge--Kutta with step size $\Delta t_o$ (default: equal to the \mj{}
+timestep $\Delta t$),
+\begin{align}
+  \bm k_1 &= \bm f(\bm R, \bm V), \\
+  \bm k_2 &= \bm f\!\left(\bm R + \tfrac{\Delta t_o}{2}\bm k_1^R,\;
+                          \bm V + \tfrac{\Delta t_o}{2}\bm k_1^V\right), \\
+  \bm k_3 &= \bm f\!\left(\bm R + \tfrac{\Delta t_o}{2}\bm k_2^R,\;
+                          \bm V + \tfrac{\Delta t_o}{2}\bm k_2^V\right), \\
+  \bm k_4 &= \bm f\!\left(\bm R + \Delta t_o\bm k_3^R,\;
+                          \bm V + \Delta t_o\bm k_3^V\right), \\
+  \begin{bmatrix}\bm R\\\bm V\end{bmatrix}_{n+1}
+   &=
+  \begin{bmatrix}\bm R\\\bm V\end{bmatrix}_n
+   + \tfrac{\Delta t_o}{6}\bigl(\bm k_1 + 2\bm k_2 + 2\bm k_3 + \bm k_4\bigr).
+  \label{eq:rk4}
+\end{align}
+Here $\bm f(\bm R,\bm V)=(\bm V,\,\bm g(\bm R)+\bm a_\text{fb})$ packs the
+right-hand side of~\eqref{eq:chief-ivp}. The chief acceleration appearing
+later in the chief-frame equations is therefore
+\begin{equation}
+  \bm a_\text{chief} \;\equiv\; \ddot{\bm R} \;=\; \bm g(\bm R) + \bm a_\text{fb}.
+  \label{eq:a-chief}
+\end{equation}
+
+\subsection{Per-Body External Wrenches in the Chief Frame}
+\label{subsec:chief-frame-eom}
+
+We do not write the multi-body equations of motion at this stage:
+$(q,\dot q)$ for an articulated system are coupled through joint
+constraints, mass-matrix off-diagonals, and contact impulses, and the
+unified constrained equation is given in Section~\ref{subsec:mj-solver}.
+Instead, we identify the per-body net external wrench in the chief
+frame; \mj{} then folds these wrenches into its constrained
+multi-body solver via the body Jacobians.
+
+Let body $i$ have absolute position $\bm R_i = \bm R + 10^{-3}\bm r_i$
+and let $\bm F_i^{\text{ext}}$ be the total external force on body $i$ in
+$\mathcal{F}_I$ (gravity plus environmental and actuator forces, excluding
+internal joint and contact constraint forces). Newton in $\mathcal{F}_I$ reads
+\begin{equation}
+  m_i \ddot{\bm R}_i \;=\; m_i\,\bm g(\bm R_i) + \bm F_i^{\text{ng}}
+                            + \bm F_i^{\text{int}},
+  \label{eq:newton-eci}
+\end{equation}
+where $\bm F_i^{\text{ng}}$ is the non-gravity external force on body $i$
+(drag, SRP, thrust, etc., evaluated at body $i$'s own state) and
+$\bm F_i^{\text{int}}$ collects internal forces between connected bodies
+(joint reactions, contact impulses). Substituting
+$\bm R_i = \bm R + 10^{-3}\bm r_i$ and rearranging, with the gravity
+acceleration converted to SI ($\tilde{\bm g}\equiv 10^3\bm g$,
+$\tilde{\bm a}_\text{fb}\equiv 10^3\bm a_\text{fb}$),
+\begin{align}
+  m_i\ddot{\bm r}_i \;=\; &
+    \underbrace{m_i\bigl[\tilde{\bm g}(\bm R_i)-\tilde{\bm g}(\bm R)\bigr]}_{\text{differential gravity}}
+    -
+    \underbrace{m_i\,\tilde{\bm a}_\text{fb}}_{\text{origin compensation}}
+    + \bm F_i^{\text{ng}}
+    + \bm F_i^{\text{int}}.
+  \label{eq:chief-frame-eom}
+\end{align}
+The bracketed sum of differential gravity, origin compensation, and
+$\bm F_i^{\text{ng}}$ is the per-body external wrench
+\begin{equation}
+  \bm F_i^{\text{wrench}}
+   \;\equiv\;
+   m_i\bigl[\tilde{\bm g}(\bm R_i)-\tilde{\bm g}(\bm R)\bigr]
+   - m_i\,\tilde{\bm a}_\text{fb}
+   + \bm F_i^{\text{ng}}.
+  \label{eq:per-body-wrench}
+\end{equation}
+This is what \mjorbit{} computes per body and feeds into \mj{}'s solver.
+The internal force $\bm F_i^{\text{int}}$ in~\eqref{eq:chief-frame-eom} is
+\emph{not} computed by \mjorbit{}: \mj{} resolves it as part of solving the
+constrained multi-body equation in Section~\ref{subsec:mj-solver}.
+
+Because $\mathcal{F}_W$ is non-rotating, no Coriolis, centrifugal, or Euler
+terms appear in~\eqref{eq:chief-frame-eom}; the only fictitious force is
+the translational $-m_i\bm a_\text{chief}$, split between the gravity
+piece ($-m_i\bm g(\bm R)$, absorbed into the differential-gravity term)
+and the non-gravity piece ($-m_i\bm a_\text{fb}$, the origin compensation).
+This per-body translational pseudo-force does \emph{not} depend on whether
+bodies are connected: it is a kinematic frame-transformation effect,
+identical for free, articulated, and contact-coupled systems.
+
+\subsubsection{Equivalence to the constrained multi-body equation}
+\label{subsubsec:articulated-equivalence}
+
+For an articulated system parameterized by generalized coordinates
+$q\in\R^{n_q}$ with body-COM Jacobians $J_i(q)\in\R^{3\times n_q}$
+(with $\dot{\bm r}_i = J_i(q)\dot q$), the inertial-frame Lagrangian is
+\begin{equation}
+  L = \tfrac{1}{2}\sum_i m_i\|\dot{\bm R}+\dot{\bm r}_i\|^2 - U(q,\bm R),
+\end{equation}
+where $U$ collects gravitational and elastic potentials. Discarding the
+$\bm R$-only kinetic term (independent of $q$) and using
+$\sum_i m_i\dot{\bm R}\cdot\dot{\bm r}_i$ to derive the time-dependent
+forcing, the Euler--Lagrange equations in the chief frame yield
+\begin{equation}
+  M(q)\ddot q + \bm c(q,\dot q)
+   \;=\;
+   \sum_i J_i^{\!\top}(q)\,\bm F_i^{\text{wrench}}
+   + \bm\tau^{\text{int}},
+  \label{eq:articulated-chief}
+\end{equation}
+where $M(q)$ and $\bm c(q,\dot q)$ are the standard articulated-body mass
+matrix and bias terms and $\bm\tau^{\text{int}}$ collects joint actuator,
+constraint, and contact contributions. The fictitious force enters
+through the per-body wrench $\bm F_i^{\text{wrench}}$ exactly as
+in~\eqref{eq:per-body-wrench}: applying $-m_i\bm a_\text{chief}$ at each
+body's COM is equivalent (after $J_i^{\!\top}$ projection) to adding the
+correct generalized fictitious force $-\sum_i m_i J_i^{\!\top}(q)\bm a_\text{chief}
+= -M_\text{tot}\,J_\text{COM}^{\!\top}(q)\bm a_\text{chief}$ on the
+articulated system. So the per-body wrench
+formulation of~\eqref{eq:per-body-wrench} is the correct input to
+articulated, contact-coupled, and free-body systems alike;
+\mj{}'s solver in Section~\ref{subsec:mj-solver} consumes it without
+modification.
+
+\subsubsection{Per-body external force model}
+\label{subsubsec:force-model}
+
+The non-gravity force $\bm F_i^{\text{ng}}$ is the sum of all environmental
+and actuator contributions, evaluated at body $i$'s own state:
+\begin{equation}
+  \bm F_i^{\text{ng}}
+   \;=\;
+   \bm F_i^{\text{drag}} + \bm F_i^{\text{SRP}}
+   + \bm F_i^{\text{thr}}.
+  \label{eq:f-non-grav}
+\end{equation}
+Magnetic, magnetorquer, RW, CMG, and gravity-gradient effects produce
+torques only and are summarised below.
+
+\paragraph{Drag} For each surface $k$ on body $i$ with body-frame normal
+$\hat{\bm n}_k$, area $A_k$, drag coefficient $C_d^k$, and center of pressure
+$\bm p_k$, denote the surface point ECI position and velocity by
+$\bm R_{ik} = \bm R + 10^{-3}(\bm r_i + R_i^{wb}\bm p_k)$ and
+$\bm V_{ik} = \bm V + 10^{-3}(\bm v_i + R_i^{wb}(\bm\omega_i\times\bm p_k))$.
+The atmosphere co-rotates with Earth, so the relative velocity at the surface
+is
+\begin{equation}
+  \bm V_{ik}^{\text{rel}} \;=\; \bm V_{ik} - \bm\omega_\oplus\times\bm R_{ik},
+\end{equation}
+and the drag force in world coordinates is
+\begin{equation}
+  \bm F_{ik}^{\text{drag}} = -\tfrac{1}{2}\,\rho(\bm R)\,C_d^k\,A_k\,
+   \max(0,\hat{\bm n}_k^w\!\cdot\hat{\bm V}^{\text{rel}})\,
+   \|\bm V_{ik}^{\text{rel}}\|\,\bm V_{ik}^{\text{rel}},
+  \label{eq:drag}
+\end{equation}
+with $\hat{\bm n}_k^w = R_i^{wb}\hat{\bm n}_k$,
+$\hat{\bm V}^{\text{rel}}=\bm V_{ik}^{\text{rel}}/\|\bm V_{ik}^{\text{rel}}\|$
+(positive only on the windward face). The accompanying torque about body
+$i$'s COM is
+\begin{equation}
+  \bm\tau_{ik}^{\text{drag}} = (R_i^{wb}\bm p_k)\times\bm F_{ik}^{\text{drag}}.
+\end{equation}
+$\rho(\bm R)$ is currently evaluated at the chief position only and shared
+across surfaces; per-body velocity is the dominant term for short-baseline
+swarms.
+
+\paragraph{Solar radiation pressure} For an unshadowed surface
+($\eta(\bm R)>0$, with eclipse factor $\eta\in\{0,1\}$),
+\begin{equation}
+  \bm F_{ik}^{\text{SRP}} = -\eta\,P_{\!\odot}\,C_r^k\,A_k\,
+   \max(0,\hat{\bm n}_k^w\!\cdot\hat{\bm s})\,\hat{\bm s},
+  \label{eq:srp}
+\end{equation}
+where $P_{\!\odot} = \SI{4.56e-6}{N/m^2}$ is the solar pressure at 1\,AU and
+$\hat{\bm s}$ is the Sun unit vector in ECI.
+
+\paragraph{Residual magnetic dipole} A body-frame residual dipole
+$\bm m_i^b$ produces
+\begin{equation}
+  \bm\tau_i^{\text{mag}} = R_i^{wb}\bigl(\bm m_i^b\times R_i^{bw}\bm B(\bm R)\bigr),
+  \label{eq:res-mag}
+\end{equation}
+with $R_i^{bw}=(R_i^{wb})^\top$. $\bm B$ is a tilted dipole evaluated at the
+chief position.
+
+\paragraph{Magnetorquers} Each magnetorquer commands a body-frame dipole
+$\bm m_i^{b,\text{cmd}}$ subject to a magnitude limit $m_{\max}$, producing
+$\bm\tau = \bm m^{b,\text{cmd}}\times\bm B^b$ in the body frame and
+rotated to world.
+
+\paragraph{Gravity-gradient torque} The differential-gravity force in
+\eqref{eq:chief-frame-eom} is evaluated at body $i$'s COM and therefore
+produces no net torque on a single rigid body. The analytic torque from
+integrating gravity over the body's mass distribution, in the small-extent
+limit $\|\bm r_i\|\ll\|\bm R_i\|$, is
+\begin{equation}
+  \bm\tau_i^{gg}
+    = \frac{3\mu}{\|\bm R_i\|^3}\,
+      \hat{\bm R}_i \times \bigl(J_i^w\hat{\bm R}_i\bigr),
+  \quad
+  \hat{\bm R}_i = \bm R_i / \|\bm R_i\|,
+  \label{eq:gg-torque}
+\end{equation}
+where $J_i^w = R_i^{wp}\,\mathrm{diag}(I_{i,1},I_{i,2},I_{i,3})\,(R_i^{wp})^\top$
+is the inertia tensor in world axes built from the principal moments and
+the world-from-principal-axes rotation $R_i^{wp}$ (\mj{} \texttt{ximat}).
+
+\paragraph{Reaction wheels} For wheel $j$ with axis $\hat{\bm a}_j^b$,
+inertia $I_j$, and signed wheel speed $\Omega_j$, the wheel angular
+momentum in the body frame is $\bm h_j^b = I_j\Omega_j\hat{\bm a}_j^b$. The
+torque on the host body is the gyroscopic reaction plus a commanded
+acceleration $\alpha_j$:
+\begin{equation}
+  \bm\tau_j^{rw,b}
+    = -\bm\omega_i\times\bm h_j^b
+      \;-\; I_j\,\alpha_j\,\hat{\bm a}_j^b,
+  \label{eq:rw}
+\end{equation}
+with $\alpha_j = \tau_j^{\text{cmd}}/I_j$ saturated by torque/speed limits.
+The wheel speed is integrated separately by Euler:
+$\Omega_j^{n+1} = \Omega_j^{n} + \alpha_j\,\Delta t$.
+
+\paragraph{Single-gimbal CMG} With gimbal axis $\hat{\bm g}^b$, initial
+spin axis $\hat{\bm s}^b(0)$, rotor momentum $h$, and gimbal angle
+$\theta_j$,
+\begin{equation}
+  \hat{\bm s}^b(\theta) = \cos\theta\,\hat{\bm s}^b(0)
+    + \sin\theta\,\hat{\bm g}^b\times\hat{\bm s}^b(0),
+\end{equation}
+\begin{equation}
+  \bm\tau_j^{cmg,b} = -\bm\omega_i\times\bigl(h\,\hat{\bm s}^b(\theta)\bigr)
+    - h\,\dot\theta_j\,\hat{\bm g}^b\times\hat{\bm s}^b(\theta),
+  \label{eq:cmg}
+\end{equation}
+with gimbal angle integrated by Euler under rate and angle limits.
+
+\paragraph{Thrusters} A thruster on body $i$ at body-frame position
+$\bm p^b$ along direction $\hat{\bm d}^b$ with commanded force
+$F_j\in[0,F_{\max}]$ produces world-frame force and torque
+\begin{equation}
+  \bm F_j^{w} = R_i^{wb}\,F_j\hat{\bm d}^b,\quad
+  \bm\tau_j^{w} = R_i^{wb}\bigl((\bm p^b - \bm p^{b,com})\times F_j\hat{\bm d}^b\bigr).
+  \label{eq:thr}
+\end{equation}
+
+\subsubsection{Swarm-averaged feedback}
+\label{subsec:swarm-feedback}
+
+The non-gravity translational force on body $i$ contributes to a single
+shared feedback acceleration that drives the chief reference. Writing
+$M = \sum_i m_i$, define
+\begin{equation}
+  \tilde{\bm a}_\text{fb}
+    \;=\; \frac{1}{M}\sum_i\bm F_i^{\text{ng,trans}},
+  \label{eq:a-feedback}
+\end{equation}
+where $\bm F_i^{\text{ng,trans}}$ is the translational portion of
+$\bm F_i^{\text{ng}}$ (drag, SRP, thrust). Converting to \si{km/s\squared}
+gives the $\bm a_\text{fb}$ used in~\eqref{eq:chief-ivp}. The same
+$\tilde{\bm a}_\text{fb}$ is subtracted from each body
+in~\eqref{eq:chief-frame-eom} as the origin compensation $-m_i\tilde{\bm a}_\text{fb}$.
+This couples the chief reference to the swarm centroid without altering
+relative motion: any choice of chief trajectory yields the same $\bm r_i(t)$,
+because~\eqref{eq:chief-frame-eom} is invariant under
+$\bm a_\text{chief}\to\bm a_\text{chief}+\bm a^*$ when the same $\bm a^*$ is
+applied to all bodies. The swarm-mean choice keeps $\|\bm r_i\|$ small.
+
+\subsection{\mj{} Multibody and Contact Solver}
+\label{subsec:mj-solver}
+
+Inside $\mathcal{F}_W$, \mj{} treats the joint coordinates
+$(q,\dot q)\in\R^{n_q}\times\R^{n_q}$ (free-joint translations and
+rotations of root bodies, plus revolute/prismatic/etc.\ joint angles for
+articulated chains) as the generalised state and integrates the
+constrained articulated-body equation
+\begin{equation}
+  M(q)\ddot q + \bm c(q,\dot q) \;=\; \bm\tau^{\text{passive}} +
+   \bm\tau^{\text{ctrl}} + J_c^{\!\top}\bm\lambda,
+  \label{eq:mj-eom}
+\end{equation}
+where $M(q)$ is the joint-space mass matrix, $\bm c(q,\dot q)$ collects
+Coriolis, centripetal, and gyroscopic terms generated by relative motion
+of connected links (these are \emph{internal} to the multibody chain, not
+fictitious frame-rotation terms), $\bm\tau^{\text{passive}}$ is the
+passive force vector (\texttt{qfrc\_passive}), $\bm\tau^{\text{ctrl}}$
+comes from \mj{} actuators, and $J_c^{\!\top}\bm\lambda$ is the contact
+and equality-constraint impulse computed by \mj{}'s convex solver.
+\mj{}'s built-in uniform gravity is disabled
+($\texttt{opt.gravity}=\bm 0$) so that the gravity model
+in~\eqref{eq:per-body-wrench} is not duplicated.
+
+\mjorbit{} writes the per-body wrench from~\eqref{eq:per-body-wrench}
+together with its torque counterpart
+$\bm\tau_i^{\text{wrench}}$ (the sum of $\bm\tau_i^{gg}$, drag/SRP,
+magnetic, magnetorquer, RW, CMG, and thruster torques) into
+$\bm\tau^{\text{passive}}$ via $\texttt{mj\_applyFT}$ at each body's COM.
+\mj{} aggregates these per-body wrenches through the body Jacobians,
+\begin{equation}
+  \bm\tau^{\text{passive}}
+   \;=\;
+   \sum_i \bigl(J_i^{\!\top}\bm F_i^{\text{wrench}}
+                + J_i^{R\,\!\top}\bm\tau_i^{\text{wrench}}\bigr),
+  \label{eq:passive-projection}
+\end{equation}
+where $J_i$ and $J_i^R$ are the translational and rotational Jacobians of
+body $i$. \mj{} is then responsible for integrating $(q,\dot q)$,
+enforcing joint and equality constraints, detecting contacts, and
+computing contact impulses $\bm\lambda$. The chief-frame fictitious force
+enters the constrained dynamics
+through~\eqref{eq:passive-projection}; no additional terms are needed for
+articulated or contact-coupled systems.
+
+\subsection{Coupling Architecture}
+\label{subsec:coupling}
+
+The chief propagator and \mj{} are coupled through a \mj{} plugin
+(\texttt{mujoco\_orbit.orbit}) that owns the chief state, environment
+caches, actuator state, and per-body wrench buffer. The plugin registers
+two capability hooks: \texttt{mjPLUGIN\_PASSIVE} and a per-step
+\texttt{Advance} callback. A single call to \texttt{mjo\_step} executes
+the following stages.
+
+\begin{enumerate}\setlength{\itemsep}{0pt}
+  \item \textbf{Cache refresh.} Recompute LVLH bases
+    $C_{IL}, C_{LI}, \bm\omega_L, \dot{\bm\omega}_L$ from $(\bm R,\bm V)$
+    using~\eqref{eq:lvlh-basis}--\eqref{eq:omega-lvlh} (with
+    $\dot{\bm\omega}_L$ derived from $\bm g(\bm R)$ including $J_2$ when
+    enabled). Recompute $\hat{\bm s}(t)$, $\eta(\bm R, t)$,
+    $\bm B(\bm R, t)$, $\rho(\bm R)$.
+  \item \textbf{Force assembly} (\texttt{Compute}, passive stage). Evaluate
+    \eqref{eq:chief-frame-eom}\,--\,\eqref{eq:thr} per body, accumulating
+    into $\texttt{qfrc\_passive}$ via \texttt{mj\_applyFT} and into a Python
+    visible buffer.
+  \item \textbf{Multibody integration.} \mj{} solves~\eqref{eq:mj-eom} and
+    advances $(q,\dot q)$ by $\Delta t$ using its semi-implicit Euler or
+    RK4 integrator (configurable in the XML).
+  \item \textbf{Actuator advance} (\texttt{Advance}). Euler-integrate
+    reaction-wheel speeds $\Omega_j$ and CMG gimbal angles $\theta_j$ under
+    saturation limits.
+  \item \textbf{Chief advance} (\texttt{Advance}). Compute $\bm a_\text{fb}$
+    from accumulated swarm forces (\ref{eq:a-feedback}), then integrate
+    $(\bm R,\bm V)$ over $\Delta t_o$ using
+    RK4~\eqref{eq:rk4} on~\eqref{eq:chief-ivp}.
+  \item \textbf{Cache refresh.} Re-sync caches at the new $(\bm R,\bm V)$
+    so subsequent reads of \texttt{data.frame} and \texttt{data.env} are
+    consistent with the post-step chief state.
+\end{enumerate}
+
+\mj{}'s contact solver receives no special treatment: contacts are
+resolved in $\mathcal{F}_W$, where the only forces are the per-body wrenches
+above and \mj{}'s internal joint and constraint forces. Contact impulses
+$\bm\lambda$ do not feed back into the chief orbit
+($\bm a_\text{fb}$ uses external translational forces only, not contact
+impulses), preserving the interpretation of the chief as a free-flying
+reference.
+
+\end{document}

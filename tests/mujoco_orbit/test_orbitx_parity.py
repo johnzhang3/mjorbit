@@ -12,17 +12,20 @@ import numpy as np
 import pytest
 
 from mujoco_orbit.constants import B0_EARTH, GM_EARTH, J2_EARTH, OMEGA_EARTH, R_EARTH
-from mujoco_orbit.orbit.elements import cartesian_to_keplerian, keplerian_to_cartesian
-from mujoco_orbit.orbit.environment import (
+from tests.mujoco_orbit.reference.orbit.elements import (
+    cartesian_to_keplerian,
+    keplerian_to_cartesian,
+)
+from tests.mujoco_orbit.reference.orbit.environment import (
     atm_density,
     atmosphere_relative_velocity_eci,
     dipole_field_eci,
     eclipse_factor,
     sun_vector_eci,
 )
-from mujoco_orbit.orbit.gravity import j2_accel, point_mass_accel
-from mujoco_orbit.orbit.propagator import propagate_rk4
-from mujoco_orbit.orbit.state import OrbitState
+from tests.mujoco_orbit.reference.orbit.gravity import j2_accel, point_mass_accel
+from tests.mujoco_orbit.reference.orbit.propagator import propagate_rk4
+from tests.mujoco_orbit.reference.orbit.state import OrbitState
 
 # -----------------------------------------------------------------------
 # Gravity model parity

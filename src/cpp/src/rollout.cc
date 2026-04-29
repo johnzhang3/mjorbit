@@ -3,6 +3,7 @@
 #include <mujoco/mujoco.h>
 
 #include "mujoco_orbit/orbit_cache.h"
+#include "mujoco_orbit/orbit_schedule.h"
 #include "orbit_instance.h"
 
 namespace {
@@ -83,7 +84,12 @@ void SetMjoState(
   }
 
   UpdateReactionWheelMomentum(inst);
-  mujoco_orbit::refresh_orbit_caches(inst);
+  if (inst->orbit_dt > 0.0 && inst->orbit_dt > m->opt.timestep + 1.0e-12) {
+    inst->orbit_schedule_initialized = 0;
+    mujoco_orbit::initialize_orbit_schedule(m, inst);
+  } else {
+    mujoco_orbit::refresh_orbit_caches(inst);
+  }
 }
 
 void GetMjoState(

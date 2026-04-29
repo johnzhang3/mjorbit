@@ -10,12 +10,30 @@ Usage:
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import numpy as np
+from _orbit_reference import circular_orbit_eci
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 from mujoco_orbit.testdata import FREE_BODY_XML
+
+
+def _compile_model(xml_path: str, *, mj_timestep: float) -> MjoModel:
+    mjorbit = (
+        '<mjorbit use_j2="false" use_drag="false" use_srp="false" '
+        'use_magnetic="false">\n  </mjorbit>\n'
+    )
+    xml = Path(xml_path).read_text().replace("</mujoco>", f"  {mjorbit}</mujoco>")
+    with tempfile.NamedTemporaryFile(suffix=".xml", mode="w", delete=False) as file:
+        file.write(xml)
+        configured_path = Path(file.name)
+    try:
+        return MjoModel.from_xml_path(str(configured_path), mj_timestep=mj_timestep)
+    finally:
+        configured_path.unlink(missing_ok=True)
 
 
 def cw_analytical(
@@ -45,18 +63,9 @@ def main() -> None:
     a_km = R_EARTH + alt_km
     n = np.sqrt(GM_EARTH / a_km**3)  # mean motion, rad/s
 
-    R_eci, V_eci = keplerian_to_cartesian(
-        a=a_km, e=0.0, inc=np.deg2rad(51.6), raan=0.0, argp=0.0, nu=0.0,
-    )
+    R_eci, V_eci = circular_orbit_eci(a_km, np.deg2rad(51.6))
 
-    model = MjoModel.from_xml_path(
-        FREE_BODY_XML,
-        mj_timestep=0.01,
-        use_j2=False,
-        use_drag=False,
-        use_srp=False,
-        use_magnetic=False,
-    )
+    model = _compile_model(FREE_BODY_XML, mj_timestep=0.01)
     data = MjoData(model, orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
 
     # Initial offset: 10 m radial, 0.05 m/s along-track velocity

@@ -5,13 +5,13 @@ import tempfile
 
 import numpy as np
 
-from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
+from mujoco_orbit import OrbitInit, mjo_forward, mjo_step
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.coupling.inertial import apply_inertial_wrenches
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
-from mujoco_orbit.orbit.gravity import total_accel
-from mujoco_orbit.orbit.lvlh import update_frame_cache
 from mujoco_orbit.testdata import FREE_BODY_XML
+from tests.mujoco_orbit.reference.coupling.inertial import apply_inertial_wrenches
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
+from tests.mujoco_orbit.reference.orbit.gravity import total_accel
+from tests.mujoco_orbit.reference.orbit.lvlh import update_frame_cache
 
 from ._helpers import get_freejoint_lvlh_state, make_model_data, set_freejoint_lvlh_state
 
@@ -226,7 +226,7 @@ class TestStepIntegration:
     def test_orbit_dt_overrides_mujoco_timestep(self):
         model, data = _make_model_data(orbit_dt=0.25)
         mjo_step(model, data)
-        np.testing.assert_allclose(data.orbit.t, 0.25, atol=1e-12)
+        np.testing.assert_allclose(data.orbit.t, model.opt.timestep, atol=1e-12)
 
     def test_step_recomputes_frame_cache_with_j2(self):
         a = R_EARTH + 700.0
@@ -238,15 +238,8 @@ class TestStepIntegration:
             argp=np.deg2rad(25.0),
             nu=np.deg2rad(70.0),
         )
-        model = MjoModel.from_xml_path(
-            FREE_BODY_XML,
-            mj_timestep=0.01,
-            use_j2=True,
-            use_drag=False,
-            use_srp=False,
-            use_magnetic=False,
-        )
-        data = MjoData(model, orbit=OrbitInit(R_eci=r_eci, V_eci=v_eci))
+        model, data = _make_model_data(use_j2=True)
+        data.reset(OrbitInit(R_eci=r_eci, V_eci=v_eci))
 
         mjo_step(model, data)
 

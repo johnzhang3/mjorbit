@@ -5,7 +5,6 @@
 
 #include <mujoco/mujoco.h>
 
-#include "mujoco_orbit/constants.h"
 #include "mujoco_orbit/gravity.h"
 #include "mujoco_orbit/math_utils.h"
 
@@ -43,14 +42,21 @@ void add_force_torque_at_com(
     int body_id,
     const double force_world[3],
     const double torque_world[3]) {
+  // Per-body force/torque accumulator. apply_passive_wrenches makes one
+  // mj_applyFT call per body after all sources have contributed, which
+  // amortises the body Jacobian cost across all sources hitting that body.
   if (inst->wrench_buffer && body_id >= 0 && body_id < inst->wrench_body_count) {
     double* wrench = inst->wrench_buffer + 6 * body_id;
     for (int i = 0; i < 3; ++i) {
       wrench[i] += force_world[i];
       wrench[3 + i] += torque_world[i];
     }
+    return;
   }
 
+  if (!m || !d || body_id < 0 || body_id >= m->nbody) {
+    return;
+  }
   const mjtNum point[3] = {
       d->xipos[3 * body_id + 0],
       d->xipos[3 * body_id + 1],
@@ -59,6 +65,42 @@ void add_force_torque_at_com(
   const mjtNum force[3] = {force_world[0], force_world[1], force_world[2]};
   const mjtNum torque[3] = {torque_world[0], torque_world[1], torque_world[2]};
   mj_applyFT(m, d, force, torque, point, body_id, d->qfrc_passive);
+}
+
+void flush_wrenches_to_qfrc(const mjModel* m, mjData* d, const OrbitInstance* inst) {
+  if (!inst->wrench_buffer) {
+    return;
+  }
+  const int nbody = std::min(static_cast<int>(m->nbody), inst->wrench_body_count);
+  for (int body_id = 1; body_id < nbody; ++body_id) {
+    const double* wrench = inst->wrench_buffer + 6 * body_id;
+    bool any_nonzero = false;
+    for (int i = 0; i < 6; ++i) {
+      if (wrench[i] != 0.0) {
+        any_nonzero = true;
+        break;
+      }
+    }
+    if (!any_nonzero) {
+      continue;
+    }
+    const mjtNum point[3] = {
+        d->xipos[3 * body_id + 0],
+        d->xipos[3 * body_id + 1],
+        d->xipos[3 * body_id + 2],
+    };
+    const mjtNum force[3] = {
+        static_cast<mjtNum>(wrench[0]),
+        static_cast<mjtNum>(wrench[1]),
+        static_cast<mjtNum>(wrench[2]),
+    };
+    const mjtNum torque[3] = {
+        static_cast<mjtNum>(wrench[3]),
+        static_cast<mjtNum>(wrench[4]),
+        static_cast<mjtNum>(wrench[5]),
+    };
+    mj_applyFT(m, d, force, torque, point, body_id, d->qfrc_passive);
+  }
 }
 
 void add_feedback_force(OrbitInstance* inst, const double force_world[3]) {
@@ -97,7 +139,7 @@ void body_angular_velocity_world(const mjData* d, int body_id, double out_w_worl
 
 void apply_inertial_wrenches(const mjModel* m, mjData* d, OrbitInstance* inst) {
   double chief_accel[3];
-  total_accel(inst->R_eci, chief_accel, inst->use_j2 != 0);
+  total_accel(inst->R_eci, chief_accel, inst->use_j2 != 0, inst->central_body);
 
   for (int body_id = 1; body_id < m->nbody; ++body_id) {
     const double mass = m->body_mass[body_id];
@@ -110,7 +152,7 @@ void apply_inertial_wrenches(const mjModel* m, mjData* d, OrbitInstance* inst) {
     body_eci_position_km(inst, d, body_id, zero, r_body_eci);
 
     double g_body[3];
-    total_accel(r_body_eci, g_body, inst->use_j2 != 0);
+    total_accel(r_body_eci, g_body, inst->use_j2 != 0, inst->central_body);
 
     double diff_force[3];
     for (int i = 0; i < 3; ++i) {
@@ -162,7 +204,7 @@ void apply_gravity_gradient_torques(const mjModel* m, mjData* d, OrbitInstance* 
 
     double torque_world[3];
     detail::cross3(r_hat, J_rhat, torque_world);
-    const double coeff = 3.0 * kGmEarth / std::pow(r_mag, 3);
+    const double coeff = 3.0 * inst->central_body.gm / std::pow(r_mag, 3);
     detail::scale3(torque_world, coeff, torque_world);
 
     add_force_torque_at_com(m, d, inst, body_id, zero, torque_world);
@@ -619,6 +661,8 @@ void apply_passive_wrenches(const mjModel* m, mjData* d, OrbitInstance* inst) {
 
   compute_feedback_accel(m, inst);
   apply_origin_acceleration_wrenches(m, d, inst);
+
+  flush_wrenches_to_qfrc(m, d, inst);
 }
 
 void advance_actuators(const mjModel* m, OrbitInstance* inst) {

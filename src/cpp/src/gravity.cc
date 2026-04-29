@@ -40,4 +40,18 @@ void total_accel(const double r_eci[3], double out_a[3], bool use_j2, double gm,
   detail::add3(out_a, a_j2, out_a);
 }
 
+void total_accel(
+    const double r_eci[3],
+    double out_a[3],
+    bool use_j2,
+    const CentralBodySpecNative& central_body) {
+  total_accel(
+      r_eci,
+      out_a,
+      use_j2,
+      central_body.gm,
+      central_body.j2,
+      central_body.radius);
+}
+
 }  // namespace mujoco_orbit

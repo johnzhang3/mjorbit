@@ -5,7 +5,20 @@
 
 namespace mujoco_orbit {
 
-void update_frame_cache(const double R_eci[3], const double V_eci[3], FrameCache* out_cache, bool use_j2) {
+void update_frame_cache(
+    const double R_eci[3],
+    const double V_eci[3],
+    FrameCache* out_cache,
+    bool use_j2) {
+  update_frame_cache(R_eci, V_eci, out_cache, use_j2, CentralBodySpecNative{});
+}
+
+void update_frame_cache(
+    const double R_eci[3],
+    const double V_eci[3],
+    FrameCache* out_cache,
+    bool use_j2,
+    const CentralBodySpecNative& central_body) {
   if (!out_cache) {
     return;
   }
@@ -45,7 +58,7 @@ void update_frame_cache(const double R_eci[3], const double V_eci[3], FrameCache
   detail::mat3_mul_vec(out_cache->C_LI, omega_eci, out_cache->omega_lvlh);
 
   double a_eci[3];
-  total_accel(R_eci, a_eci, use_j2);
+  total_accel(R_eci, a_eci, use_j2, central_body);
   double dh_dt[3];
   detail::cross3(R_eci, a_eci, dh_dt);
   const double dr_dt = detail::dot3(R_eci, V_eci) / r;

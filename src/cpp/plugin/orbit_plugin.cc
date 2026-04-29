@@ -16,6 +16,7 @@
 
 #include "mujoco_orbit/coupling.h"
 #include "mujoco_orbit/orbit_cache.h"
+#include "mujoco_orbit/orbit_schedule.h"
 #include "mujoco_orbit/propagator.h"
 #include "mujoco_orbit/sensors_plugin.h"
 #include "orbit_instance.h"
@@ -46,6 +47,7 @@ int Init(const mjModel* m, mjData* d, int instance) {
   if (!inst) return -1;
 
   // Defaults — Python shim / XML attributes override these later.
+  inst->central_body = mujoco_orbit::CentralBodySpecNative{};
   inst->use_j2 = 1;
   inst->use_drag = 1;
   inst->use_srp = 1;
@@ -92,6 +94,7 @@ void Reset(const mjModel* /*m*/, mjtNum* /*plugin_state*/, void* plugin_data, in
   // runtime chief orbit + derived caches should be reset to zero.
   const auto preserved = *inst;
   std::memset(inst, 0, sizeof(*inst));
+  inst->central_body = preserved.central_body;
   inst->use_j2 = preserved.use_j2;
   inst->use_drag = preserved.use_drag;
   inst->use_srp = preserved.use_srp;
@@ -129,7 +132,9 @@ void Compute(const mjModel* m, mjData* d, int instance, int capability_bit) {
     return;
   }
   auto* inst = GetInstance(d, instance);
-  mujoco_orbit::refresh_orbit_caches(inst);
+  // Caches are kept current by Advance() at the end of the previous step (and
+  // by initialize_orbit_schedule on construction / set_orbit / mjo_set_state),
+  // so we don't refresh again here on the hot step path.
   mujoco_orbit::apply_passive_wrenches(m, d, inst);
 }
 
@@ -138,19 +143,7 @@ void Advance(const mjModel* m, mjData* d, int instance) {
   if (!inst) return;
 
   mujoco_orbit::advance_actuators(m, inst);
-
-  const double dt = inst->orbit_dt > 0.0 ? inst->orbit_dt : m->opt.timestep;
-  mujoco_orbit::propagate_rk4(
-      inst->R_eci,
-      inst->V_eci,
-      inst->t,
-      dt,
-      inst->R_eci,
-      inst->V_eci,
-      &inst->t,
-      inst->use_j2 != 0,
-      inst->feedback_accel_eci);
-  mujoco_orbit::refresh_orbit_caches(inst);
+  mujoco_orbit::advance_orbit_schedule(m, inst);
 }
 
 void RegisterPlugin() {

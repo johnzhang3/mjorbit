@@ -1,6 +1,5 @@
 """Phase 7 validation: reaction wheels, magnetorquers, thrusters, CMGs."""
 
-import mujoco
 import numpy as np
 import pytest
 
@@ -12,7 +11,8 @@ from mujoco_orbit import (
     mjo_forward,
     mjo_step,
 )
-from mujoco_orbit.coupling.actuators import (
+from mujoco_orbit.testdata import FREE_BODY_XML, SPACECRAFT_ARM_XML, TWO_BODIES_XML
+from tests.mujoco_orbit.reference.coupling.actuators import (
     _apply_cmgs,
     _apply_magnetorquers,
     _apply_reaction_wheels,
@@ -20,7 +20,6 @@ from mujoco_orbit.coupling.actuators import (
     command_cmg_gimbal_rates,
     command_rw_torques,
 )
-from mujoco_orbit.testdata import FREE_BODY_XML, SPACECRAFT_ARM_XML, TWO_BODIES_XML
 
 from ._helpers import make_model_data
 
@@ -167,17 +166,17 @@ class TestReactionWheel:
             ],
         )
 
-        joint_a = mujoco.mj_name2id(model.mj_model, mujoco.mjtObj.mjOBJ_JOINT, "jnt_a")
-        joint_b = mujoco.mj_name2id(model.mj_model, mujoco.mjtObj.mjOBJ_JOINT, "jnt_b")
-        data.qvel[model.jnt_dofadr[joint_a] + 3 : model.jnt_dofadr[joint_a] + 6] = 0.0
-        data.qvel[model.jnt_dofadr[joint_b] + 3 : model.jnt_dofadr[joint_b] + 6] = [1.0, 0.0, 0.0]
+        dof_a = model.jnt_dofadr[0]
+        dof_b = model.jnt_dofadr[1]
+        data.qvel[dof_a + 3 : dof_a + 6] = 0.0
+        data.qvel[dof_b + 3 : dof_b + 6] = [1.0, 0.0, 0.0]
         mjo_forward(model, data)
 
         data.actuators.rw_speed[0] = 200.0
         data.clear_wrench_buffer()
         _apply_reaction_wheels(model, data)
 
-        expected_tau = model.rw_inertia[0] * data.actuators.rw_speed[0]
+        expected_tau = model.reaction_wheels[0].inertia * data.actuators.rw_speed[0]
         np.testing.assert_allclose(
             data.wrench_buffer[model.body_id("body_b"), 3:],
             [0.0, expected_tau, 0.0],

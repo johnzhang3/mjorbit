@@ -39,14 +39,14 @@ def test_contact_force_segments_for_collision() -> None:
 
     for _ in range(3000):
         mjo_step(model, data)
-        if data.mj_data.ncon > 0:
+        if data.ncon > 0:
             break
 
-    assert data.mj_data.ncon > 0, "expected the collision fixture to generate contact"
+    assert data.ncon > 0, "expected the collision fixture to generate contact"
 
     payload = contact_force_segments(
-        model.mj_model,
-        data.mj_data,
+        model,
+        data,
         force_scale=1.0e-3,
     )
 

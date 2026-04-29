@@ -9,7 +9,7 @@ import numpy as np
 
 from mujoco_orbit import MjoData, MjoModel, mjo_forward
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.coupling.gravity_gradient import apply_gravity_gradient_torques
+from tests.mujoco_orbit.reference.coupling.gravity_gradient import apply_gravity_gradient_torques
 
 from ._helpers import make_model_data
 

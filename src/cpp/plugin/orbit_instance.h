@@ -1,6 +1,8 @@
 #ifndef MUJOCO_ORBIT_PLUGIN_ORBIT_INSTANCE_H_
 #define MUJOCO_ORBIT_PLUGIN_ORBIT_INSTANCE_H_
 
+#include "mujoco_orbit/spec.h"
+
 // Per-mjData instance state for the mujoco_orbit.orbit plugin.
 //
 // One OrbitInstance lives behind mjData->plugin_data[instance], allocated in
@@ -107,6 +109,7 @@ struct OrbitInstance {
   double feedback_accel_eci[3];
 
   // Config (parsed from XML plugin attributes during init()).
+  CentralBodySpecNative central_body;
   int use_j2;               // include J2 perturbation in chief gravity
   int use_drag;
   int use_srp;
@@ -146,6 +149,22 @@ struct OrbitInstance {
 
   int num_orbit_sensors;
   const OrbitSensorDescriptorNative* orbit_sensors;
+
+  // Multirate chief-orbit propagation state. When orbit_dt is larger than the
+  // MuJoCo timestep, the public R/V/t state is interpolated between coarse RK4
+  // endpoints while feedback acceleration is averaged over the coarse interval.
+  int orbit_schedule_initialized;
+  int orbit_rk4_count;
+  double orbit_segment_start_R_eci[3];
+  double orbit_segment_start_V_eci[3];
+  double orbit_segment_start_t;
+  double orbit_segment_end_R_eci[3];
+  double orbit_segment_end_V_eci[3];
+  double orbit_segment_end_t;
+  double orbit_segment_duration;
+  double orbit_segment_elapsed;
+  double feedback_accel_integral_eci[3];
+  double feedback_accel_integral_dt;
 };
 
 }  // namespace mujoco_orbit

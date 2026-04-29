@@ -3,14 +3,20 @@
 ## Project Structure & Module Organization
 `src/mujoco_orbit/` is the main package and now exposes a MuJoCo-style model/data API.
 
-- `src/mujoco_orbit/core/config.py` defines public `OrbitInit` and `*Spec` dataclasses.
-- `src/mujoco_orbit/core/runtime.py` defines `MjoModel` and `MjoData`.
-- `src/mujoco_orbit/core/step.py` defines `mjo_forward` and `mjo_step`.
-- `src/mujoco_orbit/core/actuators.py` holds runtime actuator-state containers.
-- `src/cpp/` contains the native MuJoCo plugin and C++ orbit implementation.
-- `src/mujoco_orbit/orbit/` contains Python reference/analysis orbit helpers.
-- `src/mujoco_orbit/coupling/` contains Python reference/analysis coupling helpers.
-- `src/mujoco_orbit/sensors.py` contains sensor catalogs, callbacks, and measurement helpers.
+- `src/mujoco_orbit/config.py` defines public `OrbitInit` and `*Spec` dataclasses.
+- `src/mujoco_orbit/model.py` defines the Python `MjoModel` wrapper.
+- `src/mujoco_orbit/data.py` defines the Python `MjoData` wrapper.
+- `src/mujoco_orbit/step.py` defines `mjo_forward` and `mjo_step`.
+- `src/mujoco_orbit/rollout.py` defines state and rollout helpers.
+- `src/cpp/` contains the language-neutral C++ core and MuJoCo plugin.
+- `src/cpp/src/runtime_model.cc` compiles XML and resolves model metadata.
+- `src/cpp/src/runtime.cc` owns per-`MjoData` allocation, reset, and frame conversions.
+- `src/cpp/src/runtime_sensors.cc` owns C++ sensor bias/noise measurement helpers.
+- `src/cpp/src/runtime_state.cc` owns stepping, state packing, and rollout calls.
+- `src/cpp/bindings/` contains the nanobind Python module.
+- `tests/mujoco_orbit/reference/orbit/` contains Python reference/analysis orbit helpers.
+- `tests/mujoco_orbit/reference/coupling/` contains Python reference/analysis coupling helpers.
+- `tests/mujoco_orbit/reference/sensors.py` contains Python reference sensor helpers.
 - `src/mujoco_orbit/testdata/` contains XML fixtures used by tests and examples.
 - `src/viewer/` contains the browser viewer integration.
 - `examples/` contains small runnable demos of the public API.

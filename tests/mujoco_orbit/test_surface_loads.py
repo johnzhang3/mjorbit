@@ -4,8 +4,8 @@ import numpy as np
 
 from mujoco_orbit import SurfaceSpec, mjo_forward, mjo_step
 from mujoco_orbit.constants import P_SUN
-from mujoco_orbit.coupling.surfaces import apply_surface_wrenches
 from mujoco_orbit.testdata import FREE_BODY_XML
+from tests.mujoco_orbit.reference.coupling.surfaces import apply_surface_wrenches
 
 from ._helpers import make_model_data
 

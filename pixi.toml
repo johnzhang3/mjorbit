@@ -13,6 +13,7 @@ cxx-compiler = "*"
 
 [pypi-dependencies]
 mujoco-orbit = { path = ".", editable = true }
+nanobind = ">=2.5"
 
 [feature.dev.dependencies]
 pytest = ">=8.0"
@@ -36,7 +37,7 @@ py312 = ["dev", "py312"]
 report = ["dev", "py312", "report"]
 
 [tasks]
-sync-package = "python -m pip install -e . --no-deps --force-reinstall"
+sync-package = { cmd = "python -m pip install -e . --no-deps --force-reinstall && cmake --install build/cpp --prefix $(python -c 'import sysconfig; print(sysconfig.get_paths()[\"platlib\"])')", depends-on = ["cpp-build"] }
 test = { cmd = "pytest -q", depends-on = ["sync-package"] }
 test-api = { cmd = "pytest tests/mujoco_orbit/test_api_model_data.py -q", depends-on = ["sync-package"] }
 lint = "ruff check ."

@@ -10,7 +10,7 @@ from scipy.linalg import expm
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit, ReactionWheelSpec, SurfaceSpec, mjo_forward
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
 ISS_MASS = 420_000.0
 ISS_IXX = 128e6
