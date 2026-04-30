@@ -25,6 +25,8 @@ from .common import (
 
 SINGLE_BODY_XML = ASSET_DIR / "single_body_orbit.xml"
 HINGED_SATELLITE_XML = ASSET_DIR / "hinged_satellite.xml"
+TWO_ARM_FREE_DRIFT_XML = ASSET_DIR / "two_arm_free_drift.xml"
+TWO_ARM_BODY_NAMES = ("hub", "arm_1", "arm_2")
 
 
 @dataclass
@@ -57,6 +59,33 @@ class ArticulatedRun:
     basilisk_hinge_rates_rad_s: np.ndarray | None = None
     basilisk_hub_r_eci_km: np.ndarray | None = None
     basilisk_hub_v_eci_km_s: np.ndarray | None = None
+
+
+@dataclass
+class TwoArmFreeDriftRun:
+    summary: dict[str, Any]
+    times_s: np.ndarray
+    qpos: np.ndarray
+    qvel: np.ndarray
+    hinge_angles_rad: np.ndarray
+    hinge_rates_rad_s: np.ndarray
+    hub_r_eci_km: np.ndarray
+    hub_v_eci_km_s: np.ndarray
+    hub_quat_world_body: np.ndarray
+    body_names: tuple[str, ...]
+    body_r_eci_km: np.ndarray
+    body_v_eci_km_s: np.ndarray
+    system_com_world_m: np.ndarray
+    system_com_eci_km: np.ndarray
+    r_ref_eci_km: np.ndarray
+    v_ref_eci_km_s: np.ndarray
+    basilisk_times_s: np.ndarray | None = None
+    basilisk_hinge_angles_rad: np.ndarray | None = None
+    basilisk_hinge_rates_rad_s: np.ndarray | None = None
+    basilisk_hub_quat_world_body: np.ndarray | None = None
+    basilisk_body_r_eci_km: np.ndarray | None = None
+    basilisk_body_v_eci_km_s: np.ndarray | None = None
+    basilisk_system_com_eci_km: np.ndarray | None = None
 
 
 def run_single_body_mujoco_orbit(
@@ -367,6 +396,273 @@ def run_articulated_hinges_mujoco_orbit(
     )
 
 
+def run_two_arm_free_drift_mujoco_orbit(
+    *,
+    alt_km: float = 400.0,
+    inc_deg: float = 51.6,
+    duration_s: float | None = None,
+    dt_s: float = 0.1,
+    orbit_dt: float = 0.1,
+    max_samples: int = 2048,
+    basilisk_integrator: str = "rkf45",
+    initial_hinge_angles_rad: tuple[float, float] | np.ndarray = (0.0, 0.0),
+    initial_hinge_rates_rad_s: tuple[float, float] | np.ndarray = (0.0, 0.0),
+    initial_quat_world_body: np.ndarray | None = None,
+    initial_omega_body_rad_s: np.ndarray | None = None,
+    xml_path: Path = TWO_ARM_FREE_DRIFT_XML,
+) -> TwoArmFreeDriftRun:
+    """Run a passive two-arm free-drift satellite over one orbit by default."""
+    orbit = make_circular_orbit(alt_km=alt_km, inc_rad=np.deg2rad(inc_deg))
+    if dt_s <= 0.0:
+        raise ValueError("dt_s must be positive")
+    duration = orbit.period_s if duration_s is None else float(duration_s)
+    n_steps = int(round(duration / dt_s))
+    duration = n_steps * dt_s
+    if n_steps < 1:
+        raise ValueError("duration_s must cover at least one step")
+
+    hinge_angles0 = np.asarray(initial_hinge_angles_rad, dtype=np.float64).reshape(2)
+    hinge_rates0 = np.asarray(initial_hinge_rates_rad_s, dtype=np.float64).reshape(2)
+    if initial_quat_world_body is None:
+        initial_quat_world_body = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    if initial_omega_body_rad_s is None:
+        initial_omega_body_rad_s = np.zeros(3, dtype=np.float64)
+    initial_quat = _normalized_quat(initial_quat_world_body)
+    initial_omega = np.asarray(initial_omega_body_rad_s, dtype=np.float64)
+
+    model = compile_mjorbit_model(
+        xml_path,
+        plugin_body="hub",
+        mj_timestep=dt_s,
+        orbit_dt=orbit_dt,
+        use_gravity_gradient=False,
+    )
+    data = MjoData(model, orbit=OrbitInit(orbit.r_eci_km, orbit.v_eci_km_s))
+    passive = MjoData(model, orbit=OrbitInit(orbit.r_eci_km.copy(), orbit.v_eci_km_s.copy()))
+    body_names = TWO_ARM_BODY_NAMES
+    body_ids = tuple(model.body_id(name) for name in body_names)
+    body_masses = np.asarray([model.body_mass[body_id] for body_id in body_ids], dtype=np.float64)
+    body_ipos_m = np.asarray([model.body_ipos[body_id] for body_id in body_ids], dtype=np.float64)
+
+    for state in (data, passive):
+        state.qpos[0:3] = 0.0
+        state.qpos[3:7] = initial_quat
+        state.qpos[7:9] = hinge_angles0
+        state.qvel[0:3] = 0.0
+        state.qvel[3:6] = initial_omega
+        state.qvel[6:8] = hinge_rates0
+        mjo_forward(model, state)
+
+    initial_energy = orbital_energy_km2_s2(data.orbit.R_eci.copy(), data.orbit.V_eci.copy())
+    steps_to_sample = set(int(step) for step in sample_steps(n_steps, max_samples))
+
+    times: list[float] = []
+    qpos: list[np.ndarray] = []
+    qvel: list[np.ndarray] = []
+    hub_quat: list[np.ndarray] = []
+    body_r: list[np.ndarray] = []
+    body_v: list[np.ndarray] = []
+    com_world: list[np.ndarray] = []
+    com_eci: list[np.ndarray] = []
+
+    def record() -> None:
+        body_r_eci_km, body_v_eci_km_s = _mjorbit_body_origin_eci_states(data, body_ids)
+        system_com_world = system_com_world_m(model, data)
+        times.append(float(data.orbit.t))
+        qpos.append(np.asarray(data.qpos, dtype=np.float64).copy())
+        qvel.append(np.asarray(data.qvel, dtype=np.float64).copy())
+        hub_quat.append(np.asarray(data.qpos[3:7], dtype=np.float64).copy())
+        body_r.append(body_r_eci_km)
+        body_v.append(body_v_eci_km_s)
+        com_world.append(system_com_world)
+        com_eci.append(data.eci_position_from_world(system_com_world) * 1.0e-3)
+
+    record()
+    for step in range(1, n_steps + 1):
+        mjo_step(model, data)
+        mjo_step(model, passive)
+        if step in steps_to_sample:
+            record()
+
+    times_arr = np.asarray(times, dtype=np.float64)
+    qpos_arr = np.vstack(qpos)
+    qvel_arr = np.vstack(qvel)
+    hub_quat_arr = np.vstack(hub_quat)
+    body_r_arr = np.stack(body_r, axis=0)
+    body_v_arr = np.stack(body_v, axis=0)
+    com_world_arr = np.vstack(com_world)
+    com_eci_arr = np.vstack(com_eci)
+    hinge_angles_arr = qpos_arr[:, 7:9]
+    hinge_rates_arr = qvel_arr[:, 6:8]
+    hub_r_arr = body_r_arr[:, 0, :]
+    hub_v_arr = body_v_arr[:, 0, :]
+    r_ref_eci_km, v_ref_eci_km_s = circular_orbit_state_at(
+        times_arr,
+        alt_km=alt_km,
+        inc_rad=np.deg2rad(inc_deg),
+    )
+
+    final_energy = orbital_energy_km2_s2(data.orbit.R_eci.copy(), data.orbit.V_eci.copy())
+    chief_delta_m = np.linalg.norm(data.orbit.R_eci - passive.orbit.R_eci) * 1.0e3
+    chief_delta_m_s = np.linalg.norm(data.orbit.V_eci - passive.orbit.V_eci) * 1.0e3
+    chief_ref_pos_m = np.linalg.norm(data.orbit.R_eci - r_ref_eci_km[-1]) * 1.0e3
+    chief_ref_vel_m_s = np.linalg.norm(data.orbit.V_eci - v_ref_eci_km_s[-1]) * 1.0e3
+
+    basilisk = _run_basilisk_two_arm_free_drift(
+        orbit=orbit,
+        duration_s=duration,
+        dt_s=dt_s,
+        xml_path=xml_path,
+        integrator_name=basilisk_integrator,
+        initial_quat_world_body=initial_quat,
+        initial_omega_body_rad_s=initial_omega,
+        initial_hinge_angles_rad=hinge_angles0,
+        initial_hinge_rates_rad_s=hinge_rates0,
+        body_masses=body_masses,
+        body_ipos_m=body_ipos_m,
+    )
+    basilisk_payload: dict[str, Any] = basilisk["summary"]
+    basilisk_times_s = basilisk.get("times_s")
+    basilisk_hinge_angles_rad = basilisk.get("hinge_angles_rad")
+    basilisk_hinge_rates_rad_s = basilisk.get("hinge_rates_rad_s")
+    basilisk_hub_quat_world_body = basilisk.get("hub_quat_world_body")
+    basilisk_body_r_eci_km = basilisk.get("body_r_eci_km")
+    basilisk_body_v_eci_km_s = basilisk.get("body_v_eci_km_s")
+    basilisk_system_com_eci_km = basilisk.get("system_com_eci_km")
+    if (
+        isinstance(basilisk_times_s, np.ndarray)
+        and isinstance(basilisk_hinge_angles_rad, np.ndarray)
+        and isinstance(basilisk_hinge_rates_rad_s, np.ndarray)
+        and isinstance(basilisk_hub_quat_world_body, np.ndarray)
+        and isinstance(basilisk_body_r_eci_km, np.ndarray)
+        and isinstance(basilisk_body_v_eci_km_s, np.ndarray)
+        and isinstance(basilisk_system_com_eci_km, np.ndarray)
+        and basilisk_times_s.size >= 2
+    ):
+        b_angles = _interp_columns(times_arr, basilisk_times_s, basilisk_hinge_angles_rad)
+        b_rates = _interp_columns(times_arr, basilisk_times_s, basilisk_hinge_rates_rad_s)
+        b_quat = _interp_quat(times_arr, basilisk_times_s, basilisk_hub_quat_world_body)
+        b_body_r = _interp_body_vectors(times_arr, basilisk_times_s, basilisk_body_r_eci_km)
+        b_body_v = _interp_body_vectors(times_arr, basilisk_times_s, basilisk_body_v_eci_km_s)
+        b_com = _interp_columns(times_arr, basilisk_times_s, basilisk_system_com_eci_km)
+        attitude_errors_rad = _quat_angle_errors(hub_quat_arr, b_quat)
+        body_pos_errors_m = np.linalg.norm(body_r_arr - b_body_r, axis=2) * 1.0e3
+        body_vel_errors_m_s = np.linalg.norm(body_v_arr - b_body_v, axis=2) * 1.0e3
+        basilisk_payload.update(
+            {
+                "ours_vs_basilisk_max_hinge_angle_error_rad": float(
+                    np.max(np.linalg.norm(hinge_angles_arr - b_angles, axis=1))
+                ),
+                "ours_vs_basilisk_max_hinge_rate_error_rad_s": float(
+                    np.max(np.linalg.norm(hinge_rates_arr - b_rates, axis=1))
+                ),
+                "ours_vs_basilisk_final_hub_attitude_error_rad": float(
+                    attitude_errors_rad[-1]
+                ),
+                "ours_vs_basilisk_max_hub_attitude_error_rad": float(
+                    np.max(attitude_errors_rad)
+                ),
+                "ours_vs_basilisk_max_hub_position_error_m": float(
+                    np.max(body_pos_errors_m[:, 0])
+                ),
+                "ours_vs_basilisk_max_hub_velocity_error_m_s": float(
+                    np.max(body_vel_errors_m_s[:, 0])
+                ),
+                "ours_vs_basilisk_max_body_position_error_m": float(
+                    np.max(body_pos_errors_m)
+                ),
+                "ours_vs_basilisk_max_body_velocity_error_m_s": float(
+                    np.max(body_vel_errors_m_s)
+                ),
+                "ours_vs_basilisk_max_system_com_position_error_m": float(
+                    np.max(np.linalg.norm(com_eci_arr - b_com, axis=1)) * 1.0e3
+                ),
+                "ours_vs_basilisk_max_body_position_error_by_name_m": {
+                    name: float(np.max(body_pos_errors_m[:, idx]))
+                    for idx, name in enumerate(body_names)
+                },
+            }
+        )
+
+    summary = {
+        "case": "two_arm_free_drift",
+        "backend": "mujoco_orbit",
+        "alt_km": alt_km,
+        "inc_deg": inc_deg,
+        "period_s": orbit.period_s,
+        "duration_s": duration,
+        "dt_s": dt_s,
+        "n_steps": n_steps,
+        "orbit_dt_s": orbit_dt,
+        "samples": int(times_arr.size),
+        "body_names": body_names,
+        "body_masses_kg": body_masses,
+        "initial_hinge_angles_rad": hinge_angles0,
+        "initial_hinge_rates_rad_s": hinge_rates0,
+        "initial_omega_body_rad_s": initial_omega,
+        "gravity_gradient_torque_enabled": False,
+        "all_finite": bool(np.all(np.isfinite(qpos_arr)) and np.all(np.isfinite(qvel_arr))),
+        "final_hinge_1_rad": float(hinge_angles_arr[-1, 0]),
+        "final_hinge_2_rad": float(hinge_angles_arr[-1, 1]),
+        "max_abs_hinge_angle_rad": float(np.max(np.abs(hinge_angles_arr))),
+        "max_abs_hinge_rate_rad_s": float(np.max(np.abs(hinge_rates_arr))),
+        "chief_delta_vs_passive_m": float(chief_delta_m),
+        "chief_delta_vs_passive_m_s": float(chief_delta_m_s),
+        "chief_final_reference_position_error_m": float(chief_ref_pos_m),
+        "chief_final_reference_velocity_error_m_s": float(chief_ref_vel_m_s),
+        "orbit_energy_rel_change": float(abs(final_energy - initial_energy) / abs(initial_energy)),
+        "system_com_world_initial_m": com_world_arr[0],
+        "system_com_world_final_m": com_world_arr[-1],
+        "system_com_world_drift_m": float(np.linalg.norm(com_world_arr[-1] - com_world_arr[0])),
+        "basilisk_direct": basilisk_payload,
+    }
+    return TwoArmFreeDriftRun(
+        summary=summary,
+        times_s=times_arr,
+        qpos=qpos_arr,
+        qvel=qvel_arr,
+        hinge_angles_rad=hinge_angles_arr,
+        hinge_rates_rad_s=hinge_rates_arr,
+        hub_r_eci_km=hub_r_arr,
+        hub_v_eci_km_s=hub_v_arr,
+        hub_quat_world_body=hub_quat_arr,
+        body_names=body_names,
+        body_r_eci_km=body_r_arr,
+        body_v_eci_km_s=body_v_arr,
+        system_com_world_m=com_world_arr,
+        system_com_eci_km=com_eci_arr,
+        r_ref_eci_km=r_ref_eci_km,
+        v_ref_eci_km_s=v_ref_eci_km_s,
+        basilisk_times_s=basilisk_times_s if isinstance(basilisk_times_s, np.ndarray) else None,
+        basilisk_hinge_angles_rad=(
+            basilisk_hinge_angles_rad if isinstance(basilisk_hinge_angles_rad, np.ndarray) else None
+        ),
+        basilisk_hinge_rates_rad_s=(
+            basilisk_hinge_rates_rad_s
+            if isinstance(basilisk_hinge_rates_rad_s, np.ndarray)
+            else None
+        ),
+        basilisk_hub_quat_world_body=(
+            basilisk_hub_quat_world_body
+            if isinstance(basilisk_hub_quat_world_body, np.ndarray)
+            else None
+        ),
+        basilisk_body_r_eci_km=(
+            basilisk_body_r_eci_km if isinstance(basilisk_body_r_eci_km, np.ndarray) else None
+        ),
+        basilisk_body_v_eci_km_s=(
+            basilisk_body_v_eci_km_s
+            if isinstance(basilisk_body_v_eci_km_s, np.ndarray)
+            else None
+        ),
+        basilisk_system_com_eci_km=(
+            basilisk_system_com_eci_km
+            if isinstance(basilisk_system_com_eci_km, np.ndarray)
+            else None
+        ),
+    )
+
+
 def _hinge_targets(t: float, duration_s: float) -> np.ndarray:
     slew_time = 0.5 * duration_s
     alpha = min(max(t / slew_time, 0.0), 1.0)
@@ -403,12 +699,14 @@ def _run_basilisk_single_body(
     initial_quat_world_body: np.ndarray,
     initial_omega_body_rad_s: np.ndarray,
 ) -> dict[str, Any]:
+    integrator_label = _normalize_basilisk_integrator_name(integrator_name)
     available, message = basilisk_mujoco_import_status()
     if not available:
         return {
             "summary": {
                 "available": False,
                 "ran": False,
+                "integrator": integrator_label,
                 "message": message,
             }
         }
@@ -422,6 +720,7 @@ def _run_basilisk_single_body(
             "summary": {
                 "available": False,
                 "ran": False,
+                "integrator": integrator_label,
                 "message": f"{type(exc).__name__}: {exc}",
             }
         }
@@ -683,6 +982,215 @@ def _run_basilisk_articulated_hinges(
         }
 
 
+def _run_basilisk_two_arm_free_drift(
+    *,
+    orbit: Any,
+    duration_s: float,
+    dt_s: float,
+    xml_path: Path,
+    integrator_name: str,
+    initial_quat_world_body: np.ndarray,
+    initial_omega_body_rad_s: np.ndarray,
+    initial_hinge_angles_rad: np.ndarray,
+    initial_hinge_rates_rad_s: np.ndarray,
+    body_masses: np.ndarray,
+    body_ipos_m: np.ndarray,
+) -> dict[str, Any]:
+    integrator_label = _normalize_basilisk_integrator_name(integrator_name)
+    available, message = basilisk_mujoco_import_status()
+    if not available:
+        return {
+            "summary": {
+                "available": False,
+                "ran": False,
+                "message": message,
+            }
+        }
+
+    try:  # pragma: no cover - depends on optional external Basilisk install
+        from Basilisk.architecture import messaging
+        from Basilisk.simulation import NBodyGravity, mujoco, pointMassGravityModel, svIntegrators
+        from Basilisk.utilities import SimulationBaseClass
+    except Exception as exc:  # pragma: no cover - depends on optional external install
+        return {
+            "summary": {
+                "available": False,
+                "ran": False,
+                "message": f"{type(exc).__name__}: {exc}",
+            }
+        }
+
+    try:  # pragma: no cover - depends on optional external Basilisk install
+        n_steps = int(round(duration_s / dt_s))
+        task_dt_ns = max(1, int(round(dt_s * 1.0e9)))
+        task_name = "basilisk_mujoco_two_arm_free_drift"
+
+        sim = SimulationBaseClass.SimBaseClass()
+        process = sim.CreateNewProcess("basilisk_mujoco_compare")
+        process.addTask(sim.CreateNewTask(task_name, task_dt_ns))
+
+        scene = mujoco.MJScene.fromFile(str(xml_path))
+        scene.ModelTag = "mujocoScene"
+        sim.AddModelToTask(task_name, scene)
+        integrator = _make_basilisk_integrator(svIntegrators, scene, integrator_name)
+        scene.setIntegrator(integrator)
+
+        hub = scene.getBody("hub")
+        arm_1 = scene.getBody("arm_1")
+        arm_2 = scene.getBody("arm_2")
+        bodies = (hub, arm_1, arm_2)
+        hinge_1 = arm_1.getScalarJoint("hinge_1")
+        hinge_2 = arm_2.getScalarJoint("hinge_2")
+
+        gravity = NBodyGravity.NBodyGravity()
+        gravity.ModelTag = "gravity"
+        scene.AddModelToDynamicsTask(gravity)
+        earth = pointMassGravityModel.PointMassGravityModel()
+        earth.muBody = GM_EARTH * 1.0e9
+        source = gravity.addGravitySource("earth", earth, isCentralBody=True)
+        earth_msg = _earth_state_msg(messaging)
+        source.stateInMsg.subscribeTo(earth_msg)
+        for name, body in zip(TWO_ARM_BODY_NAMES, bodies, strict=True):
+            gravity.addGravityTarget(name, body)
+
+        body_recorders = [body.getCenterOfMass().stateOutMsg.recorder() for body in bodies]
+        hinge_1_recorder = hinge_1.stateOutMsg.recorder()
+        hinge_2_recorder = hinge_2.stateOutMsg.recorder()
+        hinge_1_rate_recorder = hinge_1.stateDotOutMsg.recorder()
+        hinge_2_rate_recorder = hinge_2.stateDotOutMsg.recorder()
+        recorders = [
+            *body_recorders,
+            hinge_1_recorder,
+            hinge_2_recorder,
+            hinge_1_rate_recorder,
+            hinge_2_rate_recorder,
+        ]
+        for recorder in recorders:
+            sim.AddModelToTask(task_name, recorder)
+
+        sim.InitializeSimulation()
+        hub.setPosition((orbit.r_eci_km * 1.0e3).tolist())
+        hub.setVelocity((orbit.v_eci_km_s * 1.0e3).tolist())
+        hub.setAttitude(_quat_world_body_to_basilisk_mrp(initial_quat_world_body).tolist())
+        hub.setAttitudeRate(np.asarray(initial_omega_body_rad_s, dtype=np.float64).tolist())
+        hinge_1.setPosition(float(initial_hinge_angles_rad[0]))
+        hinge_2.setPosition(float(initial_hinge_angles_rad[1]))
+        hinge_1.setVelocity(float(initial_hinge_rates_rad_s[0]))
+        hinge_2.setVelocity(float(initial_hinge_rates_rad_s[1]))
+
+        sim.ConfigureStopTime((n_steps + 1) * task_dt_ns)
+        sim.ExecuteSimulation()
+
+        times_s = np.asarray(body_recorders[0].times(), dtype=np.float64) * 1.0e-9
+        body_r_eci_km = (
+            np.stack(
+                [np.asarray(recorder.r_BN_N, dtype=np.float64) for recorder in body_recorders],
+                axis=1,
+            )
+            * 1.0e-3
+        )
+        body_v_eci_km_s = (
+            np.stack(
+                [np.asarray(recorder.v_BN_N, dtype=np.float64) for recorder in body_recorders],
+                axis=1,
+            )
+            * 1.0e-3
+        )
+        hub_quat_world_body = _basilisk_mrp_to_quat_world_body(
+            np.asarray(body_recorders[0].sigma_BN, dtype=np.float64)
+        )
+        body_quat_world_body = np.stack(
+            [
+                _basilisk_mrp_to_quat_world_body(
+                    np.asarray(recorder.sigma_BN, dtype=np.float64)
+                )
+                for recorder in body_recorders
+            ],
+            axis=1,
+        )
+        hinge_angles = np.column_stack(
+            (
+                _squeeze_state_column(hinge_1_recorder.state),
+                _squeeze_state_column(hinge_2_recorder.state),
+            )
+        )
+        hinge_rates = np.column_stack(
+            (
+                _squeeze_state_column(hinge_1_rate_recorder.state),
+                _squeeze_state_column(hinge_2_rate_recorder.state),
+            )
+        )
+
+        final_time_s = n_steps * task_dt_ns * 1.0e-9
+        keep = times_s <= final_time_s + 1.0e-12
+        times_s = times_s[keep]
+        body_r_eci_km = body_r_eci_km[keep]
+        body_v_eci_km_s = body_v_eci_km_s[keep]
+        hub_quat_world_body = hub_quat_world_body[keep]
+        body_quat_world_body = body_quat_world_body[keep]
+        hinge_angles = hinge_angles[keep]
+        hinge_rates = hinge_rates[keep]
+        body_com_r_eci_km = _body_com_positions_from_origins(
+            body_r_eci_km,
+            body_quat_world_body,
+            body_ipos_m,
+        )
+        system_com_eci_km = _mass_weighted_vectors(body_com_r_eci_km, body_masses)
+
+        r_ref, v_ref = circular_orbit_state_at(
+            times_s,
+            alt_km=orbit.alt_km,
+            inc_rad=orbit.inc_rad,
+        )
+        hub_pos_err_m = np.linalg.norm(body_r_eci_km[:, 0, :] - r_ref, axis=1) * 1.0e3
+        hub_vel_err_m_s = np.linalg.norm(body_v_eci_km_s[:, 0, :] - v_ref, axis=1) * 1.0e3
+
+        return {
+            "summary": {
+                "available": True,
+                "ran": True,
+                "message": "Basilisk.simulation.mujoco direct two-arm free-drift run completed",
+                "integrator": integrator_label,
+                "samples": int(times_s.size),
+                "gravity_targets": TWO_ARM_BODY_NAMES,
+                "all_finite": bool(
+                    np.all(np.isfinite(body_r_eci_km))
+                    and np.all(np.isfinite(body_v_eci_km_s))
+                    and np.all(np.isfinite(hinge_angles))
+                    and np.all(np.isfinite(hinge_rates))
+                    and np.all(np.isfinite(hub_quat_world_body))
+                ),
+                "final_hinge_1_rad": float(hinge_angles[-1, 0]),
+                "final_hinge_2_rad": float(hinge_angles[-1, 1]),
+                "max_abs_hinge_angle_rad": float(np.max(np.abs(hinge_angles))),
+                "max_abs_hinge_rate_rad_s": float(np.max(np.abs(hinge_rates))),
+                "hub_final_reference_position_error_m": float(hub_pos_err_m[-1]),
+                "hub_max_reference_position_error_m": float(np.max(hub_pos_err_m)),
+                "hub_final_reference_velocity_error_m_s": float(hub_vel_err_m_s[-1]),
+                "hub_max_reference_velocity_error_m_s": float(np.max(hub_vel_err_m_s)),
+            },
+            "times_s": times_s,
+            "hinge_angles_rad": hinge_angles,
+            "hinge_rates_rad_s": hinge_rates,
+            "hub_quat_world_body": hub_quat_world_body,
+            "body_r_eci_km": body_r_eci_km,
+            "body_v_eci_km_s": body_v_eci_km_s,
+            "system_com_eci_km": system_com_eci_km,
+        }
+    except Exception as exc:  # pragma: no cover - depends on optional external install
+        return {
+            "summary": {
+                "available": True,
+                "ran": False,
+                "integrator": integrator_label,
+                "message": (
+                    "Direct Basilisk two-arm free-drift run failed: "
+                    f"{type(exc).__name__}: {exc}"
+                ),
+            }
+        }
+
+
 def _earth_state_msg(messaging: Any) -> Any:
     payload = messaging.SpicePlanetStateMsgPayload()
     payload.PositionVector = [0.0, 0.0, 0.0]
@@ -722,6 +1230,49 @@ def _make_basilisk_integrator(sv_integrators: Any, scene: Any, name: str) -> Any
     return constructors[_normalize_basilisk_integrator_name(name)](scene)
 
 
+def _mjorbit_body_origin_eci_states(
+    data: MjoData,
+    body_ids: tuple[int, ...],
+) -> tuple[np.ndarray, np.ndarray]:
+    positions = []
+    velocities = []
+    for body_id in body_ids:
+        origin_world_m = np.asarray(data.xpos[body_id], dtype=np.float64)
+        com_world_m = np.asarray(data.xipos[body_id], dtype=np.float64)
+        com_velocity_world_m_s = np.asarray(data.cvel[body_id, 3:6], dtype=np.float64)
+        omega_world_rad_s = np.asarray(data.cvel[body_id, 0:3], dtype=np.float64)
+        origin_velocity_world_m_s = com_velocity_world_m_s - np.cross(
+            omega_world_rad_s,
+            com_world_m - origin_world_m,
+        )
+        r_eci_m = data.eci_position_from_world(origin_world_m)
+        v_eci_m_s = data.eci_velocity_from_world(origin_velocity_world_m_s)
+        positions.append(r_eci_m * 1.0e-3)
+        velocities.append(v_eci_m_s * 1.0e-3)
+    return np.vstack(positions), np.vstack(velocities)
+
+
+def _body_com_positions_from_origins(
+    body_origin_r_eci_km: np.ndarray,
+    body_quat_world_body: np.ndarray,
+    body_ipos_m: np.ndarray,
+) -> np.ndarray:
+    body_com_r_eci_km = np.asarray(body_origin_r_eci_km, dtype=np.float64).copy()
+    for body_idx in range(body_com_r_eci_km.shape[1]):
+        rotations = _quat_world_body_to_matrix_batch(body_quat_world_body[:, body_idx, :])
+        offset_world_m = np.einsum("nij,j->ni", rotations, body_ipos_m[body_idx])
+        body_com_r_eci_km[:, body_idx, :] += offset_world_m * 1.0e-3
+    return body_com_r_eci_km
+
+
+def _mass_weighted_vectors(vectors: np.ndarray, masses: np.ndarray) -> np.ndarray:
+    weights = np.asarray(masses, dtype=np.float64)
+    total = float(np.sum(weights))
+    if total <= 0.0:
+        return np.zeros((vectors.shape[0], vectors.shape[2]), dtype=np.float64)
+    return np.sum(vectors * weights[None, :, None], axis=1) / total
+
+
 def _quat_world_body_to_basilisk_mrp(quat_world_body: np.ndarray) -> np.ndarray:
     quat = _normalized_quat(quat_world_body)
     if quat[0] < 0.0:
@@ -748,8 +1299,35 @@ def _basilisk_mrp_to_quat_world_body(sigma_bn: np.ndarray) -> np.ndarray:
     return _normalized_quat_rows(quat_world_body)
 
 
+def _quat_world_body_to_matrix_batch(quat: np.ndarray) -> np.ndarray:
+    q = _normalized_quat_rows(quat)
+    w = q[:, 0]
+    x = q[:, 1]
+    y = q[:, 2]
+    z = q[:, 3]
+    matrices = np.empty((q.shape[0], 3, 3), dtype=np.float64)
+    matrices[:, 0, 0] = 1.0 - 2.0 * (y * y + z * z)
+    matrices[:, 0, 1] = 2.0 * (x * y - w * z)
+    matrices[:, 0, 2] = 2.0 * (x * z + w * y)
+    matrices[:, 1, 0] = 2.0 * (x * y + w * z)
+    matrices[:, 1, 1] = 1.0 - 2.0 * (x * x + z * z)
+    matrices[:, 1, 2] = 2.0 * (y * z - w * x)
+    matrices[:, 2, 0] = 2.0 * (x * z - w * y)
+    matrices[:, 2, 1] = 2.0 * (y * z + w * x)
+    matrices[:, 2, 2] = 1.0 - 2.0 * (x * x + y * y)
+    return matrices
+
+
 def _interp_columns(x: np.ndarray, xp: np.ndarray, fp: np.ndarray) -> np.ndarray:
     return np.column_stack([np.interp(x, xp, fp[:, i]) for i in range(fp.shape[1])])
+
+
+def _interp_body_vectors(x: np.ndarray, xp: np.ndarray, fp: np.ndarray) -> np.ndarray:
+    body_count = fp.shape[1]
+    return np.stack(
+        [_interp_columns(x, xp, fp[:, body_idx, :]) for body_idx in range(body_count)],
+        axis=1,
+    )
 
 
 def _interp_quat(x: np.ndarray, xp: np.ndarray, fp: np.ndarray) -> np.ndarray:

@@ -27,6 +27,10 @@ in this harness therefore use converted physical states, not raw `qpos`.
 - `hinged_satellite.xml`: one free hub with two hinged panels/links and
   deterministic hinge position targets. This is intentionally simpler than the
   six-panel and thruster-arm paper examples.
+- `two_arm_free_drift.xml`: one free hub with two unlimited passive hinged
+  arms, no actuators, and one-orbit drift at matched `0.1 s`
+  MuJoCo/orbit/Basilisk timesteps. The arms start aligned by default; the
+  direct Basilisk leg is run with Euler and RKF45 by default.
 
 ## Running
 
@@ -38,6 +42,7 @@ pixi run compare-basilisk-hinges
 pixi run compare-basilisk
 pixi run compare-basilisk-integrators
 pixi run compare-basilisk-matched-dt
+pixi run compare-basilisk-two-arm
 pixi run benchmark-basilisk-rollouts
 ```
 
@@ -61,6 +66,13 @@ shared-model batch rollout API, so the summary JSON records this caveat.
 `mujoco_orbit` uses `mj_timestep=0.1 s` and `orbit_dt=0.1 s`, while Basilisk
 uses a `0.1 s` task period. It runs Basilisk Euler and RKF45 and reports both
 ECI position error and attitude error for a torque-free spinning body.
+
+`compare-basilisk-two-arm` extends that matched-step setup to a passive
+multibody satellite. It records hub attitude, hub/body-origin ECI positions,
+hinge angles/rates, and system COM, then compares the same `mujoco_orbit`
+trajectory against Basilisk Euler and RKF45 runs. The unlimited passive hinges
+make Euler failures visible as NaN/large-angle divergence instead of hiding them
+behind joint-limit clamping.
 
 ## Next Milestones
 
