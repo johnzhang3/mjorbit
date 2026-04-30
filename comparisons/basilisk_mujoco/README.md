@@ -36,6 +36,9 @@ From the repository root:
 pixi run compare-basilisk-single
 pixi run compare-basilisk-hinges
 pixi run compare-basilisk
+pixi run compare-basilisk-integrators
+pixi run compare-basilisk-matched-dt
+pixi run benchmark-basilisk-rollouts
 ```
 
 The scripts always run the `mujoco_orbit` leg and write summaries/samples to
@@ -46,6 +49,18 @@ installed, the direct Basilisk leg is reported as skipped in the JSON summary.
 When Basilisk with MuJoCo support is installed, the scripts also attempt direct
 `MJScene` + `NBodyGravity` runs using the same MJCF assets and add the sampled
 Basilisk inertial trajectories and joint states to the `.npz` outputs.
+
+The direct Basilisk runners accept `--basilisk-integrator` with `euler`, `rk2`,
+`rk4`, `rkf45`, or `rkf78`. `compare-basilisk-integrators` sweeps the
+single-body case over Euler and RKF45 by default. `benchmark-basilisk-rollouts`
+compares `mujoco_orbit.rollout(..., nthread=...)` against independent Basilisk
+`MJScene` simulations launched through a Python process pool; that is not a
+shared-model batch rollout API, so the summary JSON records this caveat.
+
+`compare-basilisk-matched-dt` is the fairer ECI-frame integrator stress test:
+`mujoco_orbit` uses `mj_timestep=0.1 s` and `orbit_dt=0.1 s`, while Basilisk
+uses a `0.1 s` task period. It runs Basilisk Euler and RKF45 and reports both
+ECI position error and attitude error for a torque-free spinning body.
 
 ## Next Milestones
 

@@ -33,11 +33,13 @@ class SingleBodyRun:
     times_s: np.ndarray
     r_eci_km: np.ndarray
     v_eci_km_s: np.ndarray
+    quat_world_body: np.ndarray
     r_ref_eci_km: np.ndarray
     v_ref_eci_km_s: np.ndarray
     basilisk_times_s: np.ndarray | None = None
     basilisk_r_eci_km: np.ndarray | None = None
     basilisk_v_eci_km_s: np.ndarray | None = None
+    basilisk_quat_world_body: np.ndarray | None = None
 
 
 @dataclass
@@ -62,13 +64,28 @@ def run_single_body_mujoco_orbit(
     alt_km: float = 400.0,
     inc_deg: float = 51.6,
     n_steps: int = 8000,
+    dt_s: float | None = None,
+    duration_s: float | None = None,
     orbit_dt: float = 0.1,
     max_samples: int = 512,
+    basilisk_integrator: str = "rkf45",
+    initial_quat_world_body: np.ndarray | None = None,
+    initial_omega_body_rad_s: np.ndarray | None = None,
     xml_path: Path = SINGLE_BODY_XML,
 ) -> SingleBodyRun:
     """Run a one-period single-body orbit in mujoco_orbit and compare to exact circular motion."""
     orbit = make_circular_orbit(alt_km=alt_km, inc_rad=np.deg2rad(inc_deg))
-    dt = orbit.period_s / float(n_steps)
+    if dt_s is None:
+        dt = orbit.period_s / float(n_steps)
+        duration = orbit.period_s if duration_s is None else float(duration_s)
+    else:
+        dt = float(dt_s)
+        duration = orbit.period_s if duration_s is None else float(duration_s)
+        n_steps = int(round(duration / dt))
+    if initial_quat_world_body is None:
+        initial_quat_world_body = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    if initial_omega_body_rad_s is None:
+        initial_omega_body_rad_s = np.zeros(3, dtype=np.float64)
     model = compile_mjorbit_model(
         xml_path,
         plugin_body="spacecraft",
@@ -78,18 +95,22 @@ def run_single_body_mujoco_orbit(
     )
     data = MjoData(model, orbit=OrbitInit(orbit.r_eci_km, orbit.v_eci_km_s))
     body_id = model.body_id("spacecraft")
+    data.qpos[3:7] = _normalized_quat(initial_quat_world_body)
+    data.qvel[3:6] = np.asarray(initial_omega_body_rad_s, dtype=np.float64)
     mjo_forward(model, data)
 
     steps_to_sample = set(int(step) for step in sample_steps(n_steps, max_samples))
     times: list[float] = []
     r_samples: list[np.ndarray] = []
     v_samples: list[np.ndarray] = []
+    q_samples: list[np.ndarray] = []
 
     def record() -> None:
         r_eci_km, v_eci_km_s = body_eci_state(data, body_id=body_id)
         times.append(float(data.orbit.t))
         r_samples.append(r_eci_km)
         v_samples.append(v_eci_km_s)
+        q_samples.append(np.asarray(data.qpos[3:7], dtype=np.float64).copy())
 
     record()
     for step in range(1, n_steps + 1):
@@ -100,6 +121,7 @@ def run_single_body_mujoco_orbit(
     times_s = np.asarray(times, dtype=np.float64)
     r_eci_km = np.vstack(r_samples)
     v_eci_km_s = np.vstack(v_samples)
+    quat_world_body = np.vstack(q_samples)
     r_ref_eci_km, v_ref_eci_km_s = circular_orbit_state_at(
         times_s,
         alt_km=alt_km,
@@ -115,19 +137,26 @@ def run_single_body_mujoco_orbit(
         n_steps=n_steps,
         xml_path=xml_path,
         body_name="spacecraft",
+        integrator_name=basilisk_integrator,
+        initial_quat_world_body=_normalized_quat(initial_quat_world_body),
+        initial_omega_body_rad_s=np.asarray(initial_omega_body_rad_s, dtype=np.float64),
     )
     basilisk_payload: dict[str, Any] = basilisk["summary"]
     basilisk_times_s = basilisk.get("times_s")
     basilisk_r_eci_km = basilisk.get("r_eci_km")
     basilisk_v_eci_km_s = basilisk.get("v_eci_km_s")
+    basilisk_quat_world_body = basilisk.get("quat_world_body")
     if (
         isinstance(basilisk_times_s, np.ndarray)
         and isinstance(basilisk_r_eci_km, np.ndarray)
         and isinstance(basilisk_v_eci_km_s, np.ndarray)
+        and isinstance(basilisk_quat_world_body, np.ndarray)
         and basilisk_times_s.size >= 2
     ):
         r_basilisk_at_ours = _interp_columns(times_s, basilisk_times_s, basilisk_r_eci_km)
         v_basilisk_at_ours = _interp_columns(times_s, basilisk_times_s, basilisk_v_eci_km_s)
+        q_basilisk_at_ours = _interp_quat(times_s, basilisk_times_s, basilisk_quat_world_body)
+        attitude_errors_rad = _quat_angle_errors(quat_world_body, q_basilisk_at_ours)
         basilisk_payload.update(
             {
                 "ours_vs_basilisk_max_position_error_m": float(
@@ -136,6 +165,8 @@ def run_single_body_mujoco_orbit(
                 "ours_vs_basilisk_max_velocity_error_m_s": float(
                     np.max(np.linalg.norm(v_eci_km_s - v_basilisk_at_ours, axis=1)) * 1.0e3
                 ),
+                "ours_vs_basilisk_final_attitude_error_rad": float(attitude_errors_rad[-1]),
+                "ours_vs_basilisk_max_attitude_error_rad": float(np.max(attitude_errors_rad)),
             }
         )
 
@@ -145,9 +176,11 @@ def run_single_body_mujoco_orbit(
         "alt_km": alt_km,
         "inc_deg": inc_deg,
         "period_s": orbit.period_s,
+        "duration_s": n_steps * dt,
         "dt_s": dt,
         "n_steps": n_steps,
         "orbit_dt_s": orbit_dt,
+        "initial_omega_body_rad_s": np.asarray(initial_omega_body_rad_s, dtype=np.float64),
         "samples": int(times_s.size),
         "final_time_s": float(times_s[-1]),
         "period_error_s": float(times_s[-1] - orbit.period_s),
@@ -162,11 +195,13 @@ def run_single_body_mujoco_orbit(
         times_s,
         r_eci_km,
         v_eci_km_s,
+        quat_world_body,
         r_ref_eci_km,
         v_ref_eci_km_s,
         basilisk_times_s if isinstance(basilisk_times_s, np.ndarray) else None,
         basilisk_r_eci_km if isinstance(basilisk_r_eci_km, np.ndarray) else None,
         basilisk_v_eci_km_s if isinstance(basilisk_v_eci_km_s, np.ndarray) else None,
+        basilisk_quat_world_body if isinstance(basilisk_quat_world_body, np.ndarray) else None,
     )
 
 
@@ -178,6 +213,7 @@ def run_articulated_hinges_mujoco_orbit(
     dt_s: float = 0.01,
     orbit_dt: float = 0.1,
     max_samples: int = 512,
+    basilisk_integrator: str = "rkf45",
     xml_path: Path = HINGED_SATELLITE_XML,
 ) -> ArticulatedRun:
     """Run a two-hinge articulated satellite with deterministic position targets."""
@@ -245,6 +281,7 @@ def run_articulated_hinges_mujoco_orbit(
         duration_s=duration_s,
         dt_s=dt_s,
         xml_path=xml_path,
+        integrator_name=basilisk_integrator,
     )
     basilisk_payload: dict[str, Any] = basilisk["summary"]
     basilisk_times_s = basilisk.get("times_s")
@@ -362,6 +399,9 @@ def _run_basilisk_single_body(
     n_steps: int,
     xml_path: Path,
     body_name: str,
+    integrator_name: str,
+    initial_quat_world_body: np.ndarray,
+    initial_omega_body_rad_s: np.ndarray,
 ) -> dict[str, Any]:
     available, message = basilisk_mujoco_import_status()
     if not available:
@@ -396,7 +436,7 @@ def _run_basilisk_single_body(
         scene = mujoco.MJScene.fromFile(str(xml_path))
         scene.ModelTag = "mujocoScene"
         sim.AddModelToTask(task_name, scene)
-        integrator = svIntegrators.svIntegratorRKF45(scene)
+        integrator = _make_basilisk_integrator(svIntegrators, scene, integrator_name)
         scene.setIntegrator(integrator)
 
         body = scene.getBody(body_name)
@@ -417,8 +457,8 @@ def _run_basilisk_single_body(
         sim.InitializeSimulation()
         body.setPosition((orbit.r_eci_km * 1.0e3).tolist())
         body.setVelocity((orbit.v_eci_km_s * 1.0e3).tolist())
-        body.setAttitude([0.0, 0.0, 0.0])
-        body.setAttitudeRate([0.0, 0.0, 0.0])
+        body.setAttitude(_quat_world_body_to_basilisk_mrp(initial_quat_world_body).tolist())
+        body.setAttitudeRate(np.asarray(initial_omega_body_rad_s, dtype=np.float64).tolist())
 
         sim.ConfigureStopTime((n_steps + 1) * task_dt_ns)
         sim.ExecuteSimulation()
@@ -426,15 +466,20 @@ def _run_basilisk_single_body(
         times_s = np.asarray(recorder.times(), dtype=np.float64) * 1.0e-9
         r_eci_km = np.asarray(recorder.r_BN_N, dtype=np.float64) * 1.0e-3
         v_eci_km_s = np.asarray(recorder.v_BN_N, dtype=np.float64) * 1.0e-3
+        quat_world_body = _basilisk_mrp_to_quat_world_body(
+            np.asarray(recorder.sigma_BN, dtype=np.float64)
+        )
         if times_s.size == 0 or times_s[0] > 1.0e-12:
             times_s = np.concatenate(([0.0], times_s))
             r_eci_km = np.vstack((orbit.r_eci_km, r_eci_km))
             v_eci_km_s = np.vstack((orbit.v_eci_km_s, v_eci_km_s))
+            quat_world_body = np.vstack((initial_quat_world_body, quat_world_body))
         final_time_s = n_steps * task_dt_ns * 1.0e-9
         keep = times_s <= final_time_s + 1.0e-12
         times_s = times_s[keep]
         r_eci_km = r_eci_km[keep]
         v_eci_km_s = v_eci_km_s[keep]
+        quat_world_body = quat_world_body[keep]
         r_ref, v_ref = circular_orbit_state_at(
             times_s,
             alt_km=orbit.alt_km,
@@ -447,6 +492,7 @@ def _run_basilisk_single_body(
                 "available": True,
                 "ran": True,
                 "message": "Basilisk.simulation.mujoco direct single-body run completed",
+                "integrator": _normalize_basilisk_integrator_name(integrator_name),
                 "samples": int(times_s.size),
                 "final_position_error_m": float(pos_err_m[-1]),
                 "max_position_error_m": float(np.max(pos_err_m)),
@@ -456,6 +502,7 @@ def _run_basilisk_single_body(
             "times_s": times_s,
             "r_eci_km": r_eci_km,
             "v_eci_km_s": v_eci_km_s,
+            "quat_world_body": quat_world_body,
         }
     except Exception as exc:  # pragma: no cover - depends on optional external install
         return {
@@ -473,6 +520,7 @@ def _run_basilisk_articulated_hinges(
     duration_s: float,
     dt_s: float,
     xml_path: Path,
+    integrator_name: str,
 ) -> dict[str, Any]:
     available, message = basilisk_mujoco_import_status()
     if not available:
@@ -509,7 +557,7 @@ def _run_basilisk_articulated_hinges(
         scene = mujoco.MJScene.fromFile(str(xml_path))
         scene.ModelTag = "mujocoScene"
         sim.AddModelToTask(task_name, scene)
-        integrator = svIntegrators.svIntegratorRKF45(scene)
+        integrator = _make_basilisk_integrator(svIntegrators, scene, integrator_name)
         scene.setIntegrator(integrator)
 
         hub = scene.getBody("hub")
@@ -604,6 +652,7 @@ def _run_basilisk_articulated_hinges(
                 "available": True,
                 "ran": True,
                 "message": "Basilisk.simulation.mujoco direct articulated-hinge run completed",
+                "integrator": _normalize_basilisk_integrator_name(integrator_name),
                 "samples": int(times_s.size),
                 "all_finite": bool(
                     np.all(np.isfinite(hinge_angles))
@@ -644,8 +693,114 @@ def _earth_state_msg(messaging: Any) -> Any:
     return messaging.SpicePlanetStateMsg().write(payload)
 
 
+def _normalize_basilisk_integrator_name(name: str) -> str:
+    normalized = name.strip().lower().replace("-", "").replace("_", "")
+    aliases = {
+        "euler": "euler",
+        "rk1": "euler",
+        "rk2": "rk2",
+        "rk4": "rk4",
+        "rkf45": "rkf45",
+        "rk45": "rkf45",
+        "rkf78": "rkf78",
+        "rk78": "rkf78",
+    }
+    if normalized not in aliases:
+        supported = ", ".join(sorted(set(aliases.values())))
+        raise ValueError(f"unsupported Basilisk integrator {name!r}; choose one of {supported}")
+    return aliases[normalized]
+
+
+def _make_basilisk_integrator(sv_integrators: Any, scene: Any, name: str) -> Any:
+    constructors = {
+        "euler": sv_integrators.svIntegratorEuler,
+        "rk2": sv_integrators.svIntegratorRK2,
+        "rk4": sv_integrators.svIntegratorRK4,
+        "rkf45": sv_integrators.svIntegratorRKF45,
+        "rkf78": sv_integrators.svIntegratorRKF78,
+    }
+    return constructors[_normalize_basilisk_integrator_name(name)](scene)
+
+
+def _quat_world_body_to_basilisk_mrp(quat_world_body: np.ndarray) -> np.ndarray:
+    quat = _normalized_quat(quat_world_body)
+    if quat[0] < 0.0:
+        quat = -quat
+    denom = 1.0 + quat[0]
+    if denom <= 1.0e-14:
+        return -quat[1:4]
+    return quat[1:4] / denom
+
+
+def _basilisk_mrp_to_quat_world_body(sigma_bn: np.ndarray) -> np.ndarray:
+    sigma = np.asarray(sigma_bn, dtype=np.float64)
+    if sigma.ndim == 1:
+        sigma = sigma.reshape(1, 3)
+    s2 = np.sum(sigma * sigma, axis=1)
+    quat_world_body = np.column_stack(
+        (
+            (1.0 - s2) / (1.0 + s2),
+            2.0 * sigma[:, 0] / (1.0 + s2),
+            2.0 * sigma[:, 1] / (1.0 + s2),
+            2.0 * sigma[:, 2] / (1.0 + s2),
+        )
+    )
+    return _normalized_quat_rows(quat_world_body)
+
+
 def _interp_columns(x: np.ndarray, xp: np.ndarray, fp: np.ndarray) -> np.ndarray:
     return np.column_stack([np.interp(x, xp, fp[:, i]) for i in range(fp.shape[1])])
+
+
+def _interp_quat(x: np.ndarray, xp: np.ndarray, fp: np.ndarray) -> np.ndarray:
+    fp = _normalized_quat_rows(fp)
+    out = np.empty((x.size, 4), dtype=np.float64)
+    for idx, value in enumerate(x):
+        right = int(np.searchsorted(xp, value, side="left"))
+        if right <= 0:
+            out[idx] = fp[0]
+            continue
+        if right >= xp.size:
+            out[idx] = fp[-1]
+            continue
+        left = right - 1
+        denom = xp[right] - xp[left]
+        alpha = 0.0 if abs(denom) <= 1.0e-15 else (value - xp[left]) / denom
+        q0 = fp[left]
+        q1 = fp[right]
+        if float(np.dot(q0, q1)) < 0.0:
+            q1 = -q1
+        out[idx] = _normalized_quat((1.0 - alpha) * q0 + alpha * q1)
+    return out
+
+
+def _quat_angle_errors(q_a: np.ndarray, q_b: np.ndarray) -> np.ndarray:
+    qa = _normalized_quat_rows(q_a)
+    qb = _normalized_quat_rows(q_b)
+    dots = np.abs(np.sum(qa * qb, axis=1))
+    return 2.0 * np.arccos(np.clip(dots, 0.0, 1.0))
+
+
+def _normalized_quat(quat: np.ndarray) -> np.ndarray:
+    q = np.asarray(quat, dtype=np.float64)
+    norm = float(np.linalg.norm(q))
+    if norm <= 0.0:
+        raise ValueError("quaternion must be non-zero")
+    return q / norm
+
+
+def _normalized_quat_rows(quat: np.ndarray) -> np.ndarray:
+    q = np.asarray(quat, dtype=np.float64)
+    norm = np.linalg.norm(q, axis=1)
+    if np.any(norm <= 0.0):
+        raise ValueError("quaternion rows must be non-zero")
+    return q / norm[:, None]
+
+
+def _quat_conj(quat: np.ndarray) -> np.ndarray:
+    q = np.asarray(quat, dtype=np.float64).copy()
+    q[1:4] *= -1.0
+    return q
 
 
 def _squeeze_state_column(value: Any) -> np.ndarray:

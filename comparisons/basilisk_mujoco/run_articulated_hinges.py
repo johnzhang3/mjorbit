@@ -16,6 +16,11 @@ def main() -> None:
     parser.add_argument("--dt", type=float, default=0.01)
     parser.add_argument("--orbit-dt", type=float, default=0.1)
     parser.add_argument("--max-samples", type=int, default=512)
+    parser.add_argument(
+        "--basilisk-integrator",
+        choices=("euler", "rk2", "rk4", "rkf45", "rkf78"),
+        default="rkf45",
+    )
     args = parser.parse_args()
 
     result = run_articulated_hinges_mujoco_orbit(
@@ -25,6 +30,7 @@ def main() -> None:
         dt_s=args.dt,
         orbit_dt=args.orbit_dt,
         max_samples=args.max_samples,
+        basilisk_integrator=args.basilisk_integrator,
     )
 
     out_dir = ensure_out_dir()
@@ -91,6 +97,8 @@ def _print_summary(summary: dict[str, object]) -> None:
     if isinstance(basilisk, dict):
         print()
         print(f"Basilisk direct leg: {basilisk['message']}")
+        if basilisk.get("integrator"):
+            print(f"Basilisk integrator: {basilisk['integrator']}")
         if basilisk.get("ran"):
             print(
                 "Ours vs Basilisk hinge angle max: "

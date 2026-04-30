@@ -15,6 +15,11 @@ def main() -> None:
     parser.add_argument("--n-steps", type=int, default=8000)
     parser.add_argument("--orbit-dt", type=float, default=0.1)
     parser.add_argument("--max-samples", type=int, default=512)
+    parser.add_argument(
+        "--basilisk-integrator",
+        choices=("euler", "rk2", "rk4", "rkf45", "rkf78"),
+        default="rkf45",
+    )
     args = parser.parse_args()
 
     result = run_single_body_mujoco_orbit(
@@ -23,6 +28,7 @@ def main() -> None:
         n_steps=args.n_steps,
         orbit_dt=args.orbit_dt,
         max_samples=args.max_samples,
+        basilisk_integrator=args.basilisk_integrator,
     )
 
     out_dir = ensure_out_dir()
@@ -31,6 +37,7 @@ def main() -> None:
         "times_s": result.times_s,
         "r_eci_km": result.r_eci_km,
         "v_eci_km_s": result.v_eci_km_s,
+        "quat_world_body": result.quat_world_body,
         "r_ref_eci_km": result.r_ref_eci_km,
         "v_ref_eci_km_s": result.v_ref_eci_km_s,
     }
@@ -38,12 +45,14 @@ def main() -> None:
         result.basilisk_times_s is not None
         and result.basilisk_r_eci_km is not None
         and result.basilisk_v_eci_km_s is not None
+        and result.basilisk_quat_world_body is not None
     ):
         samples.update(
             {
                 "basilisk_times_s": result.basilisk_times_s,
                 "basilisk_r_eci_km": result.basilisk_r_eci_km,
                 "basilisk_v_eci_km_s": result.basilisk_v_eci_km_s,
+                "basilisk_quat_world_body": result.basilisk_quat_world_body,
             }
         )
     save_npz(
@@ -74,6 +83,8 @@ def _print_summary(summary: dict[str, object]) -> None:
     if isinstance(basilisk, dict):
         print()
         print(f"Basilisk direct leg: {basilisk['message']}")
+        if basilisk.get("integrator"):
+            print(f"Basilisk integrator: {basilisk['integrator']}")
         if basilisk.get("ran"):
             print(
                 "Ours vs Basilisk max position: "
@@ -82,6 +93,10 @@ def _print_summary(summary: dict[str, object]) -> None:
             print(
                 "Ours vs Basilisk max velocity: "
                 f"{basilisk['ours_vs_basilisk_max_velocity_error_m_s']:.6e} m/s"
+            )
+            print(
+                "Ours vs Basilisk max attitude: "
+                f"{basilisk['ours_vs_basilisk_max_attitude_error_rad']:.6e} rad"
             )
 
 
