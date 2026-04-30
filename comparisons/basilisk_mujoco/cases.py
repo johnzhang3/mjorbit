@@ -403,6 +403,7 @@ def run_two_arm_free_drift_mujoco_orbit(
     duration_s: float | None = None,
     dt_s: float = 0.1,
     orbit_dt: float = 0.1,
+    mj_integrator: str = "Euler",
     max_samples: int = 2048,
     basilisk_integrator: str = "rkf45",
     initial_hinge_angles_rad: tuple[float, float] | np.ndarray = (0.0, 0.0),
@@ -410,6 +411,7 @@ def run_two_arm_free_drift_mujoco_orbit(
     initial_quat_world_body: np.ndarray | None = None,
     initial_omega_body_rad_s: np.ndarray | None = None,
     xml_path: Path = TWO_ARM_FREE_DRIFT_XML,
+    run_basilisk_direct: bool = True,
 ) -> TwoArmFreeDriftRun:
     """Run a passive two-arm free-drift satellite over one orbit by default."""
     orbit = make_circular_orbit(alt_km=alt_km, inc_rad=np.deg2rad(inc_deg))
@@ -434,6 +436,7 @@ def run_two_arm_free_drift_mujoco_orbit(
         xml_path,
         plugin_body="hub",
         mj_timestep=dt_s,
+        mj_integrator=mj_integrator,
         orbit_dt=orbit_dt,
         use_gravity_gradient=False,
     )
@@ -508,19 +511,29 @@ def run_two_arm_free_drift_mujoco_orbit(
     chief_ref_pos_m = np.linalg.norm(data.orbit.R_eci - r_ref_eci_km[-1]) * 1.0e3
     chief_ref_vel_m_s = np.linalg.norm(data.orbit.V_eci - v_ref_eci_km_s[-1]) * 1.0e3
 
-    basilisk = _run_basilisk_two_arm_free_drift(
-        orbit=orbit,
-        duration_s=duration,
-        dt_s=dt_s,
-        xml_path=xml_path,
-        integrator_name=basilisk_integrator,
-        initial_quat_world_body=initial_quat,
-        initial_omega_body_rad_s=initial_omega,
-        initial_hinge_angles_rad=hinge_angles0,
-        initial_hinge_rates_rad_s=hinge_rates0,
-        body_masses=body_masses,
-        body_ipos_m=body_ipos_m,
-    )
+    if run_basilisk_direct:
+        basilisk = _run_basilisk_two_arm_free_drift(
+            orbit=orbit,
+            duration_s=duration,
+            dt_s=dt_s,
+            xml_path=xml_path,
+            integrator_name=basilisk_integrator,
+            initial_quat_world_body=initial_quat,
+            initial_omega_body_rad_s=initial_omega,
+            initial_hinge_angles_rad=hinge_angles0,
+            initial_hinge_rates_rad_s=hinge_rates0,
+            body_masses=body_masses,
+            body_ipos_m=body_ipos_m,
+        )
+    else:
+        basilisk = {
+            "summary": {
+                "available": False,
+                "ran": False,
+                "integrator": basilisk_integrator,
+                "message": "Direct Basilisk run skipped by caller.",
+            }
+        }
     basilisk_payload: dict[str, Any] = basilisk["summary"]
     basilisk_times_s = basilisk.get("times_s")
     basilisk_hinge_angles_rad = basilisk.get("hinge_angles_rad")
@@ -594,6 +607,7 @@ def run_two_arm_free_drift_mujoco_orbit(
         "dt_s": dt_s,
         "n_steps": n_steps,
         "orbit_dt_s": orbit_dt,
+        "mj_integrator": mj_integrator,
         "samples": int(times_arr.size),
         "body_names": body_names,
         "body_masses_kg": body_masses,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import xml.etree.ElementTree as ET
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -101,6 +102,7 @@ def compile_mjorbit_model(
     *,
     plugin_body: str,
     mj_timestep: float,
+    mj_integrator: str | None = None,
     orbit_dt: float | None = None,
     use_j2: bool = False,
     use_drag: bool = False,
@@ -109,18 +111,17 @@ def compile_mjorbit_model(
     use_gravity_gradient: bool = False,
 ) -> MjoModel:
     """Compile an MJCF file with an injected ``<mjorbit>`` block."""
-    attrs = [
-        f'plugin_body="{plugin_body}"',
-        f'use_j2="{_xml_bool(use_j2)}"',
-        f'use_drag="{_xml_bool(use_drag)}"',
-        f'use_srp="{_xml_bool(use_srp)}"',
-        f'use_magnetic="{_xml_bool(use_magnetic)}"',
-        f'use_gravity_gradient="{_xml_bool(use_gravity_gradient)}"',
-    ]
+    attrs = {
+        "plugin_body": plugin_body,
+        "use_j2": _xml_bool(use_j2),
+        "use_drag": _xml_bool(use_drag),
+        "use_srp": _xml_bool(use_srp),
+        "use_magnetic": _xml_bool(use_magnetic),
+        "use_gravity_gradient": _xml_bool(use_gravity_gradient),
+    }
     if orbit_dt is not None:
-        attrs.append(f'orbit_dt="{float(orbit_dt):.17g}"')
-    block = "\n  <mjorbit " + " ".join(attrs) + ">\n  </mjorbit>\n"
-    text = xml_path.read_text().replace("</mujoco>", block + "</mujoco>")
+        attrs["orbit_dt"] = f"{float(orbit_dt):.17g}"
+    text = _configured_mjcf_text(xml_path, mjorbit_attrs=attrs, mj_integrator=mj_integrator)
 
     with tempfile.NamedTemporaryFile(suffix=".xml", mode="w", delete=False) as file:
         file.write(text)
@@ -198,3 +199,33 @@ def _jsonable(value: Any) -> Any:
 def _xml_bool(value: bool) -> str:
     return "true" if value else "false"
 
+
+def _configured_mjcf_text(
+    xml_path: Path,
+    *,
+    mjorbit_attrs: dict[str, str],
+    mj_integrator: str | None,
+) -> str:
+    root = ET.fromstring(xml_path.read_text())
+    if mj_integrator is not None:
+        option = root.find("option")
+        if option is None:
+            option = ET.Element("option")
+            root.insert(0, option)
+        option.set("integrator", _normalize_mujoco_xml_integrator(mj_integrator))
+    root.append(ET.Element("mjorbit", mjorbit_attrs))
+    return ET.tostring(root, encoding="unicode")
+
+
+def _normalize_mujoco_xml_integrator(name: str) -> str:
+    normalized = name.strip().lower().replace("-", "").replace("_", "")
+    aliases = {
+        "euler": "Euler",
+        "rk4": "RK4",
+        "implicit": "implicit",
+        "implicitfast": "implicitfast",
+    }
+    if normalized not in aliases:
+        supported = ", ".join(sorted(set(aliases.values())))
+        raise ValueError(f"unsupported MuJoCo integrator {name!r}; choose one of {supported}")
+    return aliases[normalized]

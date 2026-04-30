@@ -50,6 +50,8 @@ compare-basilisk = { cmd = "python -m comparisons.basilisk_mujoco.run_single_bod
 compare-basilisk-integrators = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_integrator_sweep", depends-on = ["sync-package"] }
 compare-basilisk-matched-dt = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_matched_dt", depends-on = ["sync-package"] }
 compare-basilisk-two-arm = { cmd = "python -m comparisons.basilisk_mujoco.run_two_arm_free_drift", depends-on = ["sync-package"] }
+diagnose-basilisk-two-arm = { cmd = "python -m comparisons.basilisk_mujoco.diagnose_two_arm_joint_mismatch", depends-on = ["sync-package"] }
+compare-two-arm-eci-frame = { cmd = "python -m comparisons.basilisk_mujoco.run_two_arm_eci_frame_check", depends-on = ["sync-package"] }
 benchmark-basilisk-rollouts = { cmd = "python -m comparisons.basilisk_mujoco.benchmark_parallel_rollouts", depends-on = ["sync-package"] }
 iss-hw2 = { cmd = "python ISS/hw2/spacecraft_dynamics.py", depends-on = ["sync-package"] }
 cpp-configure = "cmake -S src/cpp -B build/cpp -DPython_EXECUTABLE=$(python -c 'import sys; print(sys.executable)') -DCMAKE_BUILD_TYPE=Release"

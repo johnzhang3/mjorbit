@@ -22,6 +22,12 @@ def main() -> None:
     )
     parser.add_argument("--dt", type=float, default=0.1)
     parser.add_argument("--orbit-dt", type=float, default=0.1)
+    parser.add_argument(
+        "--mj-integrator",
+        choices=("Euler", "RK4", "implicit", "implicitfast"),
+        default="Euler",
+        help="MuJoCo integrator used by the mujoco_orbit leg.",
+    )
     parser.add_argument("--max-samples", type=int, default=2048)
     parser.add_argument(
         "--hinge-angles",
@@ -51,7 +57,7 @@ def main() -> None:
         "--integrators",
         nargs="+",
         choices=("euler", "rk2", "rk4", "rkf45", "rkf78"),
-        default=("euler", "rkf45"),
+        default=("rkf45",),
         help="Basilisk integrators to run against the same mujoco_orbit setup.",
     )
     args = parser.parse_args()
@@ -61,11 +67,16 @@ def main() -> None:
     print("=" * 72)
     print("Basilisk-MuJoCo comparison: passive two-arm free drift")
     print("=" * 72)
-    print(f"mujoco_orbit: mj_timestep={args.dt:.6g} s, orbit_dt={args.orbit_dt:.6g} s")
+    print(
+        "mujoco_orbit: "
+        f"mj_timestep={args.dt:.6g} s, orbit_dt={args.orbit_dt:.6g} s, "
+        f"integrator={args.mj_integrator}"
+    )
     print(f"Basilisk: task dt={args.dt:.6g} s")
     print(f"Initial hinge angles: {list(args.hinge_angles)} rad")
     print(f"Initial hinge rates: {list(args.hinge_rates)} rad/s")
 
+    mj_suffix = args.mj_integrator.lower().replace(" ", "_")
     for integrator in args.integrators:
         result = run_two_arm_free_drift_mujoco_orbit(
             alt_km=args.alt_km,
@@ -73,6 +84,7 @@ def main() -> None:
             duration_s=args.duration,
             dt_s=args.dt,
             orbit_dt=args.orbit_dt,
+            mj_integrator=args.mj_integrator,
             max_samples=args.max_samples,
             basilisk_integrator=integrator,
             initial_hinge_angles_rad=np.asarray(args.hinge_angles, dtype=np.float64),
@@ -81,7 +93,7 @@ def main() -> None:
         )
         summaries.append(result.summary)
         save_npz(
-            out_dir / f"two_arm_free_drift_{integrator}_samples.npz",
+            out_dir / f"two_arm_free_drift_{mj_suffix}_{integrator}_samples.npz",
             times_s=result.times_s,
             qpos=result.qpos,
             qvel=result.qvel,
@@ -102,13 +114,13 @@ def main() -> None:
         if not result.summary["all_finite"]:
             raise SystemExit("two-arm free-drift run produced non-finite mujoco_orbit state")
 
-    write_json(
-        out_dir / "two_arm_free_drift_summary.json",
-        {
-            "case": "two_arm_free_drift",
-            "summaries": summaries,
-        },
-    )
+    payload = {
+        "case": "two_arm_free_drift",
+        "mj_integrator": args.mj_integrator,
+        "summaries": summaries,
+    }
+    write_json(out_dir / f"two_arm_free_drift_{mj_suffix}_summary.json", payload)
+    write_json(out_dir / "two_arm_free_drift_summary.json", payload)
 
 
 def _basilisk_sample_arrays(result: TwoArmFreeDriftRun) -> dict[str, np.ndarray]:

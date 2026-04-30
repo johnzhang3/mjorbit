@@ -30,7 +30,7 @@ in this harness therefore use converted physical states, not raw `qpos`.
 - `two_arm_free_drift.xml`: one free hub with two unlimited passive hinged
   arms, no actuators, and one-orbit drift at matched `0.1 s`
   MuJoCo/orbit/Basilisk timesteps. The arms start aligned by default; the
-  direct Basilisk leg is run with Euler and RKF45 by default.
+  direct Basilisk leg is run with RKF45 by default.
 
 ## Running
 
@@ -43,6 +43,8 @@ pixi run compare-basilisk
 pixi run compare-basilisk-integrators
 pixi run compare-basilisk-matched-dt
 pixi run compare-basilisk-two-arm
+pixi run diagnose-basilisk-two-arm
+pixi run compare-two-arm-eci-frame
 pixi run benchmark-basilisk-rollouts
 ```
 
@@ -70,15 +72,29 @@ ECI position error and attitude error for a torque-free spinning body.
 `compare-basilisk-two-arm` extends that matched-step setup to a passive
 multibody satellite. It records hub attitude, hub/body-origin ECI positions,
 hinge angles/rates, and system COM, then compares the same `mujoco_orbit`
-trajectory against Basilisk Euler and RKF45 runs. The unlimited passive hinges
-make Euler failures visible as NaN/large-angle divergence instead of hiding them
-behind joint-limit clamping.
+trajectory against Basilisk RKF45. `--mj-integrator RK4` can be used to test
+whether MuJoCo's internal integrator is the mismatch source.
+
+`diagnose-basilisk-two-arm` runs shorter isolating experiments for the passive
+joint mismatch: plain MuJoCo versus Basilisk without gravity/orbit coupling,
+`mujoco_orbit` Euler versus RK4 against Basilisk RKF45, and a snapshot check of
+the analytic tidal wrench applied by `mujoco_orbit`.
+
+`compare-two-arm-eci-frame` removes Basilisk entirely. It runs the two-arm
+passive drift once in raw MuJoCo absolute ECI coordinates and once through
+`mujoco_orbit`'s chief-centered ECI-aligned world. The default raw ECI leg uses
+a MuJoCo passive callback so point-mass gravity is refreshed inside the MuJoCo
+dynamics evaluation; `--gravity-application xfrc` is also available to mirror
+the original `experiments/frame_study` applied-force loop exactly. Matching
+trajectories in callback mode is the frame-conversion falsification test, while
+the `xfrc` mode is useful for exposing stale-force integration error.
 
 ## Next Milestones
 
 1. Tighten the articulated actuator path so Basilisk and direct MuJoCo use the
-   same hinge-control semantics.
+   same hinge-control semantics. 
 2. Reproduce the paper's reaction-wheel attitude case with explicit wheel bodies.
 3. Extend the hinged satellite into staged branching panel deployment with locks.
 4. Add the thruster-arm control case once the simpler articulated parity cases
    agree.
+ 
