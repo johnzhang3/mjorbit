@@ -35,3 +35,4 @@ build/
 /Testing/
 build-tsan/
 comparisons/basilisk_mujoco/out/
+experiments/frame_study/out/
