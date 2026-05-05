@@ -52,6 +52,7 @@ sync-package = { cmd = "python -m pip install -e . --no-deps --force-reinstall &
 test = { cmd = "pytest -q", depends-on = ["sync-package"] }
 test-api = { cmd = "pytest tests/mujoco_orbit/test_api_model_data.py -q", depends-on = ["sync-package"] }
 test-warp = { cmd = "pytest tests/mujoco_orbit_warp -q", depends-on = ["sync-package"] }
+bench-capture-arm = { cmd = "python benchmarks/capture_arm.py", depends-on = ["sync-package"] }
 lint = "ruff check ."
 typecheck = "pyright --pythonpath $(python -c 'import sys; print(sys.executable)')"
 check = { depends-on = ["lint", "typecheck", "test"] }

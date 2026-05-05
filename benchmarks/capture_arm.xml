@@ -1,0 +1,71 @@
+<mujoco model="capture_arm">
+  <!-- Capture-arm benchmark scenario.
+
+       A chaser spacecraft with a 2-link robotic arm closes on a free-floating
+       tumbling target. The arm has position actuators (shoulder + elbow) and
+       a small spherical end-effector. The target is a 50 kg cube initialized
+       with a small angular velocity. Gravity is disabled at MuJoCo level —
+       the orbit overlay applies ECI gravity, RW torques, etc. via xfrc_applied.
+
+       Contact: end-effector (chaser) ↔ target cube. With sinusoidal arm
+       drive, the EE periodically pushes the target so the contact solver is
+       continuously exercised. With zero control the bodies still drift into
+       contact via gravity gradient + initial conditions.
+
+       Used by benchmarks/capture_arm.py. -->
+  <compiler angle="radian"/>
+  <option timestep="0.01" gravity="0 0 0">
+    <flag contact="enable"/>
+  </option>
+
+  <default>
+    <joint damping="0.5" armature="0.01"/>
+    <geom condim="3" friction="0.5 0.005 0.0001"
+          solref="0.01 1" solimp="0.9 0.95 0.001"
+          rgba="0.6 0.6 0.6 1"/>
+  </default>
+
+  <worldbody>
+    <!-- ============ Chaser bus + arm ============ -->
+    <body name="spacecraft" pos="0 0 0">
+      <freejoint name="base"/>
+      <geom name="bus" type="box" size="0.5 0.3 0.3" mass="200"
+            rgba="0.3 0.5 0.9 1" contype="1" conaffinity="1"/>
+
+      <!-- Shoulder -->
+      <body name="link1" pos="0.5 0 0">
+        <joint name="shoulder" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+        <geom name="upper_arm" type="capsule" fromto="0 0 0 0.8 0 0" size="0.04" mass="5"
+              contype="1" conaffinity="1"/>
+
+        <!-- Elbow -->
+        <body name="link2" pos="0.8 0 0">
+          <joint name="elbow" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+          <geom name="forearm" type="capsule" fromto="0 0 0 0.6 0 0" size="0.03" mass="3"
+                contype="1" conaffinity="1"/>
+
+          <!-- End-effector -->
+          <body name="ee" pos="0.6 0 0">
+            <geom name="ee_sphere" type="sphere" size="0.08" mass="1"
+                  rgba="0.95 0.65 0.1 1" contype="1" conaffinity="1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- ============ Free-tumbling target ============ -->
+    <body name="target" pos="2.0 0 0">
+      <freejoint name="target_root"/>
+      <geom name="target_box" type="box" size="0.18 0.18 0.18" mass="50"
+            rgba="0.85 0.2 0.2 1" contype="1" conaffinity="1"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <!-- MuJoCo-side position actuators on the arm joints. Driven by data.ctrl. -->
+    <position name="shoulder_pos" joint="shoulder" kp="80" kv="6"
+              ctrlrange="-3.14 3.14"/>
+    <position name="elbow_pos" joint="elbow" kp="60" kv="4"
+              ctrlrange="-3.14 3.14"/>
+  </actuator>
+</mujoco>
