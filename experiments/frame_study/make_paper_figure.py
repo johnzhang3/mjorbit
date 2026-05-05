@@ -85,7 +85,7 @@ def downsample_curve(
 
 def coordinates_block(x: np.ndarray, y: np.ndarray) -> str:
     """Format coordinates for an inline PGFPlots coordinate table."""
-    rows = [f"({x_value:.8g},{y_value:.8e})" for x_value, y_value in zip(x, y, strict=True)]
+    rows = [f"({x_value:.5g},{y_value:.4e})" for x_value, y_value in zip(x, y, strict=True)]
     return "\n".join(f"        {row}" for row in rows)
 
 
@@ -258,7 +258,7 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=1000.0,
     )
-    parser.add_argument("--max-points", type=int, default=900)
+    parser.add_argument("--max-points", type=int, default=250)
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     return parser.parse_args()
 

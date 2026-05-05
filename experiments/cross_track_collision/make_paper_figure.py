@@ -69,7 +69,7 @@ def _build_panel_curves(
 
 
 def _coordinates_block(x: np.ndarray, y: np.ndarray) -> str:
-    rows = [f"({xi:.6g},{yi:.4f})" for xi, yi in zip(x, y, strict=True)]
+    rows = [f"({xi:.5g},{yi:.4g})" for xi, yi in zip(x, y, strict=True)]
     return "\n".join(f"        {row}" for row in rows)
 
 
@@ -236,8 +236,8 @@ def parse_args() -> argparse.Namespace:
         default=2600.0,
         help="symmetric y-axis half-extent (m) for the bottom panel.",
     )
-    parser.add_argument("--short-max-points", type=int, default=200)
-    parser.add_argument("--long-max-points", type=int, default=400)
+    parser.add_argument("--short-max-points", type=int, default=80)
+    parser.add_argument("--long-max-points", type=int, default=150)
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     return parser.parse_args()
 
