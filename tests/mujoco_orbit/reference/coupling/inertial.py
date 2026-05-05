@@ -20,7 +20,7 @@ from __future__ import annotations
 import numpy as np
 
 from mujoco_orbit.runtime import MjoData, MjoModel
-from tests.mujoco_orbit.reference.orbit.gravity import total_accel
+from tests.mujoco_orbit.reference.orbit.gravity import relative_accel, total_accel
 
 _M_TO_KM = 1e-3
 _KM_S2_TO_M_S2 = 1e3  # km/s^2 -> m/s^2
@@ -45,18 +45,20 @@ def differential_gravity_force(
     model: MjoModel,
     data: MjoData,
     body_id: int,
-    *,
-    chief_accel: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Return a body's chief-relative gravity force in ECI-parallel world axes."""
+    """Return a body's chief-relative gravity force in ECI-parallel world axes.
+
+    Evaluates the differential ``g(r_chief+rho) - g(r_chief)`` via Encke's
+    identity (paper eq. 'encke') so the result remains accurate when
+    ``||rho|| << ||r_chief||``.
+    """
     mass = model.body_mass[body_id]
     if mass <= 0.0:
         return np.zeros(3)
 
-    g_chief = chief_gravity(data, model) if chief_accel is None else chief_accel
-    r_body_eci = body_eci_position_km(data, data.xipos[body_id])
-    g_body = total_accel(r_body_eci, use_j2=model.use_j2)
-    return mass * (g_body - g_chief) * _KM_S2_TO_M_S2
+    rho_km = np.asarray(data.xipos[body_id], dtype=float) * _M_TO_KM
+    diff_accel = relative_accel(rho_km, data.orbit.R_eci, use_j2=model.use_j2)
+    return mass * diff_accel * _KM_S2_TO_M_S2
 
 
 def apply_inertial_wrenches(model: MjoModel, data: MjoData) -> None:
@@ -65,8 +67,6 @@ def apply_inertial_wrenches(model: MjoModel, data: MjoData) -> None:
     Writes force contributions (N) into ``data.wrench_buffer[:, :3]``.
     Torque contributions are zero for translational forcing.
     """
-    g_chief = chief_gravity(data, model)
-
     for body_id in range(1, model.nbody):  # skip world body (id=0)
         mass = model.body_mass[body_id]  # kg
         if mass <= 0.0:
@@ -76,5 +76,4 @@ def apply_inertial_wrenches(model: MjoModel, data: MjoData) -> None:
             model,
             data,
             body_id,
-            chief_accel=g_chief,
         )

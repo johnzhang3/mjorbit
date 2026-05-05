@@ -63,12 +63,15 @@ class TestInertialWrenchBasics:
         data.clear_wrench_buffer()
         apply_inertial_wrenches(model, data)
         r_body_eci = data.orbit.R_eci + data.xipos[1] * 1e-3
+        # Direct-subtraction reference loses ~log10(||r_chief||/||rho||) digits
+        # to floating-point cancellation, while the Encke form used internally
+        # is exact, so the two agree only down to that cancellation floor.
         expected = (
             model.body_mass[1]
             * (total_accel(r_body_eci, use_j2=False) - total_accel(data.orbit.R_eci, use_j2=False))
             * 1e3
         )
-        np.testing.assert_allclose(data.wrench_buffer[1, :3], expected, rtol=1e-12)
+        np.testing.assert_allclose(data.wrench_buffer[1, :3], expected, rtol=1e-6, atol=1e-12)
 
 
 class TestCWLimit:

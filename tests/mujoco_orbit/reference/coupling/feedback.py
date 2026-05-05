@@ -21,7 +21,7 @@ from __future__ import annotations
 import numpy as np
 
 from mujoco_orbit.runtime import MjoData, MjoModel
-from tests.mujoco_orbit.reference.coupling.inertial import chief_gravity, differential_gravity_force
+from tests.mujoco_orbit.reference.coupling.inertial import differential_gravity_force
 
 
 def compute_net_external_wrench(data: MjoData) -> tuple[np.ndarray, np.ndarray]:
@@ -57,17 +57,11 @@ def compute_orbit_feedback_accel(
         return np.zeros(3)
 
     gravity_force = np.zeros(3)
-    g_chief = chief_gravity(data, model)
     for body_id in range(1, model.nbody):
         mass = model.body_mass[body_id]
         if mass <= 0.0:
             continue
-        gravity_force += differential_gravity_force(
-            model,
-            data,
-            body_id,
-            chief_accel=g_chief,
-        )
+        gravity_force += differential_gravity_force(model, data, body_id)
 
     # Force (N) -> acceleration (m/s^2) -> km/s^2. The wrench buffer includes
     # chief-relative gravity applied to MuJoCo bodies, while the reference orbit
