@@ -109,7 +109,7 @@ class DeviceCoreData:
 
 
 def _array_f64(values: np.ndarray | list[float]) -> Any:
-    return wp.array(np.asarray(values, dtype=np.float64), dtype=wp.float64)
+    return wp.array(np.asarray(values, dtype=np.float64), dtype=wp.float32)
 
 
 def _array_i32(values: np.ndarray | list[int]) -> Any:
@@ -118,7 +118,7 @@ def _array_i32(values: np.ndarray | list[int]) -> Any:
 
 def _array_vec3d(values: np.ndarray | list[list[float]]) -> Any:
     array = np.asarray(values, dtype=np.float64).reshape((-1, 3))
-    return wp.array(array, dtype=wp.vec3d, shape=(array.shape[0],))
+    return wp.array(array, dtype=wp.vec3, shape=(array.shape[0],))
 
 
 def _world_scalar(values: np.ndarray | float, nworld: int) -> np.ndarray:
@@ -144,17 +144,17 @@ def _world_array(values: np.ndarray, nworld: int, width: int) -> np.ndarray:
 
 def _copy_vec3d(dest: Any, values: np.ndarray, nworld: int) -> None:
     src_values = _world_vec3(values, nworld)
-    wp.copy(dest, wp.array(src_values, dtype=wp.vec3d, shape=(nworld,)))
+    wp.copy(dest, wp.array(src_values, dtype=wp.vec3, shape=(nworld,)))
 
 
 def _copy_f64_1d(dest: Any, values: np.ndarray | float, nworld: int) -> None:
-    wp.copy(dest, wp.array(_world_scalar(values, nworld), dtype=wp.float64))
+    wp.copy(dest, wp.array(_world_scalar(values, nworld), dtype=wp.float32))
 
 
 def _copy_f64_2d(dest: Any, values: np.ndarray, nworld: int, width: int) -> None:
     if width == 0:
         return
-    wp.copy(dest, wp.array(_world_array(values, nworld, width), dtype=wp.float64))
+    wp.copy(dest, wp.array(_world_array(values, nworld, width), dtype=wp.float32))
 
 
 def make_device_core_model(model: Any) -> DeviceCoreModel:
@@ -266,39 +266,39 @@ def make_device_core_data(
     orbit_t = np.array([init.t for init in orbit_inits], dtype=np.float64)
 
     return DeviceCoreData(
-        orbit_R_eci=wp.array(orbit_R, dtype=wp.vec3d, shape=(nworld,)),
-        orbit_V_eci=wp.array(orbit_V, dtype=wp.vec3d, shape=(nworld,)),
-        orbit_t=wp.array(orbit_t, dtype=wp.float64),
+        orbit_R_eci=wp.array(orbit_R, dtype=wp.vec3, shape=(nworld,)),
+        orbit_V_eci=wp.array(orbit_V, dtype=wp.vec3, shape=(nworld,)),
+        orbit_t=wp.array(orbit_t, dtype=wp.float32),
         # External (non-gravitational) net force on chief: sum of drag/SRP/thrust
         # forces on all bodies. Used to drive chief feedback acceleration AND
         # to apply origin-acceleration compensation -m·a_chief to each body.
         # Mirrors CPU OrbitInstance::feedback_force_world.
-        feedback_force_world=wp.zeros((nworld,), dtype=wp.vec3d),
+        feedback_force_world=wp.zeros((nworld,), dtype=wp.vec3),
         # Multirate orbit schedule: lazily initialized in the step kernel when
         # ``orbit_segment_duration[w] <= 0``.
-        orbit_segment_start_R_eci=wp.zeros((nworld,), dtype=wp.vec3d),
-        orbit_segment_start_V_eci=wp.zeros((nworld,), dtype=wp.vec3d),
-        orbit_segment_start_t=wp.zeros((nworld,), dtype=wp.float64),
-        orbit_segment_end_R_eci=wp.zeros((nworld,), dtype=wp.vec3d),
-        orbit_segment_end_V_eci=wp.zeros((nworld,), dtype=wp.vec3d),
-        orbit_segment_duration=wp.zeros((nworld,), dtype=wp.float64),
-        orbit_segment_elapsed=wp.zeros((nworld,), dtype=wp.float64),
-        orbit_feedback_int_eci=wp.zeros((nworld,), dtype=wp.vec3d),
-        orbit_feedback_int_dt=wp.zeros((nworld,), dtype=wp.float64),
-        frame_C_LI=wp.zeros((nworld,), dtype=wp.mat33d),
-        frame_C_IL=wp.zeros((nworld,), dtype=wp.mat33d),
-        frame_omega_lvlh=wp.zeros((nworld,), dtype=wp.vec3d),
-        frame_omega_dot_lvlh=wp.zeros((nworld,), dtype=wp.vec3d),
-        env_sun_vector_eci=wp.zeros((nworld,), dtype=wp.vec3d),
-        env_eclipse=wp.zeros((nworld,), dtype=wp.float64),
-        env_mag_field_eci=wp.zeros((nworld,), dtype=wp.vec3d),
-        env_atmosphere_omega_eci=wp.zeros((nworld,), dtype=wp.vec3d),
-        env_atm_density=wp.zeros((nworld,), dtype=wp.float64),
-        rw_speed=wp.zeros((nworld, len(model.reaction_wheels)), dtype=wp.float64),
-        rw_momentum=wp.zeros((nworld, len(model.reaction_wheels)), dtype=wp.float64),
-        rw_torque_cmd=wp.zeros((nworld, len(model.reaction_wheels)), dtype=wp.float64),
-        mtq_dipole_cmd=wp.zeros((nworld, len(model.magnetorquers)), dtype=wp.float64),
-        thr_force_cmd=wp.zeros((nworld, len(model.thrusters)), dtype=wp.float64),
+        orbit_segment_start_R_eci=wp.zeros((nworld,), dtype=wp.vec3),
+        orbit_segment_start_V_eci=wp.zeros((nworld,), dtype=wp.vec3),
+        orbit_segment_start_t=wp.zeros((nworld,), dtype=wp.float32),
+        orbit_segment_end_R_eci=wp.zeros((nworld,), dtype=wp.vec3),
+        orbit_segment_end_V_eci=wp.zeros((nworld,), dtype=wp.vec3),
+        orbit_segment_duration=wp.zeros((nworld,), dtype=wp.float32),
+        orbit_segment_elapsed=wp.zeros((nworld,), dtype=wp.float32),
+        orbit_feedback_int_eci=wp.zeros((nworld,), dtype=wp.vec3),
+        orbit_feedback_int_dt=wp.zeros((nworld,), dtype=wp.float32),
+        frame_C_LI=wp.zeros((nworld,), dtype=wp.mat33),
+        frame_C_IL=wp.zeros((nworld,), dtype=wp.mat33),
+        frame_omega_lvlh=wp.zeros((nworld,), dtype=wp.vec3),
+        frame_omega_dot_lvlh=wp.zeros((nworld,), dtype=wp.vec3),
+        env_sun_vector_eci=wp.zeros((nworld,), dtype=wp.vec3),
+        env_eclipse=wp.zeros((nworld,), dtype=wp.float32),
+        env_mag_field_eci=wp.zeros((nworld,), dtype=wp.vec3),
+        env_atmosphere_omega_eci=wp.zeros((nworld,), dtype=wp.vec3),
+        env_atm_density=wp.zeros((nworld,), dtype=wp.float32),
+        rw_speed=wp.zeros((nworld, len(model.reaction_wheels)), dtype=wp.float32),
+        rw_momentum=wp.zeros((nworld, len(model.reaction_wheels)), dtype=wp.float32),
+        rw_torque_cmd=wp.zeros((nworld, len(model.reaction_wheels)), dtype=wp.float32),
+        mtq_dipole_cmd=wp.zeros((nworld, len(model.magnetorquers)), dtype=wp.float32),
+        thr_force_cmd=wp.zeros((nworld, len(model.thrusters)), dtype=wp.float32),
         wrench_buffer=wp.zeros((nworld, model.nbody), dtype=wp.spatial_vector),
     )
 
@@ -423,57 +423,49 @@ def pull_core_device_to_public(data: Any, fields: frozenset[str] | None = None) 
             np.copyto(data.actuators.rw_momentum, rw_momentum)
 
 
-@wp.func
-def _vec3d_from_vec3(value: wp.vec3) -> wp.vec3d:
-    return wp.vec3d(wp.float64(value[0]), wp.float64(value[1]), wp.float64(value[2]))
+# Now that the orbit overlay runs in fp32 throughout, the previous
+# fp64→fp32 conversion helpers (_vec3d_from_vec3, _mat33d_from_mat33,
+# explicit float32 wrapping in spatial_lin/ang/add/from_parts) are
+# identities. Kept as thin wrappers so existing call sites compile, but
+# they should be inlined when the body of the file is next touched.
 
 
 @wp.func
-def _spatial_ang(value: wp.spatial_vector) -> wp.vec3d:
-    return wp.vec3d(wp.float64(value[0]), wp.float64(value[1]), wp.float64(value[2]))
+def _vec3d_from_vec3(value: wp.vec3) -> wp.vec3:
+    return value
 
 
 @wp.func
-def _spatial_lin(value: wp.spatial_vector) -> wp.vec3d:
-    return wp.vec3d(wp.float64(value[3]), wp.float64(value[4]), wp.float64(value[5]))
+def _spatial_ang(value: wp.spatial_vector) -> wp.vec3:
+    return wp.vec3(value[0], value[1], value[2])
 
 
 @wp.func
-def _mat33d_from_mat33(value: wp.mat33) -> wp.mat33d:
-    return wp.mat33d(
-        wp.float64(value[0, 0]),
-        wp.float64(value[0, 1]),
-        wp.float64(value[0, 2]),
-        wp.float64(value[1, 0]),
-        wp.float64(value[1, 1]),
-        wp.float64(value[1, 2]),
-        wp.float64(value[2, 0]),
-        wp.float64(value[2, 1]),
-        wp.float64(value[2, 2]),
+def _spatial_lin(value: wp.spatial_vector) -> wp.vec3:
+    return wp.vec3(value[3], value[4], value[5])
+
+
+@wp.func
+def _mat33d_from_mat33(value: wp.mat33) -> wp.mat33:
+    return value
+
+
+@wp.func
+def _spatial_from_parts(force: wp.vec3, torque: wp.vec3) -> wp.spatial_vector:
+    return wp.spatial_vector(
+        force[0], force[1], force[2], torque[0], torque[1], torque[2]
     )
 
 
 @wp.func
-def _spatial_from_parts(force: wp.vec3d, torque: wp.vec3d) -> wp.spatial_vector:
+def _spatial_add(value: wp.spatial_vector, force: wp.vec3, torque: wp.vec3) -> wp.spatial_vector:
     return wp.spatial_vector(
-        wp.float32(force[0]),
-        wp.float32(force[1]),
-        wp.float32(force[2]),
-        wp.float32(torque[0]),
-        wp.float32(torque[1]),
-        wp.float32(torque[2]),
-    )
-
-
-@wp.func
-def _spatial_add(value: wp.spatial_vector, force: wp.vec3d, torque: wp.vec3d) -> wp.spatial_vector:
-    return wp.spatial_vector(
-        value[0] + wp.float32(force[0]),
-        value[1] + wp.float32(force[1]),
-        value[2] + wp.float32(force[2]),
-        value[3] + wp.float32(torque[0]),
-        value[4] + wp.float32(torque[1]),
-        value[5] + wp.float32(torque[2]),
+        value[0] + force[0],
+        value[1] + force[1],
+        value[2] + force[2],
+        value[3] + torque[0],
+        value[4] + torque[1],
+        value[5] + torque[2],
     )
 
 
@@ -482,14 +474,14 @@ def _net_linear_force(
     world_id: int,
     nbody: int,
     wrench_buffer: wp.array2d(dtype=wp.spatial_vector),
-) -> wp.vec3d:
-    net = wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(0.0))
+) -> wp.vec3:
+    net = wp.vec3(wp.float32(0.0), wp.float32(0.0), wp.float32(0.0))
     for body_id in range(nbody):
         wrench = wrench_buffer[world_id, body_id]
-        net = net + wp.vec3d(
-            wp.float64(wrench[0]),
-            wp.float64(wrench[1]),
-            wp.float64(wrench[2]),
+        net = net + wp.vec3(
+            wp.float32(wrench[0]),
+            wp.float32(wrench[1]),
+            wp.float32(wrench[2]),
         )
     return net
 
@@ -498,8 +490,8 @@ def _net_linear_force(
 def _apply_origin_compensation(
     world_id: int,
     nbody: int,
-    body_mass: wp.array(dtype=wp.float64),
-    a_chief_m_s2: wp.vec3d,
+    body_mass: wp.array(dtype=wp.float32),
+    a_chief_m_s2: wp.vec3,
     wrench_buffer: wp.array2d(dtype=wp.spatial_vector),
     xfrc_applied: wp.array2d(dtype=wp.spatial_vector),
 ):
@@ -509,7 +501,7 @@ def _apply_origin_compensation(
     A chief-centered translating frame is non-inertial when the chief experiences
     non-gravitational acceleration; each body in MJ-world feels a corresponding
     pseudo-force so its absolute-frame motion comes out correct."""
-    zero64 = wp.float64(0.0)
+    zero64 = wp.float32(0.0)
     for body_id in range(1, nbody):
         mass_b = body_mass[body_id]
         if mass_b > zero64:
@@ -517,35 +509,35 @@ def _apply_origin_compensation(
             wrench_buffer[world_id, body_id] = _spatial_add(
                 wrench_buffer[world_id, body_id],
                 comp_force,
-                wp.vec3d(zero64, zero64, zero64),
+                wp.vec3(zero64, zero64, zero64),
             )
             xfrc_applied[world_id, body_id] = wrench_buffer[world_id, body_id]
 
 
 @wp.func
-def _j2_accel(R: wp.vec3d) -> wp.vec3d:
-    one = wp.float64(1.0)
-    gm = wp.float64(GM_EARTH)
-    earth_radius = wp.float64(R_EARTH)
-    j2 = wp.float64(J2_EARTH)
+def _j2_accel(R: wp.vec3) -> wp.vec3:
+    one = wp.float32(1.0)
+    gm = wp.float32(GM_EARTH)
+    earth_radius = wp.float32(R_EARTH)
+    j2 = wp.float32(J2_EARTH)
     r = wp.length(R)
-    factor = wp.float64(1.5) * j2 * gm * earth_radius * earth_radius
+    factor = wp.float32(1.5) * j2 * gm * earth_radius * earth_radius
     factor = factor / (r * r * r * r * r)
     x = R[0]
     y = R[1]
     z = R[2]
     z_r2 = (z / r) * (z / r)
-    return wp.vec3d(
-        factor * x * (wp.float64(5.0) * z_r2 - one),
-        factor * y * (wp.float64(5.0) * z_r2 - one),
-        factor * z * (wp.float64(5.0) * z_r2 - wp.float64(3.0)),
+    return wp.vec3(
+        factor * x * (wp.float32(5.0) * z_r2 - one),
+        factor * y * (wp.float32(5.0) * z_r2 - one),
+        factor * z * (wp.float32(5.0) * z_r2 - wp.float32(3.0)),
     )
 
 
 @wp.func
-def _total_accel(R: wp.vec3d, use_j2: int) -> wp.vec3d:
-    one = wp.float64(1.0)
-    gm = wp.float64(GM_EARTH)
+def _total_accel(R: wp.vec3, use_j2: int) -> wp.vec3:
+    one = wp.float32(1.0)
+    gm = wp.float32(GM_EARTH)
     r = wp.length(R)
     inv_r3 = one / (r * r * r)
     accel = R * (-gm * inv_r3)
@@ -556,18 +548,18 @@ def _total_accel(R: wp.vec3d, use_j2: int) -> wp.vec3d:
 
 @wp.func
 def _encke_point_mass_relative_accel(
-    rho: wp.vec3d,
-    R_chief: wp.vec3d,
-) -> wp.vec3d:
+    rho: wp.vec3,
+    R_chief: wp.vec3,
+) -> wp.vec3:
     """Encke's identity for the two-body differential ``g_pm(R+rho) - g_pm(R)``.
 
     Cancellation-safe at single precision when ||rho|| << ||R_chief||.
     Mirrors src/cpp/src/gravity.cc:57.
     """
-    one = wp.float64(1.0)
-    two = wp.float64(2.0)
-    three = wp.float64(3.0)
-    gm = wp.float64(GM_EARTH)
+    one = wp.float32(1.0)
+    two = wp.float32(2.0)
+    three = wp.float32(3.0)
+    gm = wp.float32(GM_EARTH)
     rc2 = wp.dot(R_chief, R_chief)
     rc = wp.sqrt(rc2)
     sigma = (two * wp.dot(rho, R_chief) + wp.dot(rho, rho)) / rc2
@@ -584,10 +576,10 @@ def _encke_point_mass_relative_accel(
 
 @wp.func
 def _relative_accel(
-    rho: wp.vec3d,
-    R_chief: wp.vec3d,
+    rho: wp.vec3,
+    R_chief: wp.vec3,
     use_j2: int,
-) -> wp.vec3d:
+) -> wp.vec3:
     """Differential gravity ``g(R+rho) - g(R)``: Encke for point-mass, direct
     subtraction for J2 (J2 itself is ~3 orders smaller, no cancellation issue)."""
     a = _encke_point_mass_relative_accel(rho, R_chief)
@@ -598,11 +590,11 @@ def _relative_accel(
 
 @wp.func
 def _gravity_gradient_torque(
-    r_hat: wp.vec3d,
-    r_mag_km: wp.float64,
-    ximat_target: wp.mat33d,
-    inertia_principal: wp.vec3d,
-) -> wp.vec3d:
+    r_hat: wp.vec3,
+    r_mag_km: wp.float32,
+    ximat_target: wp.mat33,
+    inertia_principal: wp.vec3,
+) -> wp.vec3:
     """Body gravity-gradient torque ``tau = 3 GM / r^3 * r_hat x (J r_hat)``.
 
     ``r_hat`` and ``ximat_target`` must be in the same frame; the returned torque
@@ -612,10 +604,10 @@ def _gravity_gradient_torque(
     in km³/s², so the resulting torque is in N·m. Mirrors
     src/cpp/src/coupling_passive.cc:170.
     """
-    three = wp.float64(3.0)
-    gm = wp.float64(GM_EARTH)
+    three = wp.float32(3.0)
+    gm = wp.float32(GM_EARTH)
     a = wp.transpose(ximat_target) @ r_hat
-    Ja = wp.vec3d(
+    Ja = wp.vec3(
         inertia_principal[0] * a[0],
         inertia_principal[1] * a[1],
         inertia_principal[2] * a[2],
@@ -627,17 +619,17 @@ def _gravity_gradient_torque(
 
 @wp.func
 def _frame_from_orbit(
-    R: wp.vec3d,
-    V: wp.vec3d,
+    R: wp.vec3,
+    V: wp.vec3,
     use_j2: int,
-) -> tuple[wp.mat33d, wp.mat33d, wp.vec3d, wp.vec3d]:
+) -> tuple[wp.mat33, wp.mat33, wp.vec3, wp.vec3]:
     r = wp.length(R)
     x_hat = R / r
     h = wp.cross(R, V)
     z_hat = h / wp.length(h)
     y_hat = wp.cross(z_hat, x_hat)
 
-    C_LI = wp.mat33d(
+    C_LI = wp.mat33(
         x_hat[0],
         x_hat[1],
         x_hat[2],
@@ -656,21 +648,21 @@ def _frame_from_orbit(
     a_eci = _total_accel(R, use_j2)
     dh_dt = wp.cross(R, a_eci)
     dr_dt = wp.dot(R, V) / r
-    domega_dt_eci = dh_dt / (r * r) - h * (wp.float64(2.0) * dr_dt / (r * r * r))
+    domega_dt_eci = dh_dt / (r * r) - h * (wp.float32(2.0) * dr_dt / (r * r * r))
     omega_dot_lvlh = C_LI @ domega_dt_eci
     return C_LI, C_IL, omega_lvlh, omega_dot_lvlh
 
 
 @wp.func
-def _sun_vector_eci(t: wp.float64) -> wp.vec3d:
-    deg_to_rad = wp.float64(_DEG_TO_RAD)
-    T_jc = t / (wp.float64(36525.0) * wp.float64(86400.0))
-    lambda_sun = (wp.float64(280.460) + wp.float64(36000.771) * T_jc) * deg_to_rad
-    M_sun = (wp.float64(357.528) + wp.float64(35999.050) * T_jc) * deg_to_rad
-    lambda_ecl = lambda_sun + wp.float64(1.915) * deg_to_rad * wp.sin(M_sun)
-    lambda_ecl = lambda_ecl + wp.float64(0.020) * deg_to_rad * wp.sin(wp.float64(2.0) * M_sun)
-    eps = (wp.float64(23.439) - wp.float64(0.013) * T_jc) * deg_to_rad
-    return wp.vec3d(
+def _sun_vector_eci(t: wp.float32) -> wp.vec3:
+    deg_to_rad = wp.float32(_DEG_TO_RAD)
+    T_jc = t / (wp.float32(36525.0) * wp.float32(86400.0))
+    lambda_sun = (wp.float32(280.460) + wp.float32(36000.771) * T_jc) * deg_to_rad
+    M_sun = (wp.float32(357.528) + wp.float32(35999.050) * T_jc) * deg_to_rad
+    lambda_ecl = lambda_sun + wp.float32(1.915) * deg_to_rad * wp.sin(M_sun)
+    lambda_ecl = lambda_ecl + wp.float32(0.020) * deg_to_rad * wp.sin(wp.float32(2.0) * M_sun)
+    eps = (wp.float32(23.439) - wp.float32(0.013) * T_jc) * deg_to_rad
+    return wp.vec3(
         wp.cos(lambda_ecl),
         wp.sin(lambda_ecl) * wp.cos(eps),
         wp.sin(lambda_ecl) * wp.sin(eps),
@@ -678,58 +670,58 @@ def _sun_vector_eci(t: wp.float64) -> wp.vec3d:
 
 
 @wp.func
-def _eclipse_factor(R: wp.vec3d, sun_hat: wp.vec3d) -> wp.float64:
+def _eclipse_factor(R: wp.vec3, sun_hat: wp.vec3) -> wp.float32:
     proj = -wp.dot(R, sun_hat)
-    if proj < wp.float64(0.0):
-        return wp.float64(1.0)
+    if proj < wp.float32(0.0):
+        return wp.float32(1.0)
 
     d_perp = wp.length(R - sun_hat * wp.dot(R, sun_hat))
-    if d_perp < wp.float64(R_EARTH):
-        return wp.float64(0.0)
-    return wp.float64(1.0)
+    if d_perp < wp.float32(R_EARTH):
+        return wp.float32(0.0)
+    return wp.float32(1.0)
 
 
 @wp.func
-def _dipole_field_eci(R: wp.vec3d) -> wp.vec3d:
+def _dipole_field_eci(R: wp.vec3) -> wp.vec3:
     r = wp.length(R)
     r_hat = R / r
-    m_hat = wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(-1.0))
-    radius_ratio = wp.float64(R_EARTH) / r
-    factor = wp.float64(B0_EARTH) * radius_ratio * radius_ratio * radius_ratio
-    return (r_hat * (wp.float64(3.0) * wp.dot(m_hat, r_hat)) - m_hat) * factor
+    m_hat = wp.vec3(wp.float32(0.0), wp.float32(0.0), wp.float32(-1.0))
+    radius_ratio = wp.float32(R_EARTH) / r
+    factor = wp.float32(B0_EARTH) * radius_ratio * radius_ratio * radius_ratio
+    return (r_hat * (wp.float32(3.0) * wp.dot(m_hat, r_hat)) - m_hat) * factor
 
 
 @wp.func
 def _atm_density(
-    R: wp.vec3d,
-    atm_h0_km: wp.float64,
-    atm_rho0: wp.float64,
-    atm_h_scale_km: wp.float64,
-) -> wp.float64:
-    alt_km = wp.length(R) - wp.float64(R_EARTH)
+    R: wp.vec3,
+    atm_h0_km: wp.float32,
+    atm_rho0: wp.float32,
+    atm_h_scale_km: wp.float32,
+) -> wp.float32:
+    alt_km = wp.length(R) - wp.float32(R_EARTH)
     rho = atm_rho0 * wp.exp(-(alt_km - atm_h0_km) / atm_h_scale_km)
-    return wp.max(rho, wp.float64(0.0))
+    return wp.max(rho, wp.float32(0.0))
 
 
 @wp.func
 def _refresh_core(
     world_id: int,
     use_j2: int,
-    atm_h0_km: wp.float64,
-    atm_rho0: wp.float64,
-    atm_h_scale_km: wp.float64,
-    orbit_R_eci: wp.array(dtype=wp.vec3d),
-    orbit_V_eci: wp.array(dtype=wp.vec3d),
-    orbit_t: wp.array(dtype=wp.float64),
-    frame_C_LI: wp.array(dtype=wp.mat33d),
-    frame_C_IL: wp.array(dtype=wp.mat33d),
-    frame_omega_lvlh: wp.array(dtype=wp.vec3d),
-    frame_omega_dot_lvlh: wp.array(dtype=wp.vec3d),
-    env_sun_vector_eci: wp.array(dtype=wp.vec3d),
-    env_eclipse: wp.array(dtype=wp.float64),
-    env_mag_field_eci: wp.array(dtype=wp.vec3d),
-    env_atmosphere_omega_eci: wp.array(dtype=wp.vec3d),
-    env_atm_density: wp.array(dtype=wp.float64),
+    atm_h0_km: wp.float32,
+    atm_rho0: wp.float32,
+    atm_h_scale_km: wp.float32,
+    orbit_R_eci: wp.array(dtype=wp.vec3),
+    orbit_V_eci: wp.array(dtype=wp.vec3),
+    orbit_t: wp.array(dtype=wp.float32),
+    frame_C_LI: wp.array(dtype=wp.mat33),
+    frame_C_IL: wp.array(dtype=wp.mat33),
+    frame_omega_lvlh: wp.array(dtype=wp.vec3),
+    frame_omega_dot_lvlh: wp.array(dtype=wp.vec3),
+    env_sun_vector_eci: wp.array(dtype=wp.vec3),
+    env_eclipse: wp.array(dtype=wp.float32),
+    env_mag_field_eci: wp.array(dtype=wp.vec3),
+    env_atmosphere_omega_eci: wp.array(dtype=wp.vec3),
+    env_atm_density: wp.array(dtype=wp.float32),
 ):
     R = orbit_R_eci[world_id]
     V = orbit_V_eci[world_id]
@@ -742,10 +734,10 @@ def _refresh_core(
     env_sun_vector_eci[world_id] = sun_hat
     env_eclipse[world_id] = _eclipse_factor(R, sun_hat)
     env_mag_field_eci[world_id] = _dipole_field_eci(R)
-    env_atmosphere_omega_eci[world_id] = wp.vec3d(
-        wp.float64(0.0),
-        wp.float64(0.0),
-        wp.float64(OMEGA_EARTH),
+    env_atmosphere_omega_eci[world_id] = wp.vec3(
+        wp.float32(0.0),
+        wp.float32(0.0),
+        wp.float32(OMEGA_EARTH),
     )
     env_atm_density[world_id] = _atm_density(R, atm_h0_km, atm_rho0, atm_h_scale_km)
 
@@ -753,24 +745,24 @@ def _refresh_core(
 @wp.kernel
 def _refresh_core_kernel(
     use_j2: int,
-    atm_h0_km: wp.float64,
-    atm_rho0: wp.float64,
-    atm_h_scale_km: wp.float64,
-    orbit_R_eci: wp.array(dtype=wp.vec3d),
-    orbit_V_eci: wp.array(dtype=wp.vec3d),
-    orbit_t: wp.array(dtype=wp.float64),
-    frame_C_LI: wp.array(dtype=wp.mat33d),
-    frame_C_IL: wp.array(dtype=wp.mat33d),
-    frame_omega_lvlh: wp.array(dtype=wp.vec3d),
-    frame_omega_dot_lvlh: wp.array(dtype=wp.vec3d),
-    env_sun_vector_eci: wp.array(dtype=wp.vec3d),
-    env_eclipse: wp.array(dtype=wp.float64),
-    env_mag_field_eci: wp.array(dtype=wp.vec3d),
-    env_atmosphere_omega_eci: wp.array(dtype=wp.vec3d),
-    env_atm_density: wp.array(dtype=wp.float64),
-    rw_inertia: wp.array(dtype=wp.float64),
-    rw_speed: wp.array2d(dtype=wp.float64),
-    rw_momentum: wp.array2d(dtype=wp.float64),
+    atm_h0_km: wp.float32,
+    atm_rho0: wp.float32,
+    atm_h_scale_km: wp.float32,
+    orbit_R_eci: wp.array(dtype=wp.vec3),
+    orbit_V_eci: wp.array(dtype=wp.vec3),
+    orbit_t: wp.array(dtype=wp.float32),
+    frame_C_LI: wp.array(dtype=wp.mat33),
+    frame_C_IL: wp.array(dtype=wp.mat33),
+    frame_omega_lvlh: wp.array(dtype=wp.vec3),
+    frame_omega_dot_lvlh: wp.array(dtype=wp.vec3),
+    env_sun_vector_eci: wp.array(dtype=wp.vec3),
+    env_eclipse: wp.array(dtype=wp.float32),
+    env_mag_field_eci: wp.array(dtype=wp.vec3),
+    env_atmosphere_omega_eci: wp.array(dtype=wp.vec3),
+    env_atm_density: wp.array(dtype=wp.float32),
+    rw_inertia: wp.array(dtype=wp.float32),
+    rw_speed: wp.array2d(dtype=wp.float32),
+    rw_momentum: wp.array2d(dtype=wp.float32),
     nrw: int,
 ):
     world_id = wp.tid()
@@ -800,33 +792,33 @@ def _refresh_core_kernel(
 @wp.kernel
 def _assemble_forward_kernel(
     # model
-    body_mass: wp.array(dtype=wp.float64),
-    body_ipos: wp.array(dtype=wp.vec3d),
-    body_inertia: wp.array(dtype=wp.vec3d),
+    body_mass: wp.array(dtype=wp.float32),
+    body_ipos: wp.array(dtype=wp.vec3),
+    body_inertia: wp.array(dtype=wp.vec3),
     surface_body_id: wp.array(dtype=int),
-    surface_cop_body: wp.array(dtype=wp.vec3d),
-    surface_normal_body: wp.array(dtype=wp.vec3d),
-    surface_area: wp.array(dtype=wp.float64),
-    surface_drag_coeff: wp.array(dtype=wp.float64),
-    surface_srp_coeff: wp.array(dtype=wp.float64),
+    surface_cop_body: wp.array(dtype=wp.vec3),
+    surface_normal_body: wp.array(dtype=wp.vec3),
+    surface_area: wp.array(dtype=wp.float32),
+    surface_drag_coeff: wp.array(dtype=wp.float32),
+    surface_srp_coeff: wp.array(dtype=wp.float32),
     surface_use_drag: wp.array(dtype=int),
     surface_use_srp: wp.array(dtype=int),
     magnetic_body_id: wp.array(dtype=int),
-    magnetic_dipole_body: wp.array(dtype=wp.vec3d),
+    magnetic_dipole_body: wp.array(dtype=wp.vec3),
     rw_body_id: wp.array(dtype=int),
-    rw_axis_body: wp.array(dtype=wp.vec3d),
-    rw_inertia: wp.array(dtype=wp.float64),
-    rw_speed_limit: wp.array(dtype=wp.float64),
+    rw_axis_body: wp.array(dtype=wp.vec3),
+    rw_inertia: wp.array(dtype=wp.float32),
+    rw_speed_limit: wp.array(dtype=wp.float32),
     rw_has_speed_limit: wp.array(dtype=int),
-    rw_torque_limit: wp.array(dtype=wp.float64),
+    rw_torque_limit: wp.array(dtype=wp.float32),
     rw_has_torque_limit: wp.array(dtype=int),
     mtq_body_id: wp.array(dtype=int),
-    mtq_axis_body: wp.array(dtype=wp.vec3d),
-    mtq_dipole_limit: wp.array(dtype=wp.float64),
+    mtq_axis_body: wp.array(dtype=wp.vec3),
+    mtq_dipole_limit: wp.array(dtype=wp.float32),
     thr_body_id: wp.array(dtype=int),
-    thr_position_body: wp.array(dtype=wp.vec3d),
-    thr_direction_body: wp.array(dtype=wp.vec3d),
-    thr_force_limit: wp.array(dtype=wp.float64),
+    thr_position_body: wp.array(dtype=wp.vec3),
+    thr_direction_body: wp.array(dtype=wp.vec3),
+    thr_force_limit: wp.array(dtype=wp.float32),
     nbody: int,
     nsurface: int,
     nmagnetic: int,
@@ -838,27 +830,27 @@ def _assemble_forward_kernel(
     use_srp: int,
     use_magnetic: int,
     use_gravity_gradient: int,
-    atm_h0_km: wp.float64,
-    atm_rho0: wp.float64,
-    atm_h_scale_km: wp.float64,
+    atm_h0_km: wp.float32,
+    atm_rho0: wp.float32,
+    atm_h_scale_km: wp.float32,
     # core data
-    orbit_R_eci: wp.array(dtype=wp.vec3d),
-    orbit_V_eci: wp.array(dtype=wp.vec3d),
-    frame_C_LI: wp.array(dtype=wp.mat33d),
-    frame_C_IL: wp.array(dtype=wp.mat33d),
-    frame_omega_lvlh: wp.array(dtype=wp.vec3d),
-    frame_omega_dot_lvlh: wp.array(dtype=wp.vec3d),
-    env_sun_vector_eci: wp.array(dtype=wp.vec3d),
-    env_eclipse: wp.array(dtype=wp.float64),
-    env_mag_field_eci: wp.array(dtype=wp.vec3d),
-    env_atmosphere_omega_eci: wp.array(dtype=wp.vec3d),
-    env_atm_density: wp.array(dtype=wp.float64),
-    feedback_force_world: wp.array(dtype=wp.vec3d),
-    rw_speed: wp.array2d(dtype=wp.float64),
-    rw_momentum: wp.array2d(dtype=wp.float64),
-    rw_torque_cmd: wp.array2d(dtype=wp.float64),
-    mtq_dipole_cmd: wp.array2d(dtype=wp.float64),
-    thr_force_cmd: wp.array2d(dtype=wp.float64),
+    orbit_R_eci: wp.array(dtype=wp.vec3),
+    orbit_V_eci: wp.array(dtype=wp.vec3),
+    frame_C_LI: wp.array(dtype=wp.mat33),
+    frame_C_IL: wp.array(dtype=wp.mat33),
+    frame_omega_lvlh: wp.array(dtype=wp.vec3),
+    frame_omega_dot_lvlh: wp.array(dtype=wp.vec3),
+    env_sun_vector_eci: wp.array(dtype=wp.vec3),
+    env_eclipse: wp.array(dtype=wp.float32),
+    env_mag_field_eci: wp.array(dtype=wp.vec3),
+    env_atmosphere_omega_eci: wp.array(dtype=wp.vec3),
+    env_atm_density: wp.array(dtype=wp.float32),
+    feedback_force_world: wp.array(dtype=wp.vec3),
+    rw_speed: wp.array2d(dtype=wp.float32),
+    rw_momentum: wp.array2d(dtype=wp.float32),
+    rw_torque_cmd: wp.array2d(dtype=wp.float32),
+    mtq_dipole_cmd: wp.array2d(dtype=wp.float32),
+    thr_force_cmd: wp.array2d(dtype=wp.float32),
     wrench_buffer: wp.array2d(dtype=wp.spatial_vector),
     # MJWarp data
     xipos: wp.array2d(dtype=wp.vec3),
@@ -939,10 +931,10 @@ def _assemble_forward_kernel(
     # Origin-acceleration compensation so that mjo_forward leaves xfrc_applied
     # in the same state as a CPU forward pass (otherwise downstream qacc and
     # wrench_buffer parity tests see uncompensated thrust/drag forces).
-    total_mass = wp.float64(0.0)
+    total_mass = wp.float32(0.0)
     for bid in range(nbody):
         total_mass = total_mass + body_mass[bid]
-    if total_mass > wp.float64(0.0):
+    if total_mass > wp.float32(0.0):
         a_chief_m_s2 = feedback_force_world[world_id] / total_mass
         _apply_origin_compensation(
             world_id, nbody, body_mass, a_chief_m_s2, wrench_buffer, xfrc_applied
@@ -952,33 +944,33 @@ def _assemble_forward_kernel(
 @wp.kernel
 def _assemble_step_kernel(
     # model
-    body_mass: wp.array(dtype=wp.float64),
-    body_ipos: wp.array(dtype=wp.vec3d),
-    body_inertia: wp.array(dtype=wp.vec3d),
+    body_mass: wp.array(dtype=wp.float32),
+    body_ipos: wp.array(dtype=wp.vec3),
+    body_inertia: wp.array(dtype=wp.vec3),
     surface_body_id: wp.array(dtype=int),
-    surface_cop_body: wp.array(dtype=wp.vec3d),
-    surface_normal_body: wp.array(dtype=wp.vec3d),
-    surface_area: wp.array(dtype=wp.float64),
-    surface_drag_coeff: wp.array(dtype=wp.float64),
-    surface_srp_coeff: wp.array(dtype=wp.float64),
+    surface_cop_body: wp.array(dtype=wp.vec3),
+    surface_normal_body: wp.array(dtype=wp.vec3),
+    surface_area: wp.array(dtype=wp.float32),
+    surface_drag_coeff: wp.array(dtype=wp.float32),
+    surface_srp_coeff: wp.array(dtype=wp.float32),
     surface_use_drag: wp.array(dtype=int),
     surface_use_srp: wp.array(dtype=int),
     magnetic_body_id: wp.array(dtype=int),
-    magnetic_dipole_body: wp.array(dtype=wp.vec3d),
+    magnetic_dipole_body: wp.array(dtype=wp.vec3),
     rw_body_id: wp.array(dtype=int),
-    rw_axis_body: wp.array(dtype=wp.vec3d),
-    rw_inertia: wp.array(dtype=wp.float64),
-    rw_speed_limit: wp.array(dtype=wp.float64),
+    rw_axis_body: wp.array(dtype=wp.vec3),
+    rw_inertia: wp.array(dtype=wp.float32),
+    rw_speed_limit: wp.array(dtype=wp.float32),
     rw_has_speed_limit: wp.array(dtype=int),
-    rw_torque_limit: wp.array(dtype=wp.float64),
+    rw_torque_limit: wp.array(dtype=wp.float32),
     rw_has_torque_limit: wp.array(dtype=int),
     mtq_body_id: wp.array(dtype=int),
-    mtq_axis_body: wp.array(dtype=wp.vec3d),
-    mtq_dipole_limit: wp.array(dtype=wp.float64),
+    mtq_axis_body: wp.array(dtype=wp.vec3),
+    mtq_dipole_limit: wp.array(dtype=wp.float32),
     thr_body_id: wp.array(dtype=int),
-    thr_position_body: wp.array(dtype=wp.vec3d),
-    thr_direction_body: wp.array(dtype=wp.vec3d),
-    thr_force_limit: wp.array(dtype=wp.float64),
+    thr_position_body: wp.array(dtype=wp.vec3),
+    thr_direction_body: wp.array(dtype=wp.vec3),
+    thr_force_limit: wp.array(dtype=wp.float32),
     nbody: int,
     nsurface: int,
     nmagnetic: int,
@@ -990,40 +982,40 @@ def _assemble_step_kernel(
     use_srp: int,
     use_magnetic: int,
     use_gravity_gradient: int,
-    atm_h0_km: wp.float64,
-    atm_rho0: wp.float64,
-    atm_h_scale_km: wp.float64,
-    total_mass: wp.float64,
-    mj_dt: wp.float64,
-    orbit_dt: wp.float64,
+    atm_h0_km: wp.float32,
+    atm_rho0: wp.float32,
+    atm_h_scale_km: wp.float32,
+    total_mass: wp.float32,
+    mj_dt: wp.float32,
+    orbit_dt: wp.float32,
     # core data
-    orbit_R_eci: wp.array(dtype=wp.vec3d),
-    orbit_V_eci: wp.array(dtype=wp.vec3d),
-    orbit_t: wp.array(dtype=wp.float64),
-    orbit_segment_start_R_eci: wp.array(dtype=wp.vec3d),
-    orbit_segment_start_V_eci: wp.array(dtype=wp.vec3d),
-    orbit_segment_start_t: wp.array(dtype=wp.float64),
-    orbit_segment_end_R_eci: wp.array(dtype=wp.vec3d),
-    orbit_segment_end_V_eci: wp.array(dtype=wp.vec3d),
-    orbit_segment_duration: wp.array(dtype=wp.float64),
-    orbit_segment_elapsed: wp.array(dtype=wp.float64),
-    orbit_feedback_int_eci: wp.array(dtype=wp.vec3d),
-    orbit_feedback_int_dt: wp.array(dtype=wp.float64),
-    frame_C_LI: wp.array(dtype=wp.mat33d),
-    frame_C_IL: wp.array(dtype=wp.mat33d),
-    frame_omega_lvlh: wp.array(dtype=wp.vec3d),
-    frame_omega_dot_lvlh: wp.array(dtype=wp.vec3d),
-    env_sun_vector_eci: wp.array(dtype=wp.vec3d),
-    env_eclipse: wp.array(dtype=wp.float64),
-    env_mag_field_eci: wp.array(dtype=wp.vec3d),
-    env_atmosphere_omega_eci: wp.array(dtype=wp.vec3d),
-    env_atm_density: wp.array(dtype=wp.float64),
-    feedback_force_world: wp.array(dtype=wp.vec3d),
-    rw_speed: wp.array2d(dtype=wp.float64),
-    rw_momentum: wp.array2d(dtype=wp.float64),
-    rw_torque_cmd: wp.array2d(dtype=wp.float64),
-    mtq_dipole_cmd: wp.array2d(dtype=wp.float64),
-    thr_force_cmd: wp.array2d(dtype=wp.float64),
+    orbit_R_eci: wp.array(dtype=wp.vec3),
+    orbit_V_eci: wp.array(dtype=wp.vec3),
+    orbit_t: wp.array(dtype=wp.float32),
+    orbit_segment_start_R_eci: wp.array(dtype=wp.vec3),
+    orbit_segment_start_V_eci: wp.array(dtype=wp.vec3),
+    orbit_segment_start_t: wp.array(dtype=wp.float32),
+    orbit_segment_end_R_eci: wp.array(dtype=wp.vec3),
+    orbit_segment_end_V_eci: wp.array(dtype=wp.vec3),
+    orbit_segment_duration: wp.array(dtype=wp.float32),
+    orbit_segment_elapsed: wp.array(dtype=wp.float32),
+    orbit_feedback_int_eci: wp.array(dtype=wp.vec3),
+    orbit_feedback_int_dt: wp.array(dtype=wp.float32),
+    frame_C_LI: wp.array(dtype=wp.mat33),
+    frame_C_IL: wp.array(dtype=wp.mat33),
+    frame_omega_lvlh: wp.array(dtype=wp.vec3),
+    frame_omega_dot_lvlh: wp.array(dtype=wp.vec3),
+    env_sun_vector_eci: wp.array(dtype=wp.vec3),
+    env_eclipse: wp.array(dtype=wp.float32),
+    env_mag_field_eci: wp.array(dtype=wp.vec3),
+    env_atmosphere_omega_eci: wp.array(dtype=wp.vec3),
+    env_atm_density: wp.array(dtype=wp.float32),
+    feedback_force_world: wp.array(dtype=wp.vec3),
+    rw_speed: wp.array2d(dtype=wp.float32),
+    rw_momentum: wp.array2d(dtype=wp.float32),
+    rw_torque_cmd: wp.array2d(dtype=wp.float32),
+    mtq_dipole_cmd: wp.array2d(dtype=wp.float32),
+    thr_force_cmd: wp.array2d(dtype=wp.float32),
     wrench_buffer: wp.array2d(dtype=wp.spatial_vector),
     # MJWarp data
     xipos: wp.array2d(dtype=wp.vec3),
@@ -1120,12 +1112,12 @@ def _assemble_step_kernel(
         xfrc_applied,
     )
 
-    a_feedback = wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(0.0))
-    if total_mass > wp.float64(0.0):
+    a_feedback = wp.vec3(wp.float32(0.0), wp.float32(0.0), wp.float32(0.0))
+    if total_mass > wp.float32(0.0):
         # External (drag + SRP + thruster) force on chief, accumulated by
         # _assemble_wrenches above. Mirrors CPU compute_feedback_accel.
         a_chief_m_s2 = feedback_force_world[world_id] / total_mass
-        a_feedback = a_chief_m_s2 * wp.float64(1.0e-3)
+        a_feedback = a_chief_m_s2 * wp.float32(1.0e-3)
         _apply_origin_compensation(
             world_id, nbody, body_mass, a_chief_m_s2, wrench_buffer, xfrc_applied
         )
@@ -1136,9 +1128,9 @@ def _assemble_step_kernel(
     # a time-averaged feedback acceleration; commit each segment with one RK4
     # call from segment_start using that average, and linearly interpolate
     # R/V at intermediate mj_dt ticks.
-    zero64 = wp.float64(0.0)
-    one64 = wp.float64(1.0)
-    eps_dt = wp.float64(1.0e-12)
+    zero64 = wp.float32(0.0)
+    one64 = wp.float32(1.0)
+    eps_dt = wp.float32(1.0e-12)
     R_curr = orbit_R_eci[world_id]
     V_curr = orbit_V_eci[world_id]
     t_curr = orbit_t[world_id]
@@ -1151,11 +1143,11 @@ def _assemble_step_kernel(
         orbit_segment_start_t[world_id] = t_curr
         orbit_segment_duration[world_id] = orbit_dt
         orbit_segment_elapsed[world_id] = zero64
-        orbit_feedback_int_eci[world_id] = wp.vec3d(zero64, zero64, zero64)
+        orbit_feedback_int_eci[world_id] = wp.vec3(zero64, zero64, zero64)
         orbit_feedback_int_dt[world_id] = zero64
         R_e0, V_e0 = _propagate_rk4(
             R_curr, V_curr, orbit_dt, use_j2,
-            wp.vec3d(zero64, zero64, zero64),
+            wp.vec3(zero64, zero64, zero64),
         )
         orbit_segment_end_R_eci[world_id] = R_e0
         orbit_segment_end_V_eci[world_id] = V_e0
@@ -1180,7 +1172,7 @@ def _assemble_step_kernel(
         orbit_segment_start_t[world_id] = t
         orbit_segment_duration[world_id] = orbit_dt
         orbit_segment_elapsed[world_id] = zero64
-        orbit_feedback_int_eci[world_id] = wp.vec3d(zero64, zero64, zero64)
+        orbit_feedback_int_eci[world_id] = wp.vec3(zero64, zero64, zero64)
         orbit_feedback_int_dt[world_id] = zero64
         R_e1, V_e1 = _propagate_rk4(R, V, orbit_dt, use_j2, a_feedback)
         orbit_segment_end_R_eci[world_id] = R_e1
@@ -1222,7 +1214,7 @@ def _assemble_step_kernel(
                 t_start = t_out
                 duration = orbit_dt
                 elapsed = zero64
-                feedback_int = wp.vec3d(zero64, zero64, zero64)
+                feedback_int = wp.vec3(zero64, zero64, zero64)
                 feedback_int_dt_local = zero64
                 R_pred, V_pred = _propagate_rk4(
                     R_start, V_start, duration, use_j2, avg
@@ -1272,29 +1264,29 @@ def _assemble_step_kernel(
 @wp.func
 def _assemble_wrenches(
     world_id: int,
-    body_mass: wp.array(dtype=wp.float64),
-    body_ipos: wp.array(dtype=wp.vec3d),
-    body_inertia: wp.array(dtype=wp.vec3d),
+    body_mass: wp.array(dtype=wp.float32),
+    body_ipos: wp.array(dtype=wp.vec3),
+    body_inertia: wp.array(dtype=wp.vec3),
     surface_body_id: wp.array(dtype=int),
-    surface_cop_body: wp.array(dtype=wp.vec3d),
-    surface_normal_body: wp.array(dtype=wp.vec3d),
-    surface_area: wp.array(dtype=wp.float64),
-    surface_drag_coeff: wp.array(dtype=wp.float64),
-    surface_srp_coeff: wp.array(dtype=wp.float64),
+    surface_cop_body: wp.array(dtype=wp.vec3),
+    surface_normal_body: wp.array(dtype=wp.vec3),
+    surface_area: wp.array(dtype=wp.float32),
+    surface_drag_coeff: wp.array(dtype=wp.float32),
+    surface_srp_coeff: wp.array(dtype=wp.float32),
     surface_use_drag: wp.array(dtype=int),
     surface_use_srp: wp.array(dtype=int),
     magnetic_body_id: wp.array(dtype=int),
-    magnetic_dipole_body: wp.array(dtype=wp.vec3d),
+    magnetic_dipole_body: wp.array(dtype=wp.vec3),
     rw_body_id: wp.array(dtype=int),
-    rw_axis_body: wp.array(dtype=wp.vec3d),
-    rw_inertia: wp.array(dtype=wp.float64),
+    rw_axis_body: wp.array(dtype=wp.vec3),
+    rw_inertia: wp.array(dtype=wp.float32),
     mtq_body_id: wp.array(dtype=int),
-    mtq_axis_body: wp.array(dtype=wp.vec3d),
-    mtq_dipole_limit: wp.array(dtype=wp.float64),
+    mtq_axis_body: wp.array(dtype=wp.vec3),
+    mtq_dipole_limit: wp.array(dtype=wp.float32),
     thr_body_id: wp.array(dtype=int),
-    thr_position_body: wp.array(dtype=wp.vec3d),
-    thr_direction_body: wp.array(dtype=wp.vec3d),
-    thr_force_limit: wp.array(dtype=wp.float64),
+    thr_position_body: wp.array(dtype=wp.vec3),
+    thr_direction_body: wp.array(dtype=wp.vec3),
+    thr_force_limit: wp.array(dtype=wp.float32),
     nbody: int,
     nsurface: int,
     nmagnetic: int,
@@ -1306,30 +1298,30 @@ def _assemble_wrenches(
     use_srp: int,
     use_magnetic: int,
     use_gravity_gradient: int,
-    atm_h0_km: wp.float64,
-    atm_rho0: wp.float64,
-    atm_h_scale_km: wp.float64,
-    orbit_R_eci: wp.array(dtype=wp.vec3d),
-    orbit_V_eci: wp.array(dtype=wp.vec3d),
-    frame_C_LI: wp.array(dtype=wp.mat33d),
-    frame_C_IL: wp.array(dtype=wp.mat33d),
-    frame_omega_lvlh: wp.array(dtype=wp.vec3d),
-    frame_omega_dot_lvlh: wp.array(dtype=wp.vec3d),
-    env_sun_vector_eci: wp.array(dtype=wp.vec3d),
-    env_eclipse: wp.array(dtype=wp.float64),
-    env_mag_field_eci: wp.array(dtype=wp.vec3d),
-    env_atmosphere_omega_eci: wp.array(dtype=wp.vec3d),
-    env_atm_density: wp.array(dtype=wp.float64),
-    feedback_force_world: wp.array(dtype=wp.vec3d),
-    rw_speed: wp.array2d(dtype=wp.float64),
-    rw_momentum: wp.array2d(dtype=wp.float64),
-    rw_torque_cmd: wp.array2d(dtype=wp.float64),
-    rw_torque_limit: wp.array(dtype=wp.float64),
+    atm_h0_km: wp.float32,
+    atm_rho0: wp.float32,
+    atm_h_scale_km: wp.float32,
+    orbit_R_eci: wp.array(dtype=wp.vec3),
+    orbit_V_eci: wp.array(dtype=wp.vec3),
+    frame_C_LI: wp.array(dtype=wp.mat33),
+    frame_C_IL: wp.array(dtype=wp.mat33),
+    frame_omega_lvlh: wp.array(dtype=wp.vec3),
+    frame_omega_dot_lvlh: wp.array(dtype=wp.vec3),
+    env_sun_vector_eci: wp.array(dtype=wp.vec3),
+    env_eclipse: wp.array(dtype=wp.float32),
+    env_mag_field_eci: wp.array(dtype=wp.vec3),
+    env_atmosphere_omega_eci: wp.array(dtype=wp.vec3),
+    env_atm_density: wp.array(dtype=wp.float32),
+    feedback_force_world: wp.array(dtype=wp.vec3),
+    rw_speed: wp.array2d(dtype=wp.float32),
+    rw_momentum: wp.array2d(dtype=wp.float32),
+    rw_torque_cmd: wp.array2d(dtype=wp.float32),
+    rw_torque_limit: wp.array(dtype=wp.float32),
     rw_has_torque_limit: wp.array(dtype=int),
-    rw_speed_limit: wp.array(dtype=wp.float64),
+    rw_speed_limit: wp.array(dtype=wp.float32),
     rw_has_speed_limit: wp.array(dtype=int),
-    mtq_dipole_cmd: wp.array2d(dtype=wp.float64),
-    thr_force_cmd: wp.array2d(dtype=wp.float64),
+    mtq_dipole_cmd: wp.array2d(dtype=wp.float32),
+    thr_force_cmd: wp.array2d(dtype=wp.float32),
     wrench_buffer: wp.array2d(dtype=wp.spatial_vector),
     xipos: wp.array2d(dtype=wp.vec3),
     xmat: wp.array2d(dtype=wp.mat33),
@@ -1338,24 +1330,25 @@ def _assemble_wrenches(
     xfrc_applied: wp.array2d(dtype=wp.spatial_vector),
 ):
     zero = wp.spatial_vector(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-    zero64 = wp.float64(0.0)
-    m_to_km = wp.float64(1.0e-3)
-    km_to_m = wp.float64(1.0e3)
+    zero64 = wp.float32(0.0)
+    m_to_km = wp.float32(1.0e-3)
+    km_to_m = wp.float32(1.0e3)
     for body_id in range(nbody):
         wrench_buffer[world_id, body_id] = zero
         xfrc_applied[world_id, body_id] = zero
 
     R_ref = orbit_R_eci[world_id]
     V_ref = orbit_V_eci[world_id]
-    C_LI = frame_C_LI[world_id]
-    C_IL = frame_C_IL[world_id]
+    # frame_C_LI / frame_C_IL are no longer read here: with MJ-world ≡ ECI
+    # orientation, body coupling needs no LVLH↔ECI rotation. The arrays remain
+    # part of the public host shadow (data.frame) for analysis tooling.
 
     # Reset the per-world non-gravitational force accumulator. Surface drag/SRP
     # and thruster loops below add into it; differential gravity (Encke) and
     # internal torques (RW gyro/cmd, MTQ, GG) do not contribute. Mirrors CPU
     # apply_passive_wrenches's zeroing of inst->feedback_force_world at the top
     # of each pass.
-    feedback_force_world[world_id] = wp.vec3d(zero64, zero64, zero64)
+    feedback_force_world[world_id] = wp.vec3(zero64, zero64, zero64)
 
     # MJ-world frame is the chief-centered local inertial frame with axes
     # parallel to ECI (per CLAUDE.md / project convention). xipos is therefore
@@ -1371,7 +1364,7 @@ def _assemble_wrenches(
         dg = _relative_accel(rho_km, R_ref, use_j2)
         force = dg * (mass * km_to_m)
 
-        tau_gg = wp.vec3d(zero64, zero64, zero64)
+        tau_gg = wp.vec3(zero64, zero64, zero64)
         if use_gravity_gradient != 0:
             r_body_eci = R_ref + rho_km
             r_mag_km = wp.length(r_body_eci)
@@ -1409,15 +1402,15 @@ def _assemble_wrenches(
         v_atm_eci_m_s = wp.cross(omega_earth_eci, r_point_eci_km) * km_to_m
         v_rel_m_s = v_point_eci_m_s - v_atm_eci_m_s
         speed = wp.length(v_rel_m_s)
-        force = wp.vec3d(zero64, zero64, zero64)
+        force = wp.vec3(zero64, zero64, zero64)
 
-        if surface_use_drag[surface_id] != 0 and use_drag != 0 and speed > wp.float64(1.0e-10):
+        if surface_use_drag[surface_id] != 0 and use_drag != 0 and speed > wp.float32(1.0e-10):
             v_hat = v_rel_m_s / speed
             cos_angle = wp.dot(n_world, v_hat)
             if cos_angle > zero64:
                 rho_local = _atm_density(r_point_eci_km, atm_h0_km, atm_rho0, atm_h_scale_km)
                 projected_area = surface_area[surface_id] * cos_angle
-                drag_scale = -wp.float64(0.5) * rho_local
+                drag_scale = -wp.float32(0.5) * rho_local
                 drag_scale = drag_scale * surface_drag_coeff[surface_id]
                 drag_scale = drag_scale * projected_area * speed * speed
                 force = force + v_hat * drag_scale
@@ -1428,7 +1421,7 @@ def _assemble_wrenches(
                 eclipse_local = _eclipse_factor(r_point_eci_km, sun_eci)
                 if eclipse_local > zero64:
                     projected_area = surface_area[surface_id] * cos_sun
-                    srp_scale = -eclipse_local * wp.float64(P_SUN)
+                    srp_scale = -eclipse_local * wp.float32(P_SUN)
                     srp_scale = srp_scale * surface_srp_coeff[surface_id]
                     srp_scale = srp_scale * projected_area
                     force = force + sun_eci * srp_scale
@@ -1450,7 +1443,7 @@ def _assemble_wrenches(
             tau_world = R_body @ tau_body
             wrench_buffer[world_id, bid] = _spatial_add(
                 wrench_buffer[world_id, bid],
-                wp.vec3d(zero64, zero64, zero64),
+                wp.vec3(zero64, zero64, zero64),
                 tau_world,
             )
 
@@ -1467,7 +1460,7 @@ def _assemble_wrenches(
             tau_world = R_body @ tau_body
             wrench_buffer[world_id, bid] = _spatial_add(
                 wrench_buffer[world_id, bid],
-                wp.vec3d(zero64, zero64, zero64),
+                wp.vec3(zero64, zero64, zero64),
                 tau_world,
             )
 
@@ -1486,7 +1479,7 @@ def _assemble_wrenches(
         h_body = rw_axis_body[rw_id] * (inertia_rw * speed_rw)
         gyro_tau_body = -wp.cross(w_body, h_body)
 
-        cmd_tau_body = wp.vec3d(zero64, zero64, zero64)
+        cmd_tau_body = wp.vec3(zero64, zero64, zero64)
         if inertia_rw > zero64:
             tau_cmd = rw_torque_cmd[world_id, rw_id]
             if rw_has_torque_limit[rw_id] != 0:
@@ -1504,7 +1497,7 @@ def _assemble_wrenches(
         tau_world = R_body @ (gyro_tau_body + cmd_tau_body)
         wrench_buffer[world_id, bid] = _spatial_add(
             wrench_buffer[world_id, bid],
-            wp.vec3d(zero64, zero64, zero64),
+            wp.vec3(zero64, zero64, zero64),
             tau_world,
         )
 
@@ -1532,17 +1525,17 @@ def _assemble_wrenches(
 def _command_rw_torques(
     world_id: int,
     rw_body_id: wp.array(dtype=int),
-    rw_axis_body: wp.array(dtype=wp.vec3d),
-    rw_inertia: wp.array(dtype=wp.float64),
-    rw_speed_limit: wp.array(dtype=wp.float64),
+    rw_axis_body: wp.array(dtype=wp.vec3),
+    rw_inertia: wp.array(dtype=wp.float32),
+    rw_speed_limit: wp.array(dtype=wp.float32),
     rw_has_speed_limit: wp.array(dtype=int),
-    rw_torque_limit: wp.array(dtype=wp.float64),
+    rw_torque_limit: wp.array(dtype=wp.float32),
     rw_has_torque_limit: wp.array(dtype=int),
     nrw: int,
-    dt: wp.float64,
-    rw_speed: wp.array2d(dtype=wp.float64),
-    rw_momentum: wp.array2d(dtype=wp.float64),
-    rw_torque_cmd: wp.array2d(dtype=wp.float64),
+    dt: wp.float32,
+    rw_speed: wp.array2d(dtype=wp.float32),
+    rw_momentum: wp.array2d(dtype=wp.float32),
+    rw_torque_cmd: wp.array2d(dtype=wp.float32),
     wrench_buffer: wp.array2d(dtype=wp.spatial_vector),
     xmat: wp.array2d(dtype=wp.mat33),
     xfrc_applied: wp.array2d(dtype=wp.spatial_vector),
@@ -1552,7 +1545,7 @@ def _command_rw_torques(
     # Mirrors CPU advance_reaction_wheels (src/cpp/src/coupling_passive.cc:612).
     for rw_id in range(nrw):
         inertia = rw_inertia[rw_id]
-        if inertia <= wp.float64(0.0):
+        if inertia <= wp.float32(0.0):
             continue
 
         tau = rw_torque_cmd[world_id, rw_id]
@@ -1563,10 +1556,10 @@ def _command_rw_torques(
         speed = rw_speed[world_id, rw_id]
         if rw_has_speed_limit[rw_id] != 0:
             limit = rw_speed_limit[rw_id]
-            if speed >= limit and alpha > wp.float64(0.0):
-                alpha = wp.float64(0.0)
-            elif speed <= -limit and alpha < wp.float64(0.0):
-                alpha = wp.float64(0.0)
+            if speed >= limit and alpha > wp.float32(0.0):
+                alpha = wp.float32(0.0)
+            elif speed <= -limit and alpha < wp.float32(0.0):
+                alpha = wp.float32(0.0)
 
         speed = speed + alpha * dt
         if rw_has_speed_limit[rw_id] != 0:
@@ -1577,37 +1570,37 @@ def _command_rw_torques(
 
 @wp.kernel
 def _reset_orbit_schedule_kernel(
-    orbit_segment_duration: wp.array(dtype=wp.float64),
+    orbit_segment_duration: wp.array(dtype=wp.float32),
 ):
     world_id = wp.tid()
-    orbit_segment_duration[world_id] = wp.float64(0.0)
+    orbit_segment_duration[world_id] = wp.float32(0.0)
 
 
 @wp.func
 def _prop_deriv(
-    R: wp.vec3d,
-    V: wp.vec3d,
+    R: wp.vec3,
+    V: wp.vec3,
     use_j2: int,
-    a_external: wp.vec3d,
-) -> tuple[wp.vec3d, wp.vec3d]:
+    a_external: wp.vec3,
+) -> tuple[wp.vec3, wp.vec3]:
     return V, _total_accel(R, use_j2) + a_external
 
 
 @wp.func
 def _propagate_rk4(
-    R: wp.vec3d,
-    V: wp.vec3d,
-    dt: wp.float64,
+    R: wp.vec3,
+    V: wp.vec3,
+    dt: wp.float32,
     use_j2: int,
-    a_external: wp.vec3d,
-) -> tuple[wp.vec3d, wp.vec3d]:
+    a_external: wp.vec3,
+) -> tuple[wp.vec3, wp.vec3]:
     k1R, k1V = _prop_deriv(R, V, use_j2, a_external)
-    half_dt = wp.float64(0.5) * dt
+    half_dt = wp.float32(0.5) * dt
     k2R, k2V = _prop_deriv(R + k1R * half_dt, V + k1V * half_dt, use_j2, a_external)
     k3R, k3V = _prop_deriv(R + k2R * half_dt, V + k2V * half_dt, use_j2, a_external)
     k4R, k4V = _prop_deriv(R + k3R * dt, V + k3V * dt, use_j2, a_external)
-    two = wp.float64(2.0)
-    sixth_dt = dt / wp.float64(6.0)
+    two = wp.float32(2.0)
+    sixth_dt = dt / wp.float32(6.0)
     R_next = R + (k1R + k2R * two + k3R * two + k4R) * sixth_dt
     V_next = V + (k1V + k2V * two + k3V * two + k4V) * sixth_dt
     return R_next, V_next
