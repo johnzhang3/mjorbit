@@ -1,0 +1,33 @@
+<mujoco model="two_arm_free_drift">
+  <compiler angle="radian"/>
+  <option timestep="0.1" gravity="0 0 0">
+    <flag contact="disable"/>
+  </option>
+
+  <default>
+    <joint damping="0" armature="0" limited="false"/>
+    <geom rgba="0.65 0.67 0.70 1"/>
+  </default>
+
+  <worldbody>
+    <body name="hub" pos="0 0 0">
+      <freejoint name="hub_free"/>
+      <inertial pos="0 0 0" mass="120" diaginertia="8 10 12"/>
+      <geom type="box" size="0.45 0.35 0.25" mass="0" rgba="0.28 0.48 0.85 1"/>
+
+      <body name="arm_1" pos="0.55 0.28 0">
+        <joint name="hinge_1" type="hinge" axis="0 1 0"/>
+        <inertial pos="0.35 0 0" mass="8" diaginertia="0.04 0.42 0.42"/>
+        <geom type="box" pos="0.35 0 0" size="0.35 0.025 0.05" mass="0"
+              rgba="0.1 0.65 0.55 1"/>
+      </body>
+
+      <body name="arm_2" pos="0.55 -0.28 0">
+        <joint name="hinge_2" type="hinge" axis="0 1 0"/>
+        <inertial pos="0.35 0 0" mass="8" diaginertia="0.04 0.42 0.42"/>
+        <geom type="box" pos="0.35 0 0" size="0.35 0.025 0.05" mass="0"
+              rgba="0.16 0.72 0.34 1"/>
+      </body>
+    </body>
+  </worldbody>
+</mujoco>

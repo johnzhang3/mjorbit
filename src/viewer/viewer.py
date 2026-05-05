@@ -2,35 +2,24 @@
 
 """MjOrbitViewer — interactive 3D viewer for mujoco_orbit simulations.
 
-Renders MuJoCo multibody geometry in the LVLH frame with an Earth
-reference sphere below.  Uses `viser <https://viser.studio>`_ for
-browser-based visualisation.
-
-Coordinate system
------------------
-Everything is rendered in the MuJoCo world frame which, in mujoco_orbit, is
-the LVLH (RSW) frame centred on the chief spacecraft:
-
-* **+x** radial   (away from Earth)
-* **+y** along-track
-* **+z** cross-track (orbit normal)
-
-Units are **metres** (MuJoCo SI).
+MuJoCo simulates in chief-centered inertial coordinates, while the viewer can
+render either a local LVLH view or the chief-relative state translated into ECI
+so the system visibly orbits Earth. Units are **metres** (MuJoCo SI).
 """
 
 from __future__ import annotations
 
-import copy
+import socket
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Literal, Optional, Sequence
+from typing import Callable, Literal, Optional, Sequence
 
-import mujoco
 import numpy as np
 import viser
 
-from mujoco_orbit.core.runtime import MjoData, MjoModel
-from mujoco_orbit.core.step import mjo_forward, mjo_step
+from mujoco_orbit.rollout import mjo_get_state, mjo_set_state
+from mujoco_orbit.runtime import MjoData, MjoModel
+from mujoco_orbit.step import mjo_forward, mjo_step
 
 from .bodies import MuJoCoScene
 from .contacts import ContactForceOverlay
@@ -67,18 +56,26 @@ _LOCAL_SCALE_OPTIONS = [
 _DEFAULT_LOCAL_SCENE_SCALE = 1.0
 
 
+def _assert_socket_bindable(host: str, port: int) -> None:
+    bind_host = host if host not in ("", "0.0.0.0") else "127.0.0.1"
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind((bind_host, port))
+    except OSError as exc:
+        raise RuntimeError(
+            f"MjOrbitViewer cannot start a local viser server on {host}:{port}. "
+            "Local socket bind is unavailable in this environment."
+        ) from exc
+
+
 @dataclass
 class _ViewerSnapshot:
-    mj_state: np.ndarray
-    orbit_R_eci: np.ndarray
-    orbit_V_eci: np.ndarray
-    orbit_t: float
-    rw_speed: np.ndarray
+    state: np.ndarray
+    ctrl: np.ndarray
     rw_torque_cmd: np.ndarray
     mtq_dipole_cmd: np.ndarray
     thr_force_cmd: np.ndarray
-    sensor_biases: dict[str, np.ndarray]
-    sensor_rng_state: Any
+    cmg_gimbal_rate_cmd: np.ndarray
 
 
 class MjOrbitViewer:
@@ -91,7 +88,7 @@ class MjOrbitViewer:
     host, port : str, int
         Viser server bind address.
     show_earth : bool
-        Render an Earth icosphere at the correct LVLH offset.
+        Render an Earth icosphere in the active visualization frame.
     show_axes : bool
         Draw LVLH reference axes at the origin.
     track_body : str or None
@@ -105,9 +102,9 @@ class MjOrbitViewer:
         Initial camera distance from the origin (metres).  If *None*,
         defaults to 10 m for detail view.
     render_frame : {"lvlh", "eci"}
-        World frame used for visualization. ``"lvlh"`` keeps the chief
-        at the origin. ``"eci"`` renders the chief and local bodies in
-        an Earth-centered inertial frame so the system visibly orbits Earth.
+        World frame used for visualization. ``"lvlh"`` rotates chief-inertial
+        MuJoCo positions into the chief-centered LVLH frame. ``"eci"``
+        translates the chief-relative MuJoCo world by the chief ECI position.
     """
 
     def __init__(
@@ -133,6 +130,7 @@ class MjOrbitViewer:
         self._render_frame = render_frame
 
         # ---- viser server ---------------------------------------------------
+        _assert_socket_bindable(host, port)
         self.server = viser.ViserServer(host=host, port=port)
         self.server.scene.set_up_direction("+z")
         self._local_scene = self.server.scene.add_frame("/local_scene", show_axes=False)
@@ -143,10 +141,8 @@ class MjOrbitViewer:
         cam_look_at = np.zeros(3)
         cam_position = np.array([0.0, -cam_dist, cam_dist * 0.5])
         if self._render_frame == "eci":
-            rotation, translation = self._world_transform()
-            assert rotation is not None and translation is not None
-            cam_look_at = translation
-            cam_position = translation + rotation @ cam_position
+            cam_look_at = 1000.0 * self.data.orbit.R_eci
+            cam_position = cam_look_at + cam_position
         self.server.initial_camera.position = tuple(cam_position)
         self.server.initial_camera.look_at = tuple(cam_look_at)
         if show_earth:
@@ -156,7 +152,7 @@ class MjOrbitViewer:
         # ---- MuJoCo body geometry -------------------------------------------
         self.mj_scene = MuJoCoScene(
             self.server,
-            self.model.mj_model,
+            self.model,
             root_path="/local_scene/spacecraft",
         )
 
@@ -216,16 +212,27 @@ class MjOrbitViewer:
 
         # Initial render
         rotation, translation = self._world_transform()
-        self.mj_scene.update(self.data.mj_data, rotation=rotation, translation=translation)
+        self.mj_scene.update(
+            self.data,
+            rotation=rotation,
+            translation=translation,
+            scale_origin=self._scale_origin(),
+        )
 
     # ------------------------------------------------------------------
     # Scene helpers
     # ------------------------------------------------------------------
 
     def _world_transform(self) -> tuple[np.ndarray | None, np.ndarray | None]:
+        if self._render_frame == "lvlh":
+            rotation = self.data.frame.C_LI
+            return rotation, None
+        return None, 1000.0 * self.data.orbit.R_eci
+
+    def _scale_origin(self) -> np.ndarray:
         if self._render_frame == "eci":
-            return self.data.frame.C_IL, 1000.0 * self.data.orbit.R_eci
-        return None, None
+            return 1000.0 * self.data.orbit.R_eci
+        return np.zeros(3)
 
     def _render_lvlh_axes(self) -> None:
         """Draw R (red), S (green), W (blue) axes at the origin."""
@@ -233,11 +240,9 @@ class MjOrbitViewer:
         origins = np.zeros((3, 3))
         ends = self._local_scene_scale * np.diag([length, length, length])
         segments = np.stack([origins, ends], axis=1)  # (3, 2, 3)
-        rotation, translation = self._world_transform()
-        if rotation is not None:
-            segments = segments @ rotation.T
-        if translation is not None:
-            segments = segments + translation
+        if self._render_frame == "eci":
+            segments = segments @ self.data.frame.C_IL.T
+            segments = segments + 1000.0 * self.data.orbit.R_eci
         colors = np.array(
             [
                 [[255, 50, 50], [255, 50, 50]],
@@ -256,44 +261,22 @@ class MjOrbitViewer:
         self._render_lvlh_axes()
 
     def _capture_snapshot(self) -> _ViewerSnapshot:
-        state_spec = mujoco.mjtState.mjSTATE_INTEGRATION
-        mj_state = np.empty(mujoco.mj_stateSize(self.model.mj_model, state_spec))
-        mujoco.mj_getState(self.model.mj_model, self.data.mj_data, mj_state, state_spec)
-
         return _ViewerSnapshot(
-            mj_state=mj_state.copy(),
-            orbit_R_eci=self.data.orbit.R_eci.copy(),
-            orbit_V_eci=self.data.orbit.V_eci.copy(),
-            orbit_t=float(self.data.orbit.t),
-            rw_speed=self.data.actuators.rw_speed.copy(),
+            state=mjo_get_state(self.model, self.data).copy(),
+            ctrl=self.data.ctrl.copy(),
             rw_torque_cmd=self.data.actuators.rw_torque_cmd.copy(),
             mtq_dipole_cmd=self.data.actuators.mtq_dipole_cmd.copy(),
             thr_force_cmd=self.data.actuators.thr_force_cmd.copy(),
-            sensor_biases={
-                name: bias.copy() for name, bias in self.data.sensors.biases.items()
-            },
-            sensor_rng_state=copy.deepcopy(self.data.sensors.rng.bit_generator.state),
+            cmg_gimbal_rate_cmd=self.data.actuators.cmg_gimbal_rate_cmd.copy(),
         )
 
     def _restore_snapshot(self, snapshot: _ViewerSnapshot) -> None:
-        state_spec = mujoco.mjtState.mjSTATE_INTEGRATION
-        mujoco.mj_setState(self.model.mj_model, self.data.mj_data, snapshot.mj_state, state_spec)
-
-        self.data.orbit.R_eci[:] = snapshot.orbit_R_eci
-        self.data.orbit.V_eci[:] = snapshot.orbit_V_eci
-        self.data.orbit.t = snapshot.orbit_t
-
-        self.data.actuators.rw_speed[:] = snapshot.rw_speed
+        mjo_set_state(self.model, self.data, snapshot.state)
+        self.data.ctrl[:] = snapshot.ctrl
         self.data.actuators.rw_torque_cmd[:] = snapshot.rw_torque_cmd
         self.data.actuators.mtq_dipole_cmd[:] = snapshot.mtq_dipole_cmd
         self.data.actuators.thr_force_cmd[:] = snapshot.thr_force_cmd
-        self.data.actuators.update_rw_momentum(self.model.rw_inertia)
-
-        self.data.sensors.biases = {
-            name: bias.copy() for name, bias in snapshot.sensor_biases.items()
-        }
-        self.data.sensors.rng.bit_generator.state = copy.deepcopy(snapshot.sensor_rng_state)
-
+        self.data.actuators.cmg_gimbal_rate_cmd[:] = snapshot.cmg_gimbal_rate_cmd
         mjo_forward(self.model, self.data)
 
     def _clear_visual_history(self) -> None:
@@ -314,7 +297,12 @@ class MjOrbitViewer:
         self._local_scene_scale = float(scale)
         self._apply_local_scene_scale()
         rotation, translation = self._world_transform()
-        self.mj_scene.update(self.data.mj_data, rotation=rotation, translation=translation)
+        self.mj_scene.update(
+            self.data,
+            rotation=rotation,
+            translation=translation,
+            scale_origin=self._scale_origin(),
+        )
         if hasattr(self, "_scale_md"):
             self._scale_md.content = self._scale_markdown()
 
@@ -326,7 +314,12 @@ class MjOrbitViewer:
         self._budget = 0.0
         self._last_wall = time.time()
         rotation, translation = self._world_transform()
-        self.mj_scene.update(self.data.mj_data, rotation=rotation, translation=translation)
+        self.mj_scene.update(
+            self.data,
+            rotation=rotation,
+            translation=translation,
+            scale_origin=self._scale_origin(),
+        )
         self._time_md.content = f"**t** = {self._sim_t:.2f} s"
 
     # ------------------------------------------------------------------
@@ -454,9 +447,10 @@ class MjOrbitViewer:
                 # ---- update visuals ------------------------------------------
                 rotation, translation = self._world_transform()
                 self.mj_scene.update(
-                    self.data.mj_data,
+                    self.data,
                     rotation=rotation,
                     translation=translation,
+                    scale_origin=self._scale_origin(),
                 )
                 if self._show_axes and self._render_frame == "eci":
                     self._render_lvlh_axes()
@@ -467,8 +461,8 @@ class MjOrbitViewer:
                         translation=translation,
                     )
                 self._contact_force_overlay.render_transformed(
-                    self.model.mj_model,
-                    self.data.mj_data,
+                    self.model,
+                    self.data,
                     visible=self._contact_force_checkbox.value,
                     rotation=rotation,
                     translation=translation,

@@ -3,7 +3,7 @@
 import numpy as np
 
 from mujoco_orbit.constants import B0_EARTH, OMEGA_EARTH, R_EARTH
-from mujoco_orbit.orbit.environment import (
+from tests.mujoco_orbit.reference.orbit.environment import (
     atm_density,
     atmosphere_relative_velocity_eci,
     dipole_field_eci,
@@ -11,7 +11,7 @@ from mujoco_orbit.orbit.environment import (
     sun_vector_eci,
     update_environment_cache,
 )
-from mujoco_orbit.orbit.state import OrbitState
+from tests.mujoco_orbit.reference.orbit.state import OrbitState
 
 
 class TestSunVector:
@@ -130,8 +130,8 @@ class TestAtmRelVel:
 
 class TestEnvironmentCache:
     def test_cache_update(self):
-        from mujoco_orbit.orbit.elements import keplerian_to_cartesian
-        from mujoco_orbit.orbit.lvlh import update_frame_cache
+        from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
+        from tests.mujoco_orbit.reference.orbit.lvlh import update_frame_cache
 
         a = R_EARTH + 400.0
         R, V = keplerian_to_cartesian(a, 0.0, np.deg2rad(51.6), 0.0, 0.0, 0.0)

@@ -42,13 +42,21 @@ commands, caches, and sensor runtime state. On the CPU backend,
 `MjoData(model, orbit=...)` still works for compatibility, but prefer `model.make_data(...)`
 for new code.
 
+`OrbitInit` and `data.orbit` store the chief/reference orbit in absolute ECI coordinates
+(`R_eci`, `V_eci`). MuJoCo `world` coordinates are different: they are chief-centered local
+inertial offsets in SI units, with axes parallel to ECI. Root free-joint `qpos`/`qvel`,
+`xpos`, `xmat`, `cvel`, and `xfrc_applied` should be interpreted in that local world frame,
+not as absolute ECI state and not as LVLH state.
+
 ## Project Layout
 
 - `src/mujoco_orbit/` — CPU reference backend
-- `src/mujoco_orbit/core/` — public specs, model/data wrappers, stepping
-- `src/mujoco_orbit/orbit/` — orbital propagation, gravity, LVLH, environment
-- `src/mujoco_orbit/coupling/` — external wrench assembly and actuator/environment coupling
-- `src/mujoco_orbit/sensors.py` — sensor catalogs, callback plumbing, measurement helpers
+- `src/mujoco_orbit/config.py` — public specs
+- `src/mujoco_orbit/model.py`, `data.py`, `step.py`, `rollout.py` — public runtime API
+- `src/cpp/` — native MuJoCo plugin and C++ orbit implementation
+- `tests/mujoco_orbit/reference/orbit/` — Python reference/analysis orbit helpers
+- `tests/mujoco_orbit/reference/coupling/` — Python reference/analysis coupling helpers
+- `tests/mujoco_orbit/reference/sensors.py` — Python reference sensor helpers
 - `src/mujoco_orbit/testdata/` — bundled XML assets
 - `src/mujoco_orbit_warp/` — optional MJWarp backend, host/device sync, and batched runtime API
 - `src/viewer/` — browser viewer integration
@@ -60,20 +68,22 @@ for new code.
 ## Development
 
 ```bash
-uv sync --dev
-uv sync --dev --extra report
-uv sync --dev --extra warp
-uv run pytest -q
-uv run ruff check .
-uv run pyright
+pixi install
+pixi install -e report
+pixi install -e warp
+pixi run test
+pixi run test-warp
+pixi run lint
+pixi run typecheck
+pixi run cpp-test
 ```
 
 Useful entrypoints:
 
 ```bash
-uv run python examples/free_drift.py
-uv run python examples/arm_reach.py
-uv run python ISS/hw2/spacecraft_dynamics.py
+pixi run example-free-drift
+pixi run python examples/arm_reach.py
+pixi run iss-hw2
 ```
 
 ## Units
@@ -94,6 +104,15 @@ MuJoCo uses SI (m, s, kg) internally. Conversions happen at the MuJoCo boundary.
 These conventions are critical for correctness. Getting them wrong causes silent
 energy/momentum non-conservation.
 
+- **MuJoCo `world`** is the chief-centered local inertial frame. The origin follows the
+  chief/reference orbit, and the axes are parallel to ECI. Do not add `data.orbit.R_eci` or
+  `data.orbit.V_eci` into MuJoCo `qpos`/`qvel` or XML free-joint initial conditions.
+- **Absolute ECI** lives in `data.orbit`, environment caches, and helper methods whose names
+  explicitly include `eci`. Use `world_*` helpers for MuJoCo state and `eci_*` helpers only
+  when an absolute inertial quantity is intended.
+- **LVLH** is a derived rotating frame in `data.frame`. Convert through the runtime helpers
+  (`world_position_from_lvlh`, `lvlh_position_from_world`, etc.) rather than treating
+  MuJoCo `world` axes as LVLH axes.
 - **`qvel[3:6]`** for a free joint is angular velocity in the **body frame** (child frame),
   not the world frame.
 - **`xmat`** is the body-frame orientation matrix (world-from-body). Use this for body-frame

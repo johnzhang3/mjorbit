@@ -1,14 +1,32 @@
 from __future__ import annotations
 
+import functools
+import socket
+
 import numpy as np
 import pytest
 
-from mujoco_orbit import mjo_forward, mjo_step
+from mujoco_orbit import ControlMomentGyroSpec, mjo_forward, mjo_step
 from mujoco_orbit.testdata import FREE_BODY_XML, TWO_BODIES_XML
-from tests.mujoco_orbit._helpers import make_model_data
+from tests.mujoco_orbit._helpers import make_model_data, set_freejoint_lvlh_state
 from viewer import MjOrbitViewer
 from viewer.contacts import contact_force_segments
 from viewer.earth import BodyTrail
+
+
+@functools.lru_cache(maxsize=1)
+def _viewer_server_skip_reason() -> str | None:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+    except OSError as exc:
+        return f"viewer tests require local socket bind: {exc}"
+    return None
+
+
+def _require_viewer_server() -> None:
+    if reason := _viewer_server_skip_reason():
+        pytest.skip(reason)
 
 
 def test_contact_force_segments_for_collision() -> None:
@@ -16,19 +34,19 @@ def test_contact_force_segments_for_collision() -> None:
         xml_path=TWO_BODIES_XML,
         mj_timestep=0.002,
     )
-    data.qvel[0] = 1.0
+    data.qvel[0] += 1.0
     mjo_forward(model, data)
 
     for _ in range(3000):
         mjo_step(model, data)
-        if data.mj_data.ncon > 0:
+        if data.ncon > 0:
             break
 
-    assert data.mj_data.ncon > 0, "expected the collision fixture to generate contact"
+    assert data.ncon > 0, "expected the collision fixture to generate contact"
 
     payload = contact_force_segments(
-        model.mj_model,
-        data.mj_data,
+        model,
+        data,
         force_scale=1.0e-3,
     )
 
@@ -40,8 +58,9 @@ def test_contact_force_segments_for_collision() -> None:
 
 
 def test_viewer_reset_restores_initial_state() -> None:
+    _require_viewer_server()
     model, data = make_model_data(xml_path=FREE_BODY_XML)
-    data.qvel[0] = 1.25
+    data.qvel[0] += 1.25
     mjo_forward(model, data)
 
     initial_qpos = data.qpos.copy()
@@ -69,11 +88,11 @@ def test_viewer_reset_restores_initial_state() -> None:
         viewer.set_local_scene_scale(10.0)
         np.testing.assert_allclose(
             np.asarray(viewer.mj_scene._body_frames[0].position),
-            10.0 * data.xpos[1],
+            10.0 * data.lvlh_position_from_world(data.xpos[1]),
+            atol=1e-8,
         )
 
-        data.qpos[0] = 4.0
-        data.qvel[0] = 0.0
+        set_freejoint_lvlh_state(data, slice(0, 3), slice(0, 3), [4.0, 0.0, 0.0])
         data.orbit.R_eci[:] = initial_R_eci + np.array([1.0, 2.0, 3.0])
         data.orbit.V_eci[:] = initial_V_eci + np.array([0.1, 0.2, 0.3])
         mjo_forward(model, data)
@@ -89,14 +108,55 @@ def test_viewer_reset_restores_initial_state() -> None:
         assert viewer._sim_t == pytest.approx(0.0)
         np.testing.assert_allclose(
             np.asarray(viewer.mj_scene._body_frames[0].position),
-            viewer._local_scene_scale * data.xpos[1],
+            viewer._local_scene_scale * data.lvlh_position_from_world(data.xpos[1]),
+            atol=1e-8,
         )
         assert viewer.trails[0]._positions == []
     finally:
         viewer.server.stop()
 
 
+def test_viewer_reset_restores_cmg_state() -> None:
+    _require_viewer_server()
+    cmg = ControlMomentGyroSpec(
+        body_name="spacecraft",
+        gimbal_axis_body=np.array([0.0, 0.0, 1.0]),
+        spin_axis_body_0=np.array([1.0, 0.0, 0.0]),
+        rotor_momentum=4.0,
+    )
+    model, data = make_model_data(xml_path=FREE_BODY_XML, cmgs=[cmg])
+    data.actuators.cmg_gimbal_angle[0] = 0.2
+    data.actuators.cmg_gimbal_rate_cmd[0] = 0.05
+    data.actuators.cmg_rotor_momentum[0] = 3.5
+
+    initial_angle = data.actuators.cmg_gimbal_angle.copy()
+    initial_rate_cmd = data.actuators.cmg_gimbal_rate_cmd.copy()
+    initial_momentum = data.actuators.cmg_rotor_momentum.copy()
+
+    viewer = MjOrbitViewer(
+        model,
+        data,
+        port=0,
+        show_earth=False,
+        show_axes=False,
+    )
+
+    try:
+        data.actuators.cmg_gimbal_angle[0] = 0.8
+        data.actuators.cmg_gimbal_rate_cmd[0] = -0.25
+        data.actuators.cmg_rotor_momentum[0] = 1.0
+
+        viewer.reset_simulation()
+
+        np.testing.assert_allclose(data.actuators.cmg_gimbal_angle, initial_angle)
+        np.testing.assert_allclose(data.actuators.cmg_gimbal_rate_cmd, initial_rate_cmd)
+        np.testing.assert_allclose(data.actuators.cmg_rotor_momentum, initial_momentum)
+    finally:
+        viewer.server.stop()
+
+
 def test_body_trail_renders_through_current_position() -> None:
+    _require_viewer_server()
     import viser
 
     server = viser.ViserServer(port=0)
@@ -111,6 +171,7 @@ def test_body_trail_renders_through_current_position() -> None:
 
 
 def test_viewer_eci_render_positions_bodies_around_earth() -> None:
+    _require_viewer_server()
     model, data = make_model_data(xml_path=FREE_BODY_XML)
     viewer = MjOrbitViewer(
         model,
@@ -122,7 +183,8 @@ def test_viewer_eci_render_positions_bodies_around_earth() -> None:
     )
     try:
         viewer.set_local_scene_scale(10.0)
-        expected = 1000.0 * data.orbit.R_eci + data.frame.C_IL @ (10.0 * data.xpos[1])
+        origin = 1000.0 * data.orbit.R_eci
+        expected = origin + 10.0 * data.xpos[1]
         np.testing.assert_allclose(
             np.asarray(viewer.mj_scene._body_frames[0].position),
             expected,

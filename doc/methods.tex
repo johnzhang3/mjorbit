@@ -1,0 +1,180 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage[hidelinks]{hyperref}
+
+\newcommand{\mjorbit}{MuJoCo-Orbit}
+\newcommand{\mj}{MuJoCo}
+\newcommand{\R}{\mathbb{R}}
+
+\begin{document}
+
+\section{Methods}
+\label{sec:methods}
+
+\mjorbit{} couples an Earth-orbit propagator to \mj{}'s articulated rigid-body
+dynamics. The chief spacecraft state $(\bm R,\bm V)$ is stored in ECI
+coordinates with km and \si{km/s} units. \mj{} itself is run in SI units in a
+chief-centered world frame whose axes remain parallel to ECI. Thus, for body
+$i$ with \mj{} world position and velocity $(\bm r_i,\bm v_i)$,
+\begin{equation}
+  \bm R_i = \bm R + 10^{-3}\bm r_i,\qquad
+  \bm V_i = \bm V + 10^{-3}\bm v_i,
+  \label{eq:absolute-state}
+\end{equation}
+are the body's absolute ECI position and velocity. Because the \mj{} world
+frame translates with the chief but does not rotate, the only inertial
+correction required in the multibody dynamics is the translational
+pseudo-force associated with the chief acceleration.
+
+\subsection{Reference Orbit and Gravity}
+\label{subsec:reference-orbit}
+
+The chief is propagated as a point mass under Earth's gravity and a
+swarm-mean non-gravity acceleration,
+\begin{equation}
+  \dot{\bm R}=\bm V,\qquad
+  \dot{\bm V}=\bm g(\bm R)+\bm a_{\rm fb}.
+  \label{eq:chief-dynamics}
+\end{equation}
+The gravity model is two-body gravity with an optional $J_2$ correction,
+\begin{equation}
+  \bm g(\bm R)=
+  -\frac{\mu}{r^3}\bm R
+  +\frac{3\mu J_2R_\oplus^2}{2r^5}
+  \begin{bmatrix}
+    R_x(5R_z^2/r^2-1)\\
+    R_y(5R_z^2/r^2-1)\\
+    R_z(5R_z^2/r^2-3)
+  \end{bmatrix},
+  \qquad r=\|\bm R\|.
+  \label{eq:gravity-model}
+\end{equation}
+where $\mu$ is Earth's gravitational parameter, $R_\oplus$ is the equatorial
+radius, and $J_2$ is the second zonal coefficient. When $J_2$ is disabled,
+the second term in~\eqref{eq:gravity-model} is omitted. The feedback
+acceleration is not a physical force applied to every body; it only chooses a
+convenient moving origin. With total modeled mass $m_{\rm tot}=\sum_i m_i$,
+\begin{equation}
+  \tilde{\bm a}_{\rm fb} =
+  \frac{1}{m_{\rm tot}}\sum_i \bm F_i^{\rm ng,trans},\qquad
+  \bm a_{\rm fb}=10^{-3}\tilde{\bm a}_{\rm fb},
+  \label{eq:feedback}
+\end{equation}
+where $\bm F_i^{\rm ng,trans}$ contains drag, solar radiation pressure, and
+thruster forces in SI units.
+
+\subsection{Body Wrenches}
+\label{subsec:body-wrenches}
+
+For each \mj{} body, \mjorbit{} computes an external force in the
+chief-centered world frame and hands it to \mj{} as a passive wrench. In SI
+units, the translational component is
+\begin{equation}
+  \bm F_i =
+    m_i\,10^3\!\left[\bm g(\bm R_i)-\bm g(\bm R)\right]
+    -m_i\tilde{\bm a}_{\rm fb}
+    +\bm F_i^{\rm ng}.
+  \label{eq:body-force}
+\end{equation}
+The first term is differential gravity, the second compensates for the
+non-gravitational acceleration of the chosen origin, and
+$\bm F_i^{\rm ng}$ contains body-level environmental and actuator forces.
+No Coriolis, centrifugal, or Euler-frame terms appear because the world axes
+are inertially aligned.
+
+Surface drag and solar radiation pressure are evaluated at each surface
+center of pressure. For a surface normal $\hat{\bm n}_k^w$, area $A_k$,
+drag coefficient $C_d^k$, reflectivity coefficient $C_r^k$, and relative
+atmospheric velocity $\bm v_{ik}^{\rm rel}$ in \si{m/s},
+\begin{align}
+  \bm F_{ik}^{\rm drag}
+   &= -\frac{1}{2}\rho(\bm R) C_d^k A_k
+      \max(0,\hat{\bm n}_k^w\!\cdot\hat{\bm v}_{ik}^{\rm rel})
+      \|\bm v_{ik}^{\rm rel}\|\,\bm v_{ik}^{\rm rel},\\
+  \bm F_{ik}^{\rm SRP}
+   &= -\eta P_\odot C_r^k A_k
+      \max(0,\hat{\bm n}_k^w\!\cdot\hat{\bm s})\,\hat{\bm s}.
+  \label{eq:surface-forces}
+\end{align}
+Here $\rho$ is atmospheric density, $\eta$ is the eclipse factor,
+$P_\odot=\SI{4.56e-6}{N/m^2}$, and $\hat{\bm s}$ is the Sun direction.
+The surface moment arm supplies the corresponding torque about the body COM.
+Atmospheric density, magnetic field, Sun direction, and eclipse are cached at
+the chief state; body position, velocity, attitude, and surface moment arms
+are evaluated per body.
+
+The rotational wrench includes finite-body gravity-gradient torque,
+magnetic torques, actuator gyroscopic torques, and force-offset torques:
+\begin{equation}
+  \bm\tau_i =
+  \bm\tau_i^{gg}
+  + \bm\tau_i^{\rm surf}
+  + \bm\tau_i^{\rm mag}
+  + \bm\tau_i^{\rm act}
+  + \bm\tau_i^{\rm thr}.
+  \label{eq:body-torque-sum}
+\end{equation}
+The gravity-gradient term is
+\begin{equation}
+  \bm\tau_i^{gg}
+    = \frac{3\mu}{\|\bm R_i\|^3}\,
+      \hat{\bm R}_i \times \left(J_i^w\hat{\bm R}_i\right),
+  \qquad \hat{\bm R}_i=\bm R_i/\|\bm R_i\|,
+  \label{eq:gg-torque}
+\end{equation}
+where $J_i^w$ is the inertia tensor in world axes. Residual dipoles and
+magnetorquers use $\bm\tau=\bm m\times\bm B$ in the body frame and rotate the
+result to world coordinates. Reaction wheels and single-gimbal CMGs apply the
+standard gyroscopic reaction torques from their stored momentum states, while
+thrusters apply both a directed force and its moment about the body COM.
+
+\subsection{Multibody Coupling}
+\label{subsec:multibody-coupling}
+
+\mj{} advances the generalized multibody state $(q,\dot q)$, including
+free-joint roots, articulated joints, equality constraints, and contacts. With
+\mj{}'s built-in uniform gravity disabled, the constrained dynamics can be
+written
+\begin{equation}
+  M(q)\ddot q+\bm c(q,\dot q)
+  =\bm\tau^{\rm passive}+\bm\tau^{\rm ctrl}+J_c^\top\bm\lambda,
+  \label{eq:mj-dynamics}
+\end{equation}
+where $\bm\lambda$ denotes the contact and constraint impulses solved by
+\mj{}. \mjorbit{} injects the orbit/environment effects through
+\texttt{qfrc\_passive} using \texttt{mj\_applyFT}. Equivalently,
+\begin{equation}
+  \bm\tau^{\rm passive}
+  =\sum_i \left(J_i^\top\bm F_i+J_i^{R\top}\bm\tau_i\right),
+  \label{eq:passive-projection}
+\end{equation}
+with $J_i$ and $J_i^R$ the translational and rotational body Jacobians.
+This projection makes the same per-body wrench formulation valid for free
+bodies, articulated spacecraft, and contact-coupled systems. Contact impulses
+are internal to the \mj{} solve and are not included in the chief feedback
+acceleration in~\eqref{eq:feedback}.
+
+\subsection{Step Procedure}
+\label{subsec:step-procedure}
+
+The coupling is implemented as a \mj{} plugin attached during model
+compilation. A call to \texttt{mjo\_step} executes four stages:
+\begin{enumerate}\setlength{\itemsep}{0pt}
+  \item update environment caches from the current chief state;
+  \item assemble body forces and torques from
+    \eqref{eq:body-force}--\eqref{eq:body-torque-sum} into
+    \texttt{qfrc\_passive};
+  \item let \mj{} solve and integrate the constrained multibody dynamics;
+  \item advance stored actuator states and propagate the chief state using
+    \eqref{eq:chief-dynamics}, then refresh post-step caches.
+\end{enumerate}
+For comparisons with external simulators, \mj{} states are converted back to
+absolute ECI coordinates using~\eqref{eq:absolute-state}; derived LVLH helper
+transforms are used only for initialization, analysis, and visualization.
+
+\end{document}

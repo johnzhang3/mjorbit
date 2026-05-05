@@ -11,7 +11,7 @@ from typing import Any
 import mujoco
 import numpy as np
 
-from mujoco_orbit.core.config import (
+from mujoco_orbit.config import (
     MagneticBodySpec,
     MagnetorquerSpec,
     OrbitInit,
@@ -19,8 +19,10 @@ from mujoco_orbit.core.config import (
     SurfaceSpec,
     ThrusterSpec,
 )
-from mujoco_orbit.core.runtime import MjoData as CpuMjoData
-from mujoco_orbit.core.runtime import MjoModel as CpuMjoModel
+from mujoco_orbit.data import MjoData as CpuMjoData
+from mujoco_orbit.model import MjoModel as CpuMjoModel
+from mujoco_orbit.spec import MjoSpec, _raw_mujoco_xml
+from mujoco_orbit.step import mjo_forward as cpu_mjo_forward
 
 from ._deps import require_mjwarp
 
@@ -142,8 +144,32 @@ def _copy_host_value(target: np.ndarray, source: np.ndarray) -> None:
     np.copyto(target, source)
 
 
+def _copy_raw_to_native_data(raw_data: mujoco.MjData, native_data: CpuMjoData) -> None:
+    for field in ("qpos", "qvel", "ctrl", "qfrc_applied", "xfrc_applied"):
+        target = getattr(native_data, field, None)
+        source = getattr(raw_data, field, None)
+        if target is not None and source is not None and np.shape(target) == np.shape(source):
+            np.copyto(target, source)
+
+
+def _copy_native_to_raw_data(native_data: CpuMjoData, raw_data: mujoco.MjData) -> None:
+    for field in ("qpos", "qvel", "ctrl", "qfrc_applied", "xfrc_applied"):
+        target = getattr(raw_data, field, None)
+        source = getattr(native_data, field, None)
+        if target is not None and source is not None and np.shape(target) == np.shape(source):
+            np.copyto(target, source)
+
+
 def _world_view(array: np.ndarray, world_id: int, *, nworld: int) -> np.ndarray:
     return array if nworld == 1 else array[world_id]
+
+
+def _compile_raw_mujoco_model(raw_xml: str, *, mj_timestep: float | None) -> mujoco.MjModel:
+    model = mujoco.MjModel.from_xml_string(raw_xml)
+    if mj_timestep is not None:
+        model.opt.timestep = float(mj_timestep)
+    model.opt.gravity[:] = 0.0
+    return model
 
 
 def _normalize_orbit_inits(
@@ -262,7 +288,7 @@ class WarpSensorDataNamespace:
             if descriptor.sensor_type == int(mujoco.mjtSensor.mjSENS_GYRO)
         ]
         if self.data.nworld == 1:
-            return self.data._host_runs[0].sensors.gyro_biases
+            return {name: self.data._host_runs[0].sensors.bias(name) for name in names}
         return {
             name: np.stack([run.sensors.bias(name) for run in self.data._host_runs], axis=0)
             for name in names
@@ -295,17 +321,89 @@ class WarpSensorDataNamespace:
 
 
 @dataclass
+class _HostRun:
+    """Single-world host shadow used for MuJoCo interop and sensor readback."""
+
+    native_data: CpuMjoData
+    mj_data: mujoco.MjData
+    actuators: BatchedActuatorData
+    wrench_buffer: np.ndarray
+
+    @classmethod
+    def create(
+        cls,
+        model: "MjoModel",
+        *,
+        orbit: OrbitInit,
+        rng_seed: int | None,
+    ) -> "_HostRun":
+        native_data = CpuMjoData(model.host_model, orbit=orbit, rng_seed=rng_seed)
+        mj_data = mujoco.MjData(model.mj_model)
+        run = cls(
+            native_data=native_data,
+            mj_data=mj_data,
+            actuators=BatchedActuatorData.zeros(
+                1,
+                len(model.reaction_wheels),
+                model.rw_inertia,
+                len(model.magnetorquers),
+                len(model.thrusters),
+            ),
+            wrench_buffer=np.zeros((model.nbody, 6), dtype=float),
+        )
+        run.refresh_native(model)
+        return run
+
+    @property
+    def orbit(self):
+        return self.native_data.orbit
+
+    @property
+    def frame(self):
+        return self.native_data.frame
+
+    @property
+    def env(self):
+        return self.native_data.env
+
+    @property
+    def sensors(self):
+        return self.native_data.sensors
+
+    def __getattr__(self, name: str):  # pragma: no cover - trivial delegation
+        return getattr(self.mj_data, name)
+
+    def clear_wrench_buffer(self) -> None:
+        self.wrench_buffer[:] = 0.0
+        self.mj_data.xfrc_applied[:] = 0.0
+        self.native_data.clear_wrench_buffer()
+
+    def copy_core_to_native(self) -> None:
+        np.copyto(self.native_data.orbit.R_eci, self.orbit.R_eci)
+        np.copyto(self.native_data.orbit.V_eci, self.orbit.V_eci)
+        self.native_data.orbit.t = float(self.orbit.t)
+        np.copyto(self.native_data.actuators.rw_speed, self.actuators.rw_speed)
+        np.copyto(self.native_data.actuators.rw_torque_cmd, self.actuators.rw_torque_cmd)
+        np.copyto(self.native_data.actuators.mtq_dipole_cmd, self.actuators.mtq_dipole_cmd)
+        np.copyto(self.native_data.actuators.thr_force_cmd, self.actuators.thr_force_cmd)
+        np.copyto(self.native_data.wrench_buffer, self.wrench_buffer)
+
+    def refresh_native(self, model: "MjoModel") -> None:
+        _copy_raw_to_native_data(self.mj_data, self.native_data)
+        self.copy_core_to_native()
+        cpu_mjo_forward(model.host_model, self.native_data)
+        np.copyto(self.mj_data.sensordata, self.native_data.sensordata)
+
+
+@dataclass
 class MjoModel:
     """MJWarp-backed model wrapper with host metadata retained."""
 
     host_model: CpuMjoModel
+    mj_model: mujoco.MjModel
     warp_model: Any
     core_model: Any
     backend: str = "warp"
-
-    @property
-    def mj_model(self) -> mujoco.MjModel:
-        return self.host_model.mj_model
 
     @classmethod
     def from_host_model(cls, host_model: CpuMjoModel) -> "MjoModel":
@@ -313,9 +411,16 @@ class MjoModel:
         mjw, _ = require_mjwarp()
         from .core_gpu import make_device_core_model
 
+        raw_xml = getattr(host_model, "_raw_xml", None)
+        if raw_xml is None:
+            raise TypeError(
+                "Cannot upload this CPU MjoModel to MJWarp because it does not retain raw XML"
+            )
+        mj_model = _compile_raw_mujoco_model(raw_xml, mj_timestep=float(host_model.opt.timestep))
         return cls(
             host_model=host_model,
-            warp_model=mjw.put_model(host_model.mj_model),
+            mj_model=mj_model,
+            warp_model=mjw.put_model(mj_model),
             core_model=make_device_core_model(host_model),
         )
 
@@ -335,23 +440,40 @@ class MjoModel:
         use_drag: bool = True,
         use_srp: bool = True,
         use_magnetic: bool = True,
+        use_gravity_gradient: bool = True,
     ) -> "MjoModel":
         """Compile the host model and upload an MJWarp device model."""
-        host_model = CpuMjoModel.from_xml_path(
-            xml_path,
-            surfaces=surfaces,
-            magnetic_bodies=magnetic_bodies,
-            reaction_wheels=reaction_wheels,
-            magnetorquers=magnetorquers,
-            thrusters=thrusters,
-            mj_timestep=mj_timestep,
-            orbit_dt=orbit_dt,
-            use_j2=use_j2,
-            use_drag=use_drag,
-            use_srp=use_srp,
-            use_magnetic=use_magnetic,
+        spec = MjoSpec.from_xml_path(xml_path)
+        spec.mjorbit.use_j2 = use_j2
+        spec.mjorbit.use_drag = use_drag
+        spec.mjorbit.use_srp = use_srp
+        spec.mjorbit.use_magnetic = use_magnetic
+        spec.mjorbit.use_gravity_gradient = use_gravity_gradient
+        spec.mjorbit.orbit_dt = orbit_dt
+        for surface in surfaces:
+            spec.mjorbit.add_surface(surface)
+        for magnetic_body in magnetic_bodies:
+            spec.mjorbit.add_magnetic_body(magnetic_body)
+        for wheel in reaction_wheels:
+            spec.mjorbit.add_reaction_wheel(wheel)
+        for magnetorquer in magnetorquers:
+            spec.mjorbit.add_magnetorquer(magnetorquer)
+        for thruster in thrusters:
+            spec.mjorbit.add_thruster(thruster)
+
+        host_model = spec.compile(mj_timestep=mj_timestep)
+        raw_xml = _raw_mujoco_xml(spec.to_xml())
+        mj_model = _compile_raw_mujoco_model(raw_xml, mj_timestep=mj_timestep)
+
+        mjw, _ = require_mjwarp()
+        from .core_gpu import make_device_core_model
+
+        return cls(
+            host_model=host_model,
+            mj_model=mj_model,
+            warp_model=mjw.put_model(mj_model),
+            core_model=make_device_core_model(host_model),
         )
-        return cls.from_host_model(host_model)
 
     def __getattr__(self, name: str):  # pragma: no cover - trivial delegation
         return getattr(self.host_model, name)
@@ -422,7 +544,7 @@ class MjoData:
         orbit_inits = _normalize_orbit_inits(orbit, nworld=nworld)
         seeds = _normalize_rng_seeds(rng_seed, nworld=nworld)
         self._host_runs = [
-            CpuMjoData(model.host_model, orbit=orbit_init, rng_seed=seed)
+            _HostRun.create(model, orbit=orbit_init, rng_seed=seed)
             for orbit_init, seed in zip(orbit_inits, seeds, strict=True)
         ]
 
@@ -514,7 +636,6 @@ class MjoData:
         if nworld < 1:
             raise ValueError("nworld must be >= 1")
 
-        mjw, _ = require_mjwarp()
         orbit = OrbitInit(
             R_eci=host_data.orbit.R_eci.copy(),
             V_eci=host_data.orbit.V_eci.copy(),
@@ -530,33 +651,22 @@ class MjoData:
             naconmax=naconmax,
             naccdmax=naccdmax,
         )
-        data.warp_data = mjw.put_data(
-            model.mj_model,
-            host_data.mj_data,
-            nworld=nworld,
-            nconmax=nconmax,
-            nccdmax=nccdmax,
-            njmax=njmax,
-            naconmax=naconmax,
-            naccdmax=naccdmax,
-        )
 
         for run in data._host_runs:
-            mujoco.mj_copyData(run.mj_data, model.mj_model, host_data.mj_data)
+            _copy_native_to_raw_data(host_data, run.mj_data)
             np.copyto(run.orbit.R_eci, host_data.orbit.R_eci)
             np.copyto(run.orbit.V_eci, host_data.orbit.V_eci)
             run.orbit.t = float(host_data.orbit.t)
-            run.frame = host_data.frame
-            run.env = host_data.env
             np.copyto(run.actuators.rw_speed, host_data.actuators.rw_speed)
-            np.copyto(run.actuators.rw_momentum, host_data.actuators.rw_momentum)
             np.copyto(run.actuators.rw_torque_cmd, host_data.actuators.rw_torque_cmd)
             np.copyto(run.actuators.mtq_dipole_cmd, host_data.actuators.mtq_dipole_cmd)
             np.copyto(run.actuators.thr_force_cmd, host_data.actuators.thr_force_cmd)
             np.copyto(run.wrench_buffer, host_data.wrench_buffer)
+            run.actuators.update_rw_momentum(model.rw_inertia)
+            run.refresh_native(model)
 
         data._pull_from_host()
-        data.upload(fields="core")
+        data.upload(fields=("state", "inputs", "core"))
         return data
 
     @property

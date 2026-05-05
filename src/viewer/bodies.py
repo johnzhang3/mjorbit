@@ -2,9 +2,9 @@
 
 """MuJoCo body rendering for viser.
 
-Extracts geoms from an MjModel, creates trimesh primitives for each,
+Extracts geoms from an MjoModel, creates trimesh primitives for each,
 and places them under per-body frame nodes in the viser scene tree.
-Call ``update()`` each frame to sync body transforms from MjData.
+Call ``update()`` each frame to sync body transforms from MjoData.
 
 Follows the approach from judo/visualizers/model.py:
 - Frame node per body (transform updated from data.xpos / data.xquat)
@@ -68,7 +68,7 @@ class MuJoCoScene:
     def __init__(
         self,
         server: viser.ViserServer,
-        mjm: mujoco.MjModel,
+        mjm,
         *,
         root_path: str = "/spacecraft",
     ) -> None:
@@ -93,10 +93,7 @@ class MuJoCoScene:
         if self._body_frames:
             return
         for body_id in range(1, mjm.nbody):
-            name = (
-                mujoco.mj_id2name(mjm, mujoco.mjtObj.mjOBJ_BODY, body_id)
-                or f"body_{body_id}"
-            )
+            name = mjm.body_name(body_id)
             self._body_frames.append(
                 self._server.scene.add_frame(
                     f"{self._root_path}/{name}",
@@ -107,18 +104,12 @@ class MuJoCoScene:
     def _build_geom_meshes(self) -> None:
         mjm = self._mjm
         for geom_id in range(mjm.ngeom):
-            body_id = mjm.geom_bodyid[geom_id]
+            body_id = int(mjm.geom_bodyid[geom_id])
             if body_id == 0:
                 continue
 
-            body_name = (
-                mujoco.mj_id2name(mjm, mujoco.mjtObj.mjOBJ_BODY, body_id)
-                or f"body_{body_id}"
-            )
-            geom_name = (
-                mujoco.mj_id2name(mjm, mujoco.mjtObj.mjOBJ_GEOM, geom_id)
-                or f"geom_{geom_id}"
-            )
+            body_name = mjm.body_name(body_id)
+            geom_name = mjm.geom_name(geom_id)
 
             mesh = _make_trimesh(
                 mjm.geom_type[geom_id],
@@ -151,22 +142,28 @@ class MuJoCoScene:
 
     def update(
         self,
-        mjd: mujoco.MjData,
+        mjd,
         *,
         rotation: np.ndarray | None = None,
         translation: np.ndarray | None = None,
+        scale_origin: np.ndarray | None = None,
     ) -> None:
         """Sync body frame transforms from simulation state."""
         rot = None if rotation is None else np.asarray(rotation, dtype=float)
         trans = None if translation is None else np.asarray(translation, dtype=float)
+        origin = None if scale_origin is None else np.asarray(scale_origin, dtype=float)
         with self._server.atomic():
             for i, frame in enumerate(self._body_frames):
                 body_id = i + 1  # skip worldbody 0
-                pos = self._scale * mjd.xpos[body_id]
+                pos = mjd.xpos[body_id].copy()
                 if rot is not None:
                     pos = rot @ pos
                 if trans is not None:
                     pos = pos + trans
+                if origin is None:
+                    pos = self._scale * pos
+                else:
+                    pos = origin + self._scale * (pos - origin)
                 frame.position = tuple(pos)
 
                 if rot is None:

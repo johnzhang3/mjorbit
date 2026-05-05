@@ -1,0 +1,190 @@
+{
+  "orbit": {
+    "altitude_km": 408.0,
+    "inclination_deg": 51.6,
+    "period_s": 5563.459296958976,
+    "period_min": 92.72432161598293
+  },
+  "simulation": {
+    "dt_s": 10.0,
+    "free_response_orbits": 3.0,
+    "reference_sizing_duration_s": 86400.0,
+    "off_nominal_error_deg_body_xyz": [
+      5.0,
+      -3.0,
+      2.0
+    ]
+  },
+  "environment_notes": {
+    "rho_kg_m3": 2.283518084150639e-13,
+    "circular_speed_m_s": 7664.036710795075,
+    "dynamic_pressure_n_m2": 6.706402458429104e-06,
+    "drag_pressure_with_cd22_n_m2": 1.4754085408544028e-05,
+    "srp_pressure_with_cr18_n_m2": 8.208000000000002e-06
+  },
+  "reference_torque_sizing": {
+    "nominal_lvlh": {
+      "gravity_gradient": {
+        "max_torque_nm": 7.906645967670673e-14,
+        "mean_torque_magnitude_nm": 1.5849054404889054e-14,
+        "orbit_avg_torque_body_nm": [
+          3.21606066243077e-16,
+          2.980614824685436e-16,
+          -1.549727146676573e-33
+        ],
+        "orbit_avg_torque_magnitude_nm": 4.3848729648154275e-16,
+        "max_cumulative_momentum_nms_day": 2.7189733654802615e-11,
+        "final_cumulative_momentum_nms_day": 1.4543177326037485e-11,
+        "secular_momentum_from_orbit_avg_nms_day": 3.788530241600529e-11,
+        "days_to_cmg_inscribed_momentum": 223159440741072.34
+      },
+      "drag": {
+        "max_torque_nm": 0.006108875577831051,
+        "mean_torque_magnitude_nm": 0.0035788492454028554,
+        "orbit_avg_torque_body_nm": [
+          -8.225281732976272e-08,
+          -5.16130150393216e-06,
+          0.00027913692911340056
+        ],
+        "orbit_avg_torque_magnitude_nm": 0.0002791846539364226,
+        "max_cumulative_momentum_nms_day": 28.484048201029918,
+        "final_cumulative_momentum_nms_day": 26.79307097510823,
+        "secular_momentum_from_orbit_avg_nms_day": 24.121554100106913,
+        "days_to_cmg_inscribed_momentum": 350.4941209167226
+      },
+      "combined": {
+        "max_torque_nm": 0.006108875577831051,
+        "mean_torque_magnitude_nm": 0.003578849245402858,
+        "orbit_avg_torque_body_nm": [
+          -8.225281700815857e-08,
+          -5.161301503634098e-06,
+          0.00027913692911340056
+        ],
+        "orbit_avg_torque_magnitude_nm": 0.00027918465393641704,
+        "max_cumulative_momentum_nms_day": 28.484048201029832,
+        "final_cumulative_momentum_nms_day": 26.793070975108158,
+        "secular_momentum_from_orbit_avg_nms_day": 24.121554100106433,
+        "days_to_cmg_inscribed_momentum": 350.49412091672957
+      }
+    },
+    "off_nominal": {
+      "gravity_gradient": {
+        "max_torque_nm": 34.32448318677476,
+        "mean_torque_magnitude_nm": 34.252202994050535,
+        "orbit_avg_torque_body_nm": [
+          30.607298511761762,
+          -15.370104163560226,
+          -0.3790422312736025
+        ],
+        "orbit_avg_torque_magnitude_nm": 34.251868521292,
+        "max_cumulative_momentum_nms_day": 2959390.4916820903,
+        "final_cumulative_momentum_nms_day": 2959390.4916820903,
+        "secular_momentum_from_orbit_avg_nms_day": 2959361.4402396292,
+        "global_upper_bound_nm": 179.84112858668925,
+        "days_to_cmg_inscribed_momentum": 0.00285685377409579
+      },
+      "drag": {
+        "max_torque_nm": 0.009124404522616205,
+        "mean_torque_magnitude_nm": 0.006769397839856419,
+        "orbit_avg_torque_body_nm": [
+          -0.0003109219716609142,
+          -0.004676184462826024,
+          -0.003460099408742851
+        ],
+        "orbit_avg_torque_magnitude_nm": 0.005825432303376261,
+        "max_cumulative_momentum_nms_day": 501.9950671484071,
+        "final_cumulative_momentum_nms_day": 501.9950671484071,
+        "secular_momentum_from_orbit_avg_nms_day": 503.3173510117089,
+        "days_to_cmg_inscribed_momentum": 16.797479527514753
+      },
+      "combined": {
+        "max_torque_nm": 34.327106275642755,
+        "mean_torque_magnitude_nm": 34.25406568050448,
+        "orbit_avg_torque_body_nm": [
+          30.606987589790137,
+          -15.374780348023059,
+          -0.3825023306823448
+        ],
+        "orbit_avg_torque_magnitude_nm": 34.2537277986572,
+        "max_cumulative_momentum_nms_day": 2959551.4104099153,
+        "final_cumulative_momentum_nms_day": 2959551.4104099153,
+        "secular_momentum_from_orbit_avg_nms_day": 2959522.081803982,
+        "days_to_cmg_inscribed_momentum": 0.002856698705322281
+      }
+    }
+  },
+  "free_response": {
+    "nominal_lvlh_initial": {
+      "none": {
+        "final_nominal_error_deg": 0.0,
+        "max_nominal_error_deg": 0.0,
+        "final_drift_from_initial_deg": 0.0,
+        "max_drift_from_initial_deg": 0.0,
+        "final_rate_norm_deg_s": 0.0,
+        "max_rate_norm_deg_s": 0.0
+      },
+      "gravity gradient": {
+        "final_nominal_error_deg": 0.0,
+        "max_nominal_error_deg": 0.0,
+        "final_drift_from_initial_deg": 0.0,
+        "max_drift_from_initial_deg": 0.0,
+        "final_rate_norm_deg_s": 9.129678117300634e-19,
+        "max_rate_norm_deg_s": 5.388582050071977e-18
+      },
+      "drag": {
+        "final_nominal_error_deg": 0.011368290641373064,
+        "max_nominal_error_deg": 0.011368290641373064,
+        "final_drift_from_initial_deg": 0.011368290641373064,
+        "max_drift_from_initial_deg": 0.011368290641373064,
+        "final_rate_norm_deg_s": 1.2776110389179047e-06,
+        "max_rate_norm_deg_s": 2.646522334144701e-06
+      },
+      "both": {
+        "final_nominal_error_deg": 179.15756311402947,
+        "max_nominal_error_deg": 179.87417166767375,
+        "final_drift_from_initial_deg": 179.15756311402947,
+        "max_drift_from_initial_deg": 179.87417166767375,
+        "final_rate_norm_deg_s": 0.06517352525217324,
+        "max_rate_norm_deg_s": 0.09760745223933025
+      }
+    },
+    "off_nominal_initial": {
+      "none": {
+        "final_nominal_error_deg": 6.121048769130438,
+        "max_nominal_error_deg": 6.121048769130438,
+        "final_drift_from_initial_deg": 0.0,
+        "max_drift_from_initial_deg": 0.0,
+        "final_rate_norm_deg_s": 0.0,
+        "max_rate_norm_deg_s": 0.0
+      },
+      "gravity gradient": {
+        "final_nominal_error_deg": 174.66262127132902,
+        "max_nominal_error_deg": 179.99946891279157,
+        "final_drift_from_initial_deg": 170.9120604683013,
+        "max_drift_from_initial_deg": 179.97141506206992,
+        "final_rate_norm_deg_s": 0.06896641471771346,
+        "max_rate_norm_deg_s": 0.10063099221273375
+      },
+      "drag": {
+        "final_nominal_error_deg": 6.253366885742471,
+        "max_nominal_error_deg": 6.253366885742471,
+        "final_drift_from_initial_deg": 0.38092764611695823,
+        "max_drift_from_initial_deg": 0.38092764611695823,
+        "final_rate_norm_deg_s": 4.636296867691685e-05,
+        "max_rate_norm_deg_s": 4.636296867691685e-05
+      },
+      "both": {
+        "final_nominal_error_deg": 174.90763805162737,
+        "max_nominal_error_deg": 179.95199313778835,
+        "final_drift_from_initial_deg": 171.14583409742835,
+        "max_drift_from_initial_deg": 179.93227208370968,
+        "final_rate_norm_deg_s": 0.06917859804596911,
+        "max_rate_norm_deg_s": 0.10062280731654584
+      }
+    }
+  },
+  "cmg": {
+    "total_momentum_nms": 19040.0,
+    "inscribed_momentum_nms": 8454.462899462138
+  }
+}

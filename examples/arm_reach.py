@@ -6,36 +6,44 @@ Demonstrates the coupled simulator with an articulated spacecraft-arm system:
 3. Stability check: long-horizon run remains finite
 
 Usage:
-    uv run python examples/arm_reach.py
+    pixi run python examples/arm_reach.py
 """
 
 from __future__ import annotations
 
-import mujoco
+import tempfile
+from pathlib import Path
+
 import numpy as np
+from _orbit_reference import circular_orbit_eci
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_step
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 from mujoco_orbit.testdata import SPACECRAFT_ARM_XML
+
+
+def _compile_model(xml_path: str, *, mj_timestep: float) -> MjoModel:
+    mjorbit = (
+        '<mjorbit use_j2="false" use_drag="false" use_srp="false" '
+        'use_magnetic="false">\n  </mjorbit>\n'
+    )
+    xml = Path(xml_path).read_text().replace("</mujoco>", f"  {mjorbit}</mujoco>")
+    with tempfile.NamedTemporaryFile(suffix=".xml", mode="w", delete=False) as file:
+        file.write(xml)
+        configured_path = Path(file.name)
+    try:
+        return MjoModel.from_xml_path(str(configured_path), mj_timestep=mj_timestep)
+    finally:
+        configured_path.unlink(missing_ok=True)
 
 
 def main() -> None:
     alt_km = 400.0
     a_km = R_EARTH + alt_km
 
-    R_eci, V_eci = keplerian_to_cartesian(
-        a=a_km, e=0.0, inc=np.deg2rad(51.6), raan=0.0, argp=0.0, nu=0.0,
-    )
+    R_eci, V_eci = circular_orbit_eci(a_km, np.deg2rad(51.6))
 
-    model = MjoModel.from_xml_path(
-        SPACECRAFT_ARM_XML,
-        mj_timestep=0.002,
-        use_j2=False,
-        use_drag=False,
-        use_srp=False,
-        use_magnetic=False,
-    )
+    model = _compile_model(SPACECRAFT_ARM_XML, mj_timestep=0.002)
     data = MjoData(model, orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
     mjm, mjd = model, data
 
@@ -43,34 +51,35 @@ def main() -> None:
     print("Arm Reach — Articulated Spacecraft Example")
     print("=" * 60)
     print(f"Model: {mjm.nbody} bodies, {mjm.njnt} joints, {mjm.nu} actuators")
-    print(
-        f"Bodies: {[mujoco.mj_id2name(mjm, mujoco.mjtObj.mjOBJ_BODY, i) for i in range(mjm.nbody)]}"
-    )
+    print(f"Bodies: {[mjm.body_name(i) for i in range(mjm.nbody)]}")
     print()
 
     # ----------------------------------------------------------------
     # Part 1: Free drift — no control, arm in initial configuration
     # ----------------------------------------------------------------
     print("--- Part 1: Free Drift (5 s, no control) ---")
-    orbit_0 = data.orbit.copy()
-    com_0 = np.average(
+    orbit_0_R_eci = data.orbit.R_eci.copy()
+    orbit_0_V_eci = data.orbit.V_eci.copy()
+    com_0_world = np.average(
         [mjd.xipos[i] for i in range(1, mjm.nbody)],
         weights=[mjm.body_mass[i] for i in range(1, mjm.nbody)],
         axis=0,
     )
+    com_0 = data.lvlh_position_from_world(com_0_world)
 
     dt = mjm.opt.timestep
     n_steps_1 = int(5.0 / dt)
     for _ in range(n_steps_1):
         mjo_step(model, data)
 
-    com_1 = np.average(
+    com_1_world = np.average(
         [mjd.xipos[i] for i in range(1, mjm.nbody)],
         weights=[mjm.body_mass[i] for i in range(1, mjm.nbody)],
         axis=0,
     )
+    com_1 = data.lvlh_position_from_world(com_1_world)
     com_drift = np.linalg.norm(com_1 - com_0)
-    print(f"  System COM drift: {com_drift:.6e} m")
+    print(f"  System COM drift relative to chief: {com_drift:.6e} m")
     print(
         f"  All states finite: {np.all(np.isfinite(mjd.qpos)) and np.all(np.isfinite(mjd.qvel))}"
     )
@@ -95,11 +104,11 @@ def main() -> None:
         mjo_step(model, data)
         if i % 500 == 0:
             ee_id = model.body_id("ee")
-            ee_pos = mjd.xipos[ee_id].copy()
+            ee_pos = data.lvlh_position_from_world(mjd.xipos[ee_id])
             ee_positions.append(ee_pos)
 
     ee_id = model.body_id("ee")
-    ee_final = mjd.xipos[ee_id].copy()
+    ee_final = data.lvlh_position_from_world(mjd.xipos[ee_id])
     print(
         "  End-effector final pos (LVLH): "
         f"[{ee_final[0]:.4f}, {ee_final[1]:.4f}, {ee_final[2]:.4f}] m"
@@ -126,7 +135,7 @@ def main() -> None:
     print("--- Part 3: Orbit Conservation Check ---")
 
     orbit_after = data.orbit
-    dR = np.linalg.norm(orbit_after.R_eci - orbit_0.R_eci)
+    dR = np.linalg.norm(orbit_after.R_eci - orbit_0_R_eci)
     # Expected drift from orbit propagation (15 s at ~7.7 km/s)
     v_circ = np.linalg.norm(V_eci)
     expected_distance = v_circ * 15.0  # km
@@ -142,8 +151,8 @@ def main() -> None:
     # Orbital energy should be roughly conserved (no external forces)
     r1 = np.linalg.norm(orbit_after.R_eci)
     v1 = np.linalg.norm(orbit_after.V_eci)
-    r0 = np.linalg.norm(orbit_0.R_eci)
-    v0 = np.linalg.norm(orbit_0.V_eci)
+    r0 = np.linalg.norm(orbit_0_R_eci)
+    v0 = np.linalg.norm(orbit_0_V_eci)
     E0 = 0.5 * v0**2 - GM_EARTH / r0
     E1 = 0.5 * v1**2 - GM_EARTH / r1
     dE_rel = abs(E1 - E0) / abs(E0)

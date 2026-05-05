@@ -12,7 +12,7 @@ The perturbed X-axis case should exhibit the Dzhanibekov / intermediate axis
 instability, with transverse rates growing dramatically.
 
 Usage:
-    uv run python ISS/hw1/iss_axis_comparison.py
+    pixi run python ISS/hw1/iss_axis_comparison.py
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ import numpy as np
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit, SurfaceSpec, mjo_forward, mjo_step
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
 # ---------------------------------------------------------------------------
 # ISS parameters

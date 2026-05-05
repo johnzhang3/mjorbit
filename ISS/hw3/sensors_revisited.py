@@ -11,7 +11,7 @@ assignment:
      additive/rotation noise and constant-bias model.
 
   2. Star tracker — returns a full attitude quaternion:
-       q_meas = dq(delta_theta) * q_true,   delta_theta ~ N(0, R_star)
+       q_meas = q_true * dq(delta_theta),   delta_theta ~ N(0, R_star)
      Errors sampled from an *anisotropic* Gaussian in axis-angle space
      (tighter cross-boresight, looser about the roll/boresight axis).
 
@@ -25,7 +25,7 @@ All parameters are justified from published sensor datasheets (cited below).
 Monte Carlo validation (N = 10 000) demonstrates correct error statistics.
 
 Usage:
-    uv run python ISS/hw3/sensors_revisited.py
+    pixi run python ISS/hw3/sensors_revisited.py
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ from common import (
 
 from mujoco_orbit import MjoData, MjoModel, mjo_forward, mjo_step
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
 np.random.seed(42)
 plt.rcParams.update({
@@ -313,6 +313,16 @@ class GyroSimulator:
 
 def calibrate_mag(y: np.ndarray) -> np.ndarray:
     return MAG_M_INV @ (y - MAG_BIAS)
+
+
+def calibrate_sun(y: np.ndarray) -> np.ndarray:
+    corrected = SUN_M_INV @ (y - SUN_BIAS)
+    return corrected / np.linalg.norm(corrected)
+
+
+def calibrate_horizon(y: np.ndarray) -> np.ndarray:
+    corrected = HOR_M_INV @ (y - HOR_BIAS)
+    return corrected / np.linalg.norm(corrected)
 
 
 def calibrate_gyro(y: np.ndarray) -> np.ndarray:

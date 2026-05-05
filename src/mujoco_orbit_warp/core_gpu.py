@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 import warp as wp
 
+from mujoco_orbit.config import OrbitInit
 from mujoco_orbit.constants import (
     B0_EARTH,
     GM_EARTH,
@@ -20,7 +21,6 @@ from mujoco_orbit.constants import (
     P_SUN,
     R_EARTH,
 )
-from mujoco_orbit.core.config import OrbitInit
 
 _DEG_TO_RAD = np.pi / 180.0
 _ATM_H0_KM = 400.0
@@ -160,19 +160,35 @@ def make_device_core_model(model: Any) -> DeviceCoreModel:
     thrusters = model.thrusters
 
     rw_speed_limit = np.array(
-        [0.0 if wheel.speed_limit is None else wheel.speed_limit for wheel in reaction_wheels],
+        [
+            wheel.speed_limit
+            if getattr(wheel, "has_speed_limit", wheel.speed_limit is not None)
+            else 0.0
+            for wheel in reaction_wheels
+        ],
         dtype=np.float64,
     )
     rw_has_speed_limit = np.array(
-        [wheel.speed_limit is not None for wheel in reaction_wheels],
+        [
+            getattr(wheel, "has_speed_limit", wheel.speed_limit is not None)
+            for wheel in reaction_wheels
+        ],
         dtype=np.int32,
     )
     rw_torque_limit = np.array(
-        [0.0 if wheel.torque_limit is None else wheel.torque_limit for wheel in reaction_wheels],
+        [
+            wheel.torque_limit
+            if getattr(wheel, "has_torque_limit", wheel.torque_limit is not None)
+            else 0.0
+            for wheel in reaction_wheels
+        ],
         dtype=np.float64,
     )
     rw_has_torque_limit = np.array(
-        [wheel.torque_limit is not None for wheel in reaction_wheels],
+        [
+            getattr(wheel, "has_torque_limit", wheel.torque_limit is not None)
+            for wheel in reaction_wheels
+        ],
         dtype=np.int32,
     )
 

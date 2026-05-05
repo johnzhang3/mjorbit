@@ -32,8 +32,8 @@ def _make_model_data(**overrides):
 class TestPhase0:
     def test_constructs_model_and_data(self):
         model, data = _make_model_data()
-        assert model.mj_model is not None
-        assert data.mj_data is not None
+        assert model.nbody > 0
+        assert data.qpos.shape == (model.nq,)
 
     def test_gravity_disabled(self):
         model, _ = _make_model_data()
@@ -53,6 +53,12 @@ class TestPhase0:
 
 
 class TestPhase3:
+    def test_orbit_plugin_auto_attached(self):
+        model, _ = _make_model_data()
+        assert model.body_id("spacecraft") >= 1
+        assert model.nplugin == 1
+        assert model.orbit_plugin_instance >= 0
+
     def test_timestep_override(self):
         model, _ = _make_model_data(mj_timestep=0.01)
         assert model.opt.timestep == 0.01
@@ -110,6 +116,24 @@ class TestPhase3:
         data.clear_wrench_buffer()
         np.testing.assert_allclose(data.wrench_buffer, 0.0)
         np.testing.assert_allclose(data.xfrc_applied, 0.0)
+
+    def test_data_reset_restores_initial_orbit_instance(self):
+        model, data = _make_model_data()
+        initial_R = data.orbit.R_eci.copy()
+        initial_V = data.orbit.V_eci.copy()
+        data.orbit.R_eci[:] = [7000.0, 1.0, -2.0]
+        data.orbit.V_eci[:] = [0.0, 7.5, 0.1]
+        data.orbit.t = 123.0
+        data.frame.C_LI[:] = np.eye(3)
+        data.env.mag_field_eci[:] = [1.0, 2.0, 3.0]
+
+        data.reset()
+
+        np.testing.assert_allclose(data.orbit.R_eci, initial_R)
+        np.testing.assert_allclose(data.orbit.V_eci, initial_V)
+        assert data.orbit.t == 0.0
+        np.testing.assert_allclose(data.frame.C_LI @ data.frame.C_LI.T, np.eye(3), atol=1e-14)
+        assert abs(np.linalg.norm(data.env.sun_vector_eci) - 1.0) < 1e-10
 
 
 class TestPhase3SurfaceMetadata:

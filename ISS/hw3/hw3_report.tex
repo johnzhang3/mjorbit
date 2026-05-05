@@ -209,8 +209,9 @@ and the process noise covariance is:
     0 & \sigma_u^2 \Delta t\, I
   \end{bmatrix},
 \end{equation}
-where $\sigma_{\text{floor}} = 0.001^\circ$ accounts for unmodeled
-disturbance torques and residual sensor calibration errors.
+where $\sigma_{\text{floor}} = 0.01^\circ/\sqrt{\text{s}}$ accounts for
+zero-order-hold gyro propagation, unmodeled disturbance torques, and residual
+sensor calibration errors.
 
 \subsubsection{Vector Measurement Update}
 
@@ -255,36 +256,53 @@ and the initial attitude estimate is perturbed by $\sim$$5^\circ$ from truth.
 
 \subsubsection{Sample Rate Selection}
 
-Fig.~\ref{fig:sample_rate} compares filter performance at five sample rates
-(0.2--5 Hz).  For the slow tumble at 2.24$^\circ$/s, the spacecraft rotates
-$\sim$$2.24^\circ$ per second, requiring a minimum sample rate of
-$\sim$$0.5$~Hz to avoid excessive propagation error.  With the gyro
-propagation performed in the correct inertial frame, the low-rate cases are
-much closer than in the original draft, and the dominant trend is the
-improvement from reduced discretization error as the update rate increases.
+Fig.~\ref{fig:sample_rate} compares filter performance at five vector-update
+rates (0.2--5 Hz), with the star-tracker quaternion update kept at 1 Hz.  For
+the slow tumble at 2.24$^\circ$/s, one-sample gyro propagation error is a
+larger consistency driver than the sensor white noise.  The added process
+floor represents this discretization error and prevents the filter from
+estimating a fictitious gyro bias to absorb it.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\columnwidth]{mekf_sample_rate.png}
   \caption{MEKF performance vs.\ sample rate.  Left: attitude error time
     histories.  Right: steady-state error over the last 50~s of each run.
-    The 0.2--1 Hz cases now perform similarly, while 2--5 Hz reduce
-    propagation error and provide noticeably better accuracy.}
+    Performance is similar across vector-update rates because the 1 Hz
+    star-tracker attitude update dominates the steady-state solution.}
   \label{fig:sample_rate}
 \end{figure}
 
-The steady-state errors are 0.0253$^\circ$ (0.2 Hz), 0.0256$^\circ$ (0.5 Hz),
-0.0264$^\circ$ (1 Hz), 0.0138$^\circ$ (2 Hz), and 0.0049$^\circ$ (5 Hz).
-Thus 1 Hz is acceptable for this slow tumble, but the estimator benefits
-materially from 2--5 Hz propagation when computational budget permits.
+The steady-state errors are 0.0050$^\circ$ (0.2 Hz), 0.0048$^\circ$ (0.5 Hz),
+0.0050$^\circ$ (1 Hz), 0.0054$^\circ$ (2 Hz), and 0.0056$^\circ$ (5 Hz).
+Thus the vector measurements provide redundancy, while the high-quality
+star-tracker quaternion measurement sets the accuracy floor in this case.
+
+\subsubsection{Sensor Isolation}
+
+Fig.~\ref{fig:sensor_isolation} isolates the measurement sources at 1 Hz.  The
+star-tracker-only case nearly matches the all-sensor solution, confirming that
+the full-attitude quaternion measurement dominates the fused estimate.  Single
+vector measurements remain weak or partially unobservable: the tail errors are
+11.55$^\circ$ for sun only, 3.08$^\circ$ for horizon only, and
+0.253$^\circ$ for magnetometer only over this trajectory.
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\columnwidth]{mekf_sensor_isolation.png}
+  \caption{MEKF sensor isolation at 1 Hz.  The star tracker alone reaches
+    nearly the same steady-state accuracy as the full fused estimator, while
+    individual vector sensors are insufficient for full attitude recovery.}
+  \label{fig:sensor_isolation}
+\end{figure}
 
 \subsubsection{Comparison to Static Estimates}
 
 Fig.~\ref{fig:mekf_wahba} compares the MEKF to Wahba's q-method
 (from HW2) using the same measurement set.  The static Wahba estimate
 uses only vector observations (sun, horizon, magnetometer direction) and
-achieves a mean error of $0.103^\circ$.  The MEKF additionally fuses the
-star tracker quaternion and gyro propagation, achieving $0.048^\circ$
+achieves a mean error of $0.100^\circ$.  The MEKF additionally fuses the
+star tracker quaternion and gyro propagation, achieving $0.0058^\circ$
 after convergence.
 
 \begin{figure}[t]
@@ -316,23 +334,16 @@ For a consistent 6-DOF estimator, $\epsilon_k \sim \chi^2(6)$ with
 \begin{figure}[t]
   \centering
   \includegraphics[width=\columnwidth]{mekf_nees.png}
-  \caption{NEES consistency check.  The NEES exceeds the 95\% $\chi^2(6)$
-    bounds by two to three orders of magnitude, indicating the filter is
-    still strongly overconfident despite the corrected propagation model.}
+  \caption{NEES consistency check.  The process-noise floor brings the
+    estimator close to the 6-DOF consistency band, with only brief excursions
+    above the 95\% upper bound.}
   \label{fig:nees}
 \end{figure}
 
-The NEES remains far above the $\chi^2$ bounds: peak NEES is
-$\sim$$8.0\times10^3$, the mean after 50~s is
-$\sim$$4.1\times10^3$, and the final value is still $\sim$$8.2\times10^2$.
-Thus the frame-rate bug was not the only issue; the estimator remains
-severely overconfident.  The dominant causes are the unmodeled affine
-sensor residuals and coarse one-step propagation error, both of which are
-absorbed imperfectly by the current $Q$ and $R$ choices.  In practice, this
-would be addressed by:
-(1) augmenting the state with sensor calibration parameters,
-(2) inflating process/measurement noise to account for unmodeled effects, or
-(3) employing an adaptive filter that tunes $Q$ online.
+With $\sigma_{\text{floor}} = 0.01^\circ/\sqrt{\text{s}}$, the peak NEES is
+15.4, the mean after 50~s is 3.81, and the final value is 8.53.  The remaining
+spread is acceptable for this single Monte Carlo run and is much closer to the
+$\chi^2(6)$ reference than the original overconfident tuning.
 
 \subsubsection{Convergence Behavior}
 
@@ -344,13 +355,13 @@ errors ranging from 1$^\circ$ to 60$^\circ$.
   \includegraphics[width=\columnwidth]{mekf_convergence.png}
   \caption{MEKF convergence from different initial conditions.  The filter
     converges from all tested initial errors (1--60$^\circ$) within
-    $\sim$50~s.  Steady-state accuracy is $\sim$0.025$^\circ$ regardless
+    $\sim$50~s.  Steady-state accuracy is $\sim$0.005$^\circ$ regardless
     of initial error magnitude.}
   \label{fig:convergence}
 \end{figure}
 
 All cases converge within $\sim$50 seconds to steady-state accuracy of
-$\sim$0.025$^\circ$.  Even from a 60$^\circ$ initial error, the MEKF
+$\sim$0.005$^\circ$.  Even from a 60$^\circ$ initial error, the MEKF
 converges rapidly thanks to the star tracker quaternion update, which
 provides a global attitude reference.  The convergence time is
 approximately 3--5$\times$ the measurement update interval, consistent
@@ -360,10 +371,10 @@ with the filter's information gain per step.
   \centering
   \includegraphics[width=\columnwidth]{mekf_baseline.png}
   \caption{Baseline MEKF performance at 1 Hz.  Top: attitude error
-    (blue) with a conservative $3\sigma$ covariance proxy based on the
+    (blue) with a 99.7\% attitude-norm covariance bound based on the
     largest attitude-covariance eigenvalue (red dashed).  The estimator
-    converges within $\sim$30 s and maintains $\sim$0.05$^\circ$ accuracy,
-    but the error still lies above the bound, confirming overconfidence.
+    converges within $\sim$30 s and maintains $\sim$0.005$^\circ$ accuracy
+    inside the bound.
     Bottom: gyro bias estimation error per axis with matching per-axis
     $3\sigma$ bounds.}
   \label{fig:baseline}

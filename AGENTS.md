@@ -5,13 +5,20 @@
 GPU-targeting MJWarp backend. Both expose MuJoCo-style model/data APIs, and users choose the
 backend by import path.
 
-- `src/mujoco_orbit/core/config.py` defines public `OrbitInit` and `*Spec` dataclasses.
-- `src/mujoco_orbit/core/runtime.py` defines `MjoModel` and `MjoData`.
-- `src/mujoco_orbit/core/step.py` defines `mjo_forward` and `mjo_step`.
-- `src/mujoco_orbit/core/actuators.py` holds runtime actuator-state containers.
-- `src/mujoco_orbit/orbit/` contains propagation, gravity, LVLH, and environment models.
-- `src/mujoco_orbit/coupling/` assembles external wrenches from environment and actuators.
-- `src/mujoco_orbit/sensors.py` contains sensor catalogs, callbacks, and measurement helpers.
+- `src/mujoco_orbit/config.py` defines public `OrbitInit` and `*Spec` dataclasses.
+- `src/mujoco_orbit/model.py` defines the Python `MjoModel` wrapper.
+- `src/mujoco_orbit/data.py` defines the Python `MjoData` wrapper.
+- `src/mujoco_orbit/step.py` defines `mjo_forward` and `mjo_step`.
+- `src/mujoco_orbit/rollout.py` defines state and rollout helpers.
+- `src/cpp/` contains the language-neutral C++ core and MuJoCo plugin.
+- `src/cpp/src/runtime_model.cc` compiles XML and resolves model metadata.
+- `src/cpp/src/runtime.cc` owns per-`MjoData` allocation, reset, and frame conversions.
+- `src/cpp/src/runtime_sensors.cc` owns C++ sensor bias/noise measurement helpers.
+- `src/cpp/src/runtime_state.cc` owns stepping, state packing, and rollout calls.
+- `src/cpp/bindings/` contains the nanobind Python module.
+- `tests/mujoco_orbit/reference/orbit/` contains Python reference/analysis orbit helpers.
+- `tests/mujoco_orbit/reference/coupling/` contains Python reference/analysis coupling helpers.
+- `tests/mujoco_orbit/reference/sensors.py` contains Python reference sensor helpers.
 - `src/mujoco_orbit/testdata/` contains XML fixtures used by tests and examples.
 - `src/mujoco_orbit_warp/` contains the optional MJWarp runtime, sync wrappers, and step API.
 - `src/viewer/` contains the browser viewer integration.
@@ -21,18 +28,20 @@ backend by import path.
 - `tests/mujoco_orbit_warp/` holds MJWarp tests; guard them with `pytest.importorskip`.
 
 ## Build, Test, and Development Commands
-Use `uv` for environment management and command execution.
+Use `pixi` for environment management and command execution.
 
-- `uv sync --dev`: install the package plus test, lint, and type-check tools.
-- `uv sync --dev --extra report`: add report/analysis dependencies for `ISS/`.
-- `uv sync --dev --extra warp`: add MJWarp and Warp for the GPU backend.
-- `uv run pytest -q`: run the full test suite.
-- `uv run pytest tests/mujoco_orbit/test_api_model_data.py -q`: run the public API tests.
-- `uv run pytest tests/mujoco_orbit_warp -q`: run the MJWarp tests when the optional extra is installed.
-- `uv run ruff check .`: run linting and import-order checks.
-- `uv run pyright`: run static type checks.
-- `uv run python examples/free_drift.py`: run a minimal API example.
-- `uv run python ISS/hw2/spacecraft_dynamics.py`: run an ISS analysis script.
+- `pixi install`: install the default Python 3.12 dev environment and editable package.
+- `pixi install -e py311`: install the Python 3.11 dev environment.
+- `pixi install -e report`: add report/analysis dependencies for `ISS/`.
+- `pixi install -e warp`: add MJWarp and Warp for the GPU backend.
+- `pixi run test`: run the full test suite.
+- `pixi run test-api`: run the public API tests.
+- `pixi run test-warp`: run the MJWarp tests when the optional extra is installed.
+- `pixi run lint`: run linting and import-order checks.
+- `pixi run typecheck`: run static type checks.
+- `pixi run cpp-test`: configure, build, and test the native C++ plugin.
+- `pixi run example-free-drift`: run a minimal API example.
+- `pixi run iss-hw2`: run an ISS analysis script.
 
 ## Coding Style & Naming Conventions
 Follow existing Python style: 4-space indentation, explicit type hints, and small focused
@@ -59,7 +68,7 @@ subsystem you change. Prefer deterministic numeric assertions with `numpy.testin
 
 If you touch the runtime API, stepping, sensors, or coupling code, update
 `tests/mujoco_orbit/test_api_model_data.py` and the relevant subsystem tests. Run
-`uv run pytest -q` before submitting. If you touch warp code, add or update guarded tests in
+`pixi run test` before submitting. If you touch warp code, add or update guarded tests in
 `tests/mujoco_orbit_warp/` as well. If you touch `ISS/` analysis scripts, run the affected
 script directly and keep generated plots or PDFs intentional.
 
@@ -81,11 +90,20 @@ Do not commit generated caches such as `__pycache__/`, `.pytest_cache/`, or `.ru
 Treat `ISS/` plots, PDFs, and saved data as intentional analysis artifacts rather than
 incidental byproducts.
 
-## MuJoCo Frame Conventions
+## MuJoCo / Orbit Frame Conventions
 
 These conventions are critical for correctness. Getting them wrong causes silent
 energy/momentum non-conservation.
 
+- **`OrbitInit` / `data.orbit`** store the chief/reference orbit in absolute ECI
+  coordinates (`R_eci`, `V_eci`) using km and km/s.
+- **MuJoCo `world`** is the chief-centered local inertial frame in SI units, with origin at
+  the chief and axes parallel to ECI. It is not absolute ECI and not LVLH.
+- **Root free-joint `qpos`/`qvel`** are local inertial offsets from the chief. Do not add
+  `data.orbit.R_eci` or `data.orbit.V_eci` to XML free-joint initial conditions or MuJoCo
+  state unless you are explicitly converting to absolute ECI via helper methods.
+- **LVLH** is a derived rotating frame in `data.frame`. Use `MjoData` conversion helpers for
+  LVLH/world/ECI transforms instead of assuming MuJoCo `world` axes are LVLH axes.
 - **`qvel[3:6]`** for a free joint is angular velocity in the **body frame** (child frame),
   not the world frame.
 - **`xmat`** is the body orientation matrix (world-from-body). Use this for body-frame and

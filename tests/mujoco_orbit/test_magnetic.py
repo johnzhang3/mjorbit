@@ -3,8 +3,8 @@
 import numpy as np
 
 from mujoco_orbit import MagneticBodySpec, mjo_forward
-from mujoco_orbit.coupling.magnetic import apply_magnetic_wrenches
 from mujoco_orbit.testdata import FREE_BODY_XML
+from tests.mujoco_orbit.reference.coupling.magnetic import apply_magnetic_wrenches
 
 from ._helpers import make_model_data
 
@@ -29,7 +29,7 @@ class TestMagneticTorque:
             ]
         )
         b_test = np.array([0.0, 0.0, 1.0])
-        data.env.mag_field_eci = data.frame.C_IL @ b_test
+        data.env.mag_field_eci = b_test
 
         data.clear_wrench_buffer()
         apply_magnetic_wrenches(model, data)
@@ -44,7 +44,7 @@ class TestMagneticTorque:
             ]
         )
         b_test = np.array([0.0, 0.0, 1.0])
-        data.env.mag_field_eci = data.frame.C_IL @ b_test
+        data.env.mag_field_eci = b_test
 
         data.clear_wrench_buffer()
         apply_magnetic_wrenches(model, data)
@@ -73,7 +73,7 @@ class TestMagneticTorque:
             ]
         )
         b_test = np.array([0.0, b_mag, 0.0])
-        data.env.mag_field_eci = data.frame.C_IL @ b_test
+        data.env.mag_field_eci = b_test
 
         data.clear_wrench_buffer()
         apply_magnetic_wrenches(model, data)
@@ -100,7 +100,7 @@ class TestMagneticTorque:
         mjo_forward(model, data)
 
         b_test = np.array([0.0, 0.0, 1.0])
-        data.env.mag_field_eci = data.frame.C_IL @ b_test
+        data.env.mag_field_eci = b_test
 
         data.clear_wrench_buffer()
         apply_magnetic_wrenches(model, data)

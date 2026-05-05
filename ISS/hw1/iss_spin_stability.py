@@ -18,7 +18,7 @@ ISS Parameters (post-assembly-complete):
   Orbit:       ~410 km circular, 51.6° inclination
 
 Usage:
-    uv run python ISS/hw1/iss_spin_stability.py
+    pixi run python ISS/hw1/iss_spin_stability.py
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ import numpy as np
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit, SurfaceSpec, mjo_forward, mjo_step
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
 # ---------------------------------------------------------------------------
 # ISS physical parameters

@@ -10,10 +10,6 @@ from typing import Any
 import mujoco
 import numpy as np
 
-from mujoco_orbit.orbit.environment import update_environment_cache
-from mujoco_orbit.orbit.lvlh import update_frame_cache
-from mujoco_orbit.sensors import update_sensor_environment
-
 from ._deps import require_mjwarp
 from .runtime import (
     _MIRRORED_ARRAY_FIELDS,
@@ -187,10 +183,8 @@ def _pull_device_fields_to_public(data: MjoData, fields: frozenset[str]) -> None
 
 
 def _refresh_host_orbit_caches(model: MjoModel, run) -> None:
-    run.frame = update_frame_cache(run.orbit, use_j2=model.use_j2)
-    run.env = update_environment_cache(run.orbit, run.frame)
     run.actuators.update_rw_momentum(model.rw_inertia)
-    update_sensor_environment(model.host_model, run)
+    run.refresh_native(model)
 
 
 def _copy_public_core_to_host(data: MjoData, run, world_id: int) -> None:

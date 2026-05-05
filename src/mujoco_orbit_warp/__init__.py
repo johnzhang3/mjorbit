@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from mujoco_orbit.core.config import (
+from mujoco_orbit.config import (
     MagneticBodySpec,
     MagnetorquerSpec,
     OrbitInit,
@@ -201,7 +201,7 @@ def put_model(model: Any) -> Any:
     """Return an MJWarp device model for a host or orbit wrapper model."""
     if isinstance(model, MjoModel):
         return model
-    from mujoco_orbit.core.runtime import MjoModel as CpuMjoModel
+    from mujoco_orbit.model import MjoModel as CpuMjoModel
 
     if isinstance(model, CpuMjoModel):
         cached = getattr(model, "_mujoco_orbit_warp_model", None)
@@ -234,13 +234,13 @@ def put_data(model: Any, data: Any, *args: Any, **kwargs: Any) -> Any:
     if isinstance(model, MjoModel):
         if isinstance(data, MjoData):
             return data
-        from mujoco_orbit.core.runtime import MjoData as CpuMjoData
+        from mujoco_orbit.data import MjoData as CpuMjoData
 
         if isinstance(data, CpuMjoData):
             return MjoData.from_host_data(model, data, *args, **kwargs)
 
-    from mujoco_orbit.core.runtime import MjoData as CpuMjoData
-    from mujoco_orbit.core.runtime import MjoModel as CpuMjoModel
+    from mujoco_orbit.data import MjoData as CpuMjoData
+    from mujoco_orbit.model import MjoModel as CpuMjoModel
 
     if isinstance(model, CpuMjoModel):
         if not isinstance(data, CpuMjoData):

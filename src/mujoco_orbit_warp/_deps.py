@@ -15,7 +15,7 @@ def require_mjwarp() -> tuple[Any, Any]:
     except ImportError as exc:  # pragma: no cover - depends on optional package
         raise ImportError(
             "mujoco_orbit_warp requires the optional `mujoco-warp` extra. "
-            "Install it with `uv sync --dev --extra warp`."
+            "Install it with `pixi install -e warp`."
         ) from exc
 
     return mjw, wp

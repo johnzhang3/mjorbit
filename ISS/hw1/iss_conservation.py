@@ -9,7 +9,7 @@ Runs for 3 full orbits (~277 min) with the ISS spinning at 10 RPM about
 the major axis (Z).
 
 Usage:
-    uv run python ISS/hw1/iss_conservation.py
+    pixi run python ISS/hw1/iss_conservation.py
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ import numpy as np
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
 # ---------------------------------------------------------------------------
 # Parameters

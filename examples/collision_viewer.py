@@ -9,25 +9,43 @@ Gold trail  = Body A (initially moving)
 Cyan trail  = Body B (initially at rest)
 
 Usage:
-    uv sync
-    uv run python examples/collision_viewer.py
+    pixi install
+    pixi run python examples/collision_viewer.py
 
 Controls (browser):
     - Scroll to zoom, drag to orbit the camera
-    - This example renders in ECI, so the pair visibly orbits Earth
+    - This example renders in ECI, so the chief-relative pair visibly orbits Earth
     - Use the local-scale controls to grow/shrink the bodies relative to Earth
     - Use the speed slider to fast-forward through CW drift
 """
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import numpy as np
+from _orbit_reference import circular_orbit_eci
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 from mujoco_orbit.testdata import TWO_BODIES_XML
 from viewer import MjOrbitViewer
+
+
+def _compile_model(xml_path: str, *, mj_timestep: float) -> MjoModel:
+    mjorbit = (
+        '<mjorbit use_j2="false" use_drag="false" use_srp="false" '
+        'use_magnetic="false">\n  </mjorbit>\n'
+    )
+    xml = Path(xml_path).read_text().replace("</mujoco>", f"  {mjorbit}</mujoco>")
+    with tempfile.NamedTemporaryFile(suffix=".xml", mode="w", delete=False) as file:
+        file.write(xml)
+        configured_path = Path(file.name)
+    try:
+        return MjoModel.from_xml_path(str(configured_path), mj_timestep=mj_timestep)
+    finally:
+        configured_path.unlink(missing_ok=True)
 
 
 def main() -> None:
@@ -37,29 +55,20 @@ def main() -> None:
     alt_km = 400.0
     a_km = R_EARTH + alt_km
 
-    R_eci, V_eci = keplerian_to_cartesian(
-        a=a_km, e=0.0, inc=np.deg2rad(51.6), raan=0.0, argp=0.0, nu=0.0,
-    )
+    R_eci, V_eci = circular_orbit_eci(a_km, np.deg2rad(51.6))
 
     # ------------------------------------------------------------------
     # Model — two 100 kg cubes, 4 m apart along radial axis
     # ------------------------------------------------------------------
-    model = MjoModel.from_xml_path(
-        TWO_BODIES_XML,
-        mj_timestep=0.01,
-        use_j2=False,
-        use_drag=False,
-        use_srp=False,
-        use_magnetic=False,
-    )
+    model = _compile_model(TWO_BODIES_XML, mj_timestep=0.01)
     data = MjoData(model, orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
 
     # ------------------------------------------------------------------
     # Initial conditions — Body A approaches Body B
-    # Body A: qvel[0:6], Body B: qvel[6:12]
-    # Give Body A a +x (radial) velocity of 1 m/s toward Body B
+    # Body A: qvel[0:6], Body B: qvel[6:12].
+    # Add +x chief-inertial velocity to Body A; initially +x is radial.
     # ------------------------------------------------------------------
-    data.qvel[6] = -0.5  # body_a vx = +1 m/s (radial, toward body_b)
+    data.qvel[0] += 1.0
 
     from mujoco_orbit import mjo_forward
     mjo_forward(model, data)
@@ -91,7 +100,7 @@ def main() -> None:
     print("  diverging CW trajectories.  Speed up with the")
     print("  slider to watch the along-track drift grow.")
     print()
-    print("  Render : ECI (the pair moves around Earth)")
+    print("  Render : ECI (chief-relative state translated along the orbit)")
     print("  Scale  : viewer starts at 10000x local scale")
     print()
 

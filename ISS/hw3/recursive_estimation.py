@@ -20,7 +20,7 @@ The script addresses four investigation topics:
   4. Convergence behavior with different initial conditions
 
 Usage:
-    uv run python ISS/hw3/recursive_estimation.py
+    pixi run python ISS/hw3/recursive_estimation.py
 """
 
 from __future__ import annotations
@@ -35,6 +35,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import mujoco
 import numpy as np
+from scipy.stats import chi2
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "hw2"))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
@@ -54,7 +55,9 @@ from sensors_revisited import (
     SUN_SIGMA_RAD,
     GyroSimulator,
     calibrate_gyro,
+    calibrate_horizon,
     calibrate_mag,
+    calibrate_sun,
     make_iss_sensor_xml,
     measure_horizon_affine,
     measure_magnetometer_affine,
@@ -66,7 +69,7 @@ from sensors_revisited import (
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
 plt.rcParams.update({
     "axes.titlesize": 13,
@@ -76,6 +79,11 @@ plt.rcParams.update({
     "xtick.labelsize": 10,
     "ytick.labelsize": 10,
 })
+
+DEFAULT_ATTITUDE_PROCESS_FLOOR_DEG = 0.01
+ATTITUDE_NORM_BOUND_PROB = 0.9973002039367398
+# Same probability mass as a two-sided 1D 3-sigma interval, applied to ||delta theta||.
+VALID_SENSOR_UPDATES = frozenset({"mag", "sun", "horizon", "star"})
 
 # =====================================================================
 # MEKF IMPLEMENTATION
@@ -99,6 +107,7 @@ class MEKF:
         P0: np.ndarray,
         sigma_v: float,
         sigma_u: float,
+        attitude_process_floor: float = np.deg2rad(DEFAULT_ATTITUDE_PROCESS_FLOOR_DEG),
     ):
         self.q = q0.copy()
         self.q /= np.linalg.norm(self.q)
@@ -106,6 +115,7 @@ class MEKF:
         self.P = P0.copy()
         self.sigma_v = sigma_v
         self.sigma_u = sigma_u
+        self.attitude_process_floor = attitude_process_floor
 
     def predict(self, omega_meas: np.ndarray, dt: float) -> None:
         """Propagate reference state and covariance using gyro measurement."""
@@ -122,10 +132,10 @@ class MEKF:
         F[:3, :3] -= skew(omega_c) * dt
         F[:3, 3:6] = -np.eye(3) * dt
 
-        # Process noise Q (includes small floor for unmodeled dynamics)
+        # Process noise Q. The floor covers zero-order-hold gyro propagation
+        # and attitude-model errors that are much larger than sensor ARW at 1 Hz.
         Q = np.zeros((6, 6))
-        # Attitude: gyro ARW + small floor for unmodeled disturbance torques
-        q_att = self.sigma_v**2 * dt + np.deg2rad(0.001)**2 * dt
+        q_att = (self.sigma_v**2 + self.attitude_process_floor**2) * dt
         Q[:3, :3] = q_att * np.eye(3)
         Q[3:6, 3:6] = self.sigma_u**2 * dt * np.eye(3)
 
@@ -309,9 +319,21 @@ def run_mekf_simulation(
     label: str = "",
     J_truth: np.ndarray | None = None,
     star_tracker_period: float = 1.0,
+    enabled_sensors: tuple[str, ...] | None = None,
+    attitude_process_floor_deg: float = DEFAULT_ATTITUDE_PROCESS_FLOOR_DEG,
 ) -> dict:
     """Run truth simulation + MEKF and return histories."""
     rng = np.random.default_rng(rng_seed)
+    sensor_updates = (
+        VALID_SENSOR_UPDATES
+        if enabled_sensors is None
+        else frozenset(enabled_sensors)
+    )
+    unknown_sensors = sensor_updates - VALID_SENSOR_UPDATES
+    if unknown_sensors:
+        unknown = ", ".join(sorted(unknown_sensors))
+        valid = ", ".join(sorted(VALID_SENSOR_UPDATES))
+        raise ValueError(f"Unknown MEKF sensor update(s): {unknown}. Valid updates: {valid}.")
 
     # Build ISS model with sensors
     if J_truth is None:
@@ -336,7 +358,14 @@ def run_mekf_simulation(
     if beta0_est is None:
         beta0_est = np.zeros(3)
 
-    mekf = MEKF(q0_est, beta0_est, P0, GYRO_ARW, GYRO_SIGMA_U)
+    mekf = MEKF(
+        q0_est,
+        beta0_est,
+        P0,
+        GYRO_ARW,
+        GYRO_SIGMA_U,
+        attitude_process_floor=np.deg2rad(attitude_process_floor_deg),
+    )
 
     # Simulation loop
     dt_mj = float(model.mj_model.opt.timestep)
@@ -352,6 +381,7 @@ def run_mekf_simulation(
     bias_error = np.zeros((n_events, 3))
     P_att_trace = np.zeros(n_events)
     P_att_sigma_max = np.zeros(n_events)
+    P_att_norm_bound = np.zeros(n_events)
     P_bias_trace = np.zeros(n_events)
     P_bias_sigma_axes = np.zeros((n_events, 3))
     nees = np.zeros(n_events)
@@ -362,7 +392,11 @@ def run_mekf_simulation(
         att_error[idx] = np.rad2deg(quat_error_angle(mekf.q, q_true))
         bias_error[idx] = gyro_sim.bias - mekf.beta
         P_att_trace[idx] = np.rad2deg(np.sqrt(np.trace(mekf.P[:3, :3]) / 3))
-        P_att_sigma_max[idx] = np.rad2deg(np.sqrt(np.max(np.linalg.eigvalsh(mekf.P[:3, :3]))))
+        p_att_max_eig = np.max(np.linalg.eigvalsh(mekf.P[:3, :3]))
+        P_att_sigma_max[idx] = np.rad2deg(np.sqrt(p_att_max_eig))
+        P_att_norm_bound[idx] = np.rad2deg(
+            np.sqrt(chi2.ppf(ATTITUDE_NORM_BOUND_PROB, 3) * p_att_max_eig)
+        )
         P_bias_trace[idx] = np.sqrt(np.trace(mekf.P[3:6, 3:6]) / 3)
         P_bias_sigma_axes[idx] = np.sqrt(np.diag(mekf.P[3:6, 3:6]))
 
@@ -399,7 +433,7 @@ def run_mekf_simulation(
         mekf.predict(y_gyro_cal, dt_event)
 
         event_key = round(float(t), 9)
-        if event_key in filter_update_times:
+        if event_key in filter_update_times and sensor_updates & {"mag", "sun", "horizon"}:
             mag_truth = data.sensors.measure("mag", noisy=False).copy()
             sun_truth = data.sensors.measure("orbit_sun_body", noisy=False).copy()
             hor_truth = data.sensors.measure("orbit_horizon_body", noisy=False).copy()
@@ -407,27 +441,30 @@ def run_mekf_simulation(
             y_mag = measure_magnetometer_affine(mag_truth, rng)
             y_mag_cal = calibrate_mag(y_mag)
             y_mag_dir = y_mag_cal / np.linalg.norm(y_mag_cal)
-            y_sun = measure_sun_affine(sun_truth, rng)
-            y_hor = measure_horizon_affine(hor_truth, rng)
+            y_sun = calibrate_sun(measure_sun_affine(sun_truth, rng))
+            y_hor = calibrate_horizon(measure_horizon_affine(hor_truth, rng))
 
-            B_eci = data.env.mag_field_eci.copy()
-            B_mag = np.linalg.norm(B_eci)
-            B_eci_hat = B_eci / B_mag
-            mag_dir_sigma = MAG_SIGMA / B_mag
-            R_mag_dir = mag_dir_sigma**2 * np.eye(3)
-            mekf.update_vector(y_mag_dir, B_eci_hat, R_mag_dir)
+            if "mag" in sensor_updates:
+                B_eci = data.env.mag_field_eci.copy()
+                B_mag = np.linalg.norm(B_eci)
+                B_eci_hat = B_eci / B_mag
+                mag_dir_sigma = MAG_SIGMA / B_mag
+                R_mag_dir = mag_dir_sigma**2 * np.eye(3)
+                mekf.update_vector(y_mag_dir, B_eci_hat, R_mag_dir)
 
-            sun_eci = data.env.sun_vector_eci.copy()
-            sun_eci /= np.linalg.norm(sun_eci)
-            R_sun = SUN_SIGMA_RAD**2 * np.eye(3)
-            mekf.update_vector(y_sun, sun_eci, R_sun)
+            if "sun" in sensor_updates:
+                sun_eci = data.env.sun_vector_eci.copy()
+                sun_eci /= np.linalg.norm(sun_eci)
+                R_sun = SUN_SIGMA_RAD**2 * np.eye(3)
+                mekf.update_vector(y_sun, sun_eci, R_sun)
 
-            nadir_eci = -data.orbit.R_eci / np.linalg.norm(data.orbit.R_eci)
-            R_hor = HOR_SIGMA_RAD**2 * np.eye(3)
-            mekf.update_vector(y_hor, nadir_eci, R_hor)
+            if "horizon" in sensor_updates:
+                nadir_eci = -data.orbit.R_eci / np.linalg.norm(data.orbit.R_eci)
+                R_hor = HOR_SIGMA_RAD**2 * np.eye(3)
+                mekf.update_vector(y_hor, nadir_eci, R_hor)
 
         # Keep the star tracker on its own 1 Hz cadence even for low-rate vector updates.
-        if event_key in star_update_times:
+        if "star" in sensor_updates and event_key in star_update_times:
             q_true_now = get_true_quat(data, bid)
             q_star = measure_star_tracker_quat(q_true_now, rng)
             mekf.update_quaternion(q_star, R_STAR_BODY)
@@ -441,11 +478,14 @@ def run_mekf_simulation(
         "bias_error": bias_error,
         "P_att_trace": P_att_trace,
         "P_att_sigma_max": P_att_sigma_max,
+        "P_att_norm_bound": P_att_norm_bound,
         "P_bias_trace": P_bias_trace,
         "P_bias_sigma_axes": P_bias_sigma_axes,
         "nees": nees,
         "label": label,
         "dt": dt_filter,
+        "sensors": tuple(sorted(sensor_updates)),
+        "attitude_process_floor_deg": attitude_process_floor_deg,
     }
 
 
@@ -469,6 +509,7 @@ def main() -> None:
     print(f"Initial tumble rate: {np.linalg.norm(omega_tumble)*180/np.pi:.2f} deg/s")
     print(f"  omega = [{omega_tumble[0]:.4f}, {omega_tumble[1]:.4f}, "
           f"{omega_tumble[2]:.4f}] rad/s")
+    print(f"Attitude process floor: {DEFAULT_ATTITUDE_PROCESS_FLOOR_DEG:.3f} deg/sqrt(s)")
 
     # ==================================================================
     # 1. Baseline MEKF run (1 Hz, 500 s)
@@ -484,6 +525,7 @@ def main() -> None:
     print(f"  Completed in {pytime.perf_counter() - t0:.1f}s")
     print(f"  Final attitude error:  {baseline['att_error'][-1]:.4f} deg")
     print(f"  Final 1σ (filter):     {baseline['P_att_trace'][-1]:.4f} deg")
+    print(f"  Final 99.7% norm bd:   {baseline['P_att_norm_bound'][-1]:.4f} deg")
     baseline_ss_error = mean_over_tail_window(
         baseline["times"],
         baseline["att_error"],
@@ -516,7 +558,34 @@ def main() -> None:
         rate_results.append(result)
 
     # ==================================================================
-    # 3. Comparison to static estimates (Wahba q-method)
+    # 3. Sensor isolation study
+    # ==================================================================
+    print("\n--- Sensor Isolation Study ---")
+    isolation_cases: list[tuple[str, tuple[str, ...] | None]] = [
+        ("All sensors", None),
+        ("Star only", ("star",)),
+        ("Sun only", ("sun",)),
+        ("Horizon only", ("horizon",)),
+        ("Mag only", ("mag",)),
+    ]
+    isolation_results = []
+    for case_label, sensors in isolation_cases:
+        result = run_mekf_simulation(
+            dt_filter=1.0,
+            t_total=120.0,
+            omega0=omega_tumble,
+            q0_true=q0_true,
+            rng_seed=42,
+            label=case_label,
+            J_truth=J_truth,
+            enabled_sensors=sensors,
+        )
+        ss_err = mean_over_tail_window(result["times"], result["att_error"], 30.0)
+        print(f"  {case_label:12s}: tail error = {ss_err:.4f} deg")
+        isolation_results.append(result)
+
+    # ==================================================================
+    # 4. Comparison to static estimates (Wahba q-method)
     # ==================================================================
     print("\n--- Comparison to Static Estimates ---")
     # Run Wahba q-method at same measurement epochs
@@ -575,7 +644,10 @@ def main() -> None:
         sun_eci = data_w.env.sun_vector_eci
         nadir_eci = -data_w.orbit.R_eci / np.linalg.norm(data_w.orbit.R_eci)
 
-        body_vecs = [y_sun, y_hor,
+        y_sun_cal = calibrate_sun(y_sun)
+        y_hor_cal = calibrate_horizon(y_hor)
+
+        body_vecs = [y_sun_cal, y_hor_cal,
                      calibrate_mag(y_mag) / np.linalg.norm(calibrate_mag(y_mag))]
         ref_vecs = [sun_eci, nadir_eci, B_eci / np.linalg.norm(B_eci)]
         weights = [1.0 / SUN_SIGMA_RAD**2, 1.0 / HOR_SIGMA_RAD**2,
@@ -592,8 +664,8 @@ def main() -> None:
         R_mag_dir = (MAG_SIGMA / np.linalg.norm(B_eci))**2 * np.eye(3)
         mekf_w.update_vector(calibrate_mag(y_mag) / np.linalg.norm(calibrate_mag(y_mag)),
                              B_hat, R_mag_dir)
-        mekf_w.update_vector(y_sun, sun_eci, SUN_SIGMA_RAD**2 * np.eye(3))
-        mekf_w.update_vector(y_hor, nadir_eci, HOR_SIGMA_RAD**2 * np.eye(3))
+        mekf_w.update_vector(y_sun_cal, sun_eci, SUN_SIGMA_RAD**2 * np.eye(3))
+        mekf_w.update_vector(y_hor_cal, nadir_eci, HOR_SIGMA_RAD**2 * np.eye(3))
         mekf_w.update_quaternion(q_star, R_STAR_BODY)
 
         mekf_errors[i] = np.rad2deg(quat_error_angle(mekf_w.q, q_true_now))
@@ -606,7 +678,7 @@ def main() -> None:
     print("  MEKF converged by ~50 s")
 
     # ==================================================================
-    # 4. Convergence study (different initial conditions)
+    # 5. Convergence study (different initial conditions)
     # ==================================================================
     print("\n--- Convergence Study ---")
     init_errors_deg = [1.0, 5.0, 15.0, 30.0, 60.0]
@@ -647,10 +719,10 @@ def main() -> None:
     ax.plot(t, baseline["att_error"], "b-", lw=0.8, label="Attitude error")
     ax.plot(
         t,
-        3 * baseline["P_att_sigma_max"],
+        baseline["P_att_norm_bound"],
         "r--",
         lw=0.8,
-        label="3$\\sigma$ (max-axis filter)",
+        label="99.7% attitude-norm bound",
     )
     ax.set_ylabel("Attitude error (deg)")
     ax.set_title("MEKF Attitude Estimation — Baseline (1 Hz, slow tumble)", fontsize=14)
@@ -723,7 +795,21 @@ def main() -> None:
     fig2.savefig(plot_dir / "mekf_sample_rate.png", dpi=200, bbox_inches="tight")
     print(f"Plot saved: {plot_dir / 'mekf_sample_rate.png'}")
 
-    # Figure 3: Comparison to Wahba
+    # Figure 3: Sensor isolation study
+    fig_iso, ax_iso = plt.subplots(figsize=(12, 5))
+    for result in isolation_results:
+        ax_iso.plot(result["times"], result["att_error"], lw=0.8, label=result["label"])
+    ax_iso.set_xlabel("Time (s)")
+    ax_iso.set_ylabel("Attitude error (deg)")
+    ax_iso.set_title("MEKF Sensor Isolation at 1 Hz", fontsize=14)
+    ax_iso.legend(fontsize=9)
+    ax_iso.grid(True, alpha=0.3)
+    ax_iso.set_yscale("log")
+    plt.tight_layout()
+    fig_iso.savefig(plot_dir / "mekf_sensor_isolation.png", dpi=200, bbox_inches="tight")
+    print(f"Plot saved: {plot_dir / 'mekf_sensor_isolation.png'}")
+
+    # Figure 4: Comparison to Wahba
     fig3, ax3 = plt.subplots(figsize=(12, 5))
     ax3.plot(t_w, wahba_errors, "C1-", lw=0.8, alpha=0.7, label="Wahba (static)")
     ax3.plot(t_w, mekf_errors, "C0-", lw=0.8, alpha=0.7, label="MEKF (recursive)")
@@ -742,13 +828,11 @@ def main() -> None:
     fig3.savefig(plot_dir / "mekf_vs_wahba.png", dpi=200, bbox_inches="tight")
     print(f"Plot saved: {plot_dir / 'mekf_vs_wahba.png'}")
 
-    # Figure 4: NEES consistency
+    # Figure 5: NEES consistency
     fig4, ax4 = plt.subplots(figsize=(12, 5))
     nees_data = baseline["nees"]
     ax4.plot(baseline["times"], nees_data, "b-", lw=0.6, alpha=0.7,
              label="NEES")
-    # Chi-squared bounds for 6 DOF, 95% interval
-    from scipy.stats import chi2
     n_dof = 6
     lower = chi2.ppf(0.025, n_dof)
     upper = chi2.ppf(0.975, n_dof)
@@ -770,7 +854,7 @@ def main() -> None:
     fig4.savefig(plot_dir / "mekf_nees.png", dpi=200, bbox_inches="tight")
     print(f"Plot saved: {plot_dir / 'mekf_nees.png'}")
 
-    # Figure 5: Convergence study
+    # Figure 6: Convergence study
     fig5, ax5 = plt.subplots(figsize=(12, 5))
     for result in conv_results:
         ax5.plot(result["times"], result["att_error"], lw=0.8,

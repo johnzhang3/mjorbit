@@ -7,9 +7,9 @@ import numpy as np
 from scipy.integrate import solve_ivp
 from scipy.linalg import expm
 
-from mujoco_orbit import MjoData, MjoModel, OrbitInit, ReactionWheelSpec, mjo_forward, mjo_step
-from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
+from mujoco_orbit import ReactionWheelSpec, mjo_forward, mjo_step
+
+from ._helpers import make_model_data
 
 
 def _skew(v: np.ndarray) -> np.ndarray:
@@ -47,28 +47,19 @@ def _make_xml(mass: float, J: np.ndarray) -> str:
 </mujoco>"""
 
 
-def _leo_orbit():
-    a = R_EARTH + 400.0
-    return keplerian_to_cartesian(
-        a=a, e=0.0, inc=np.deg2rad(51.6), raan=0.0, argp=0.0, nu=0.0,
-    )
-
-
 def _compile_model_data(xml_str: str, reaction_wheels=None, dt=0.002):
     file = tempfile.NamedTemporaryFile(suffix=".xml", mode="w", delete=False)
     file.write(xml_str)
     file.flush()
-    r_eci, v_eci = _leo_orbit()
-    model = MjoModel.from_xml_path(
-        file.name,
-        reaction_wheels=reaction_wheels or [],
+    model, data = make_model_data(
+        xml_path=file.name,
         mj_timestep=dt,
         use_j2=False,
         use_drag=False,
         use_srp=False,
         use_magnetic=False,
+        reaction_wheels=reaction_wheels or [],
     )
-    data = MjoData(model, orbit=OrbitInit(R_eci=r_eci, V_eci=v_eci))
     return model, data, file.name
 
 

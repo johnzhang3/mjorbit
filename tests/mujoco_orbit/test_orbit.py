@@ -3,16 +3,19 @@
 import numpy as np
 
 from mujoco_orbit.constants import GM_EARTH, J2_EARTH, R_EARTH
-from mujoco_orbit.orbit.elements import cartesian_to_keplerian, keplerian_to_cartesian
-from mujoco_orbit.orbit.gravity import j2_accel, point_mass_accel
-from mujoco_orbit.orbit.lvlh import (
+from tests.mujoco_orbit.reference.orbit.elements import (
+    cartesian_to_keplerian,
+    keplerian_to_cartesian,
+)
+from tests.mujoco_orbit.reference.orbit.gravity import j2_accel, point_mass_accel
+from tests.mujoco_orbit.reference.orbit.lvlh import (
     eci_to_lvlh_pos,
     eci_to_lvlh_vel,
     lvlh_to_eci_pos,
     update_frame_cache,
 )
-from mujoco_orbit.orbit.propagator import propagate_rk4
-from mujoco_orbit.orbit.state import OrbitState
+from tests.mujoco_orbit.reference.orbit.propagator import propagate_rk4
+from tests.mujoco_orbit.reference.orbit.state import OrbitState
 
 # =========================================================================
 # Gravity tests

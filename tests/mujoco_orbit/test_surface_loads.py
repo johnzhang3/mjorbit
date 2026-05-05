@@ -4,8 +4,8 @@ import numpy as np
 
 from mujoco_orbit import SurfaceSpec, mjo_forward, mjo_step
 from mujoco_orbit.constants import P_SUN
-from mujoco_orbit.coupling.surfaces import apply_surface_wrenches
 from mujoco_orbit.testdata import FREE_BODY_XML
+from tests.mujoco_orbit.reference.coupling.surfaces import apply_surface_wrenches
 
 from ._helpers import make_model_data
 
@@ -162,8 +162,7 @@ class TestSRPSanity:
             use_drag=False,
         )
         data.env.eclipse = 1.0
-        sun_eci_desired = data.frame.C_IL @ np.array([1.0, 0.0, 0.0])
-        data.env.sun_vector_eci = sun_eci_desired / np.linalg.norm(sun_eci_desired)
+        data.env.sun_vector_eci = np.array([1.0, 0.0, 0.0])
 
         data.clear_wrench_buffer()
         apply_surface_wrenches(model, data)
@@ -200,8 +199,7 @@ class TestSurfaceTorque:
             use_drag=False,
         )
         data.env.eclipse = 1.0
-        sun_eci_desired = data.frame.C_IL @ np.array([1.0, 0.0, 0.0])
-        data.env.sun_vector_eci = sun_eci_desired / np.linalg.norm(sun_eci_desired)
+        data.env.sun_vector_eci = np.array([1.0, 0.0, 0.0])
 
         data.clear_wrench_buffer()
         apply_surface_wrenches(model, data)
@@ -227,8 +225,7 @@ class TestSurfaceTorque:
             use_drag=False,
         )
         data.env.eclipse = 1.0
-        sun_eci_desired = data.frame.C_IL @ np.array([1.0, 0.0, 0.0])
-        data.env.sun_vector_eci = sun_eci_desired / np.linalg.norm(sun_eci_desired)
+        data.env.sun_vector_eci = np.array([1.0, 0.0, 0.0])
 
         data.clear_wrench_buffer()
         apply_surface_wrenches(model, data)
@@ -251,7 +248,7 @@ class TestSurfaceIntegration:
             ],
             use_srp=False,
         )
-        data.qvel[1] = 0.1
+        data.qvel[1] += 0.1
         mjo_forward(model, data)
 
         for _ in range(100):

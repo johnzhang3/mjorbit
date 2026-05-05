@@ -9,19 +9,37 @@ browser via the viser-based MjOrbitViewer.
 The end-effector trajectory is drawn as a yellow trail.
 
 Usage:
-    uv sync
-    uv run python examples/arm_reach_viewer.py
+    pixi install
+    pixi run python examples/arm_reach_viewer.py
 """
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import numpy as np
+from _orbit_reference import circular_orbit_eci
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 from mujoco_orbit.testdata import SPACECRAFT_ARM_XML
 from viewer import MjOrbitViewer
+
+
+def _compile_model(xml_path: str, *, mj_timestep: float) -> MjoModel:
+    mjorbit = (
+        '<mjorbit use_j2="false" use_drag="false" use_srp="false" '
+        'use_magnetic="false">\n  </mjorbit>\n'
+    )
+    xml = Path(xml_path).read_text().replace("</mujoco>", f"  {mjorbit}</mujoco>")
+    with tempfile.NamedTemporaryFile(suffix=".xml", mode="w", delete=False) as file:
+        file.write(xml)
+        configured_path = Path(file.name)
+    try:
+        return MjoModel.from_xml_path(str(configured_path), mj_timestep=mj_timestep)
+    finally:
+        configured_path.unlink(missing_ok=True)
 
 
 def main() -> None:
@@ -31,18 +49,9 @@ def main() -> None:
     alt_km = 400.0
     a_km = R_EARTH + alt_km
 
-    R_eci, V_eci = keplerian_to_cartesian(
-        a=a_km, e=0.0, inc=np.deg2rad(51.6), raan=0.0, argp=0.0, nu=0.0,
-    )
+    R_eci, V_eci = circular_orbit_eci(a_km, np.deg2rad(51.6))
 
-    model = MjoModel.from_xml_path(
-        SPACECRAFT_ARM_XML,
-        mj_timestep=0.002,
-        use_j2=False,
-        use_drag=False,
-        use_srp=False,
-        use_magnetic=False,
-    )
+    model = _compile_model(SPACECRAFT_ARM_XML, mj_timestep=0.002)
     data = MjoData(model, orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
 
     # ------------------------------------------------------------------
