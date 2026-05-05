@@ -138,9 +138,6 @@ void body_angular_velocity_world(const mjData* d, int body_id, double out_w_worl
 }
 
 void apply_inertial_wrenches(const mjModel* m, mjData* d, OrbitInstance* inst) {
-  double chief_accel[3];
-  total_accel(inst->R_eci, chief_accel, inst->use_j2 != 0, inst->central_body);
-
   for (int body_id = 1; body_id < m->nbody; ++body_id) {
     const double mass = m->body_mass[body_id];
     if (mass <= 0.0) {
@@ -148,15 +145,23 @@ void apply_inertial_wrenches(const mjModel* m, mjData* d, OrbitInstance* inst) {
     }
 
     const double zero[3] = {0.0, 0.0, 0.0};
-    double r_body_eci[3];
-    body_eci_position_km(inst, d, body_id, zero, r_body_eci);
+    const mjtNum* xpos = d->xipos + 3 * body_id;
+    const double rho_km[3] = {
+        static_cast<double>(xpos[0]) * kMToKm,
+        static_cast<double>(xpos[1]) * kMToKm,
+        static_cast<double>(xpos[2]) * kMToKm,
+    };
 
-    double g_body[3];
-    total_accel(r_body_eci, g_body, inst->use_j2 != 0, inst->central_body);
+    // Encke's identity (paper eq:encke) for the differential gravity, which
+    // is well-conditioned at single precision unlike a literal subtraction
+    // of the two large gravity vectors.
+    double diff_accel[3];
+    relative_accel(
+        rho_km, inst->R_eci, diff_accel, inst->use_j2 != 0, inst->central_body);
 
     double diff_force[3];
     for (int i = 0; i < 3; ++i) {
-      diff_force[i] = mass * (g_body[i] - chief_accel[i]) * kKmS2ToMS2;
+      diff_force[i] = mass * diff_accel[i] * kKmS2ToMS2;
     }
     add_force_torque_at_com(m, d, inst, body_id, diff_force, zero);
   }
