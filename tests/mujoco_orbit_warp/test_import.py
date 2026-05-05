@@ -21,5 +21,5 @@ def test_missing_optional_dependency_raises_helpful_error():
     if importlib.util.find_spec("mujoco_warp") is not None:
         pytest.skip("MJWarp is installed; the optional-dependency error path is unavailable.")
 
-    with pytest.raises(ImportError, match="uv sync --dev --extra warp"):
+    with pytest.raises(ImportError, match="pixi install -e warp"):
         mujoco_orbit_warp.MjoModel.from_xml_path(FREE_BODY_XML)

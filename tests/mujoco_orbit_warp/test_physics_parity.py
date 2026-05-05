@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import mujoco
@@ -14,8 +16,9 @@ pytest.importorskip("mujoco_warp")
 import mujoco_orbit as mjo_cpu
 import mujoco_orbit_warp as mjo_warp
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 from mujoco_orbit.testdata import FREE_BODY_SENSORS_XML, FREE_BODY_XML, SPACECRAFT_ARM_XML
+from tests.mujoco_orbit._helpers import _xml_with_mjorbit as _cpu_xml_with_mjorbit
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
 STATE_ATOL = 2e-5
 STATE_RTOL = 2e-5
@@ -54,11 +57,37 @@ def _make_pair(xml_path: str, *, orbit: mjo_cpu.OrbitInit | None = None, **kwarg
     defaults.update(kwargs)
 
     orbit = _orbit_init() if orbit is None else orbit
-    cpu_model = mjo_cpu.MjoModel.from_xml_path(xml_path, **defaults)
+    cpu_model = _cpu_model_from_xml_path(xml_path, **defaults)
     warp_model = mjo_warp.MjoModel.from_xml_path(xml_path, **defaults)
     cpu_data = cpu_model.make_data(orbit=orbit)
     warp_data = warp_model.make_data(orbit=_warp_orbit_init(orbit))
     return cpu_model, cpu_data, warp_model, warp_data
+
+
+def _cpu_model_from_xml_path(xml_path: str, **kwargs: Any):
+    mj_timestep = kwargs.pop("mj_timestep", 0.01)
+    configured_xml = _cpu_xml_with_mjorbit(
+        xml_path,
+        orbit_dt=kwargs.pop("orbit_dt", None),
+        use_j2=kwargs.pop("use_j2", False),
+        use_drag=kwargs.pop("use_drag", False),
+        use_srp=kwargs.pop("use_srp", False),
+        use_magnetic=kwargs.pop("use_magnetic", False),
+        use_gravity_gradient=kwargs.pop("use_gravity_gradient", True),
+        surfaces=kwargs.pop("surfaces", ()),
+        magnetic_bodies=kwargs.pop("magnetic_bodies", ()),
+        reaction_wheels=kwargs.pop("reaction_wheels", ()),
+        magnetorquers=kwargs.pop("magnetorquers", ()),
+        thrusters=kwargs.pop("thrusters", ()),
+        cmgs=kwargs.pop("cmgs", ()),
+    )
+    if kwargs:
+        names = ", ".join(sorted(kwargs))
+        raise TypeError(f"Unexpected CPU model option(s): {names}")
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        path = Path(tmp_dir) / Path(xml_path).name
+        path.write_text(configured_xml)
+        return mjo_cpu.MjoModel.from_xml_path(str(path), mj_timestep=mj_timestep)
 
 
 def _upload_warp_inputs(warp_model, warp_data) -> None:
@@ -258,7 +287,7 @@ def test_device_resident_steps_match_synced_path_after_final_pull():
         thrusters=thrusters,
     )
     orbit = _orbit_init()
-    cpu_model = mjo_cpu.MjoModel.from_xml_path(FREE_BODY_XML, **common)
+    cpu_model = _cpu_model_from_xml_path(FREE_BODY_XML, **common)
     warp_model = mjo_warp.MjoModel.from_xml_path(FREE_BODY_XML, **common)
     cpu_data = cpu_model.make_data(orbit=orbit)
     warp_synced = warp_model.make_data(orbit=_warp_orbit_init(orbit))
@@ -387,7 +416,7 @@ def test_batched_warp_worlds_match_independent_cpu_runs():
         use_srp=False,
         use_magnetic=False,
     )
-    cpu_model = mjo_cpu.MjoModel.from_xml_path(FREE_BODY_XML, **common)
+    cpu_model = _cpu_model_from_xml_path(FREE_BODY_XML, **common)
     warp_model = mjo_warp.MjoModel.from_xml_path(FREE_BODY_XML, **common)
     orbits = [_orbit_init(400.0), _orbit_init(500.0)]
     cpu_runs = [cpu_model.make_data(orbit=orbit) for orbit in orbits]

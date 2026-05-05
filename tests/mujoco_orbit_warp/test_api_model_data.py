@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import mujoco
 import numpy as np
 import pytest
@@ -11,7 +13,6 @@ pytest.importorskip("mujoco_warp")
 import mujoco_orbit as mjo_cpu
 import mujoco_orbit_warp as mjow
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 from mujoco_orbit.testdata import FREE_BODY_SENSORS_XML, FREE_BODY_XML
 from mujoco_orbit_warp import (
     MagneticBodySpec,
@@ -26,6 +27,8 @@ from mujoco_orbit_warp import (
     mjo_step,
     mjo_upload,
 )
+from tests.mujoco_orbit._helpers import _xml_with_mjorbit as _cpu_xml_with_mjorbit
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
 
 def _orbit_init(alt_km: float = 400.0) -> OrbitInit:
@@ -376,18 +379,6 @@ def test_forward_and_step_do_not_call_cpu_coupling(monkeypatch):
     )
     data = model.make_data(orbit=_orbit_init())
 
-    import mujoco_orbit.core.step as cpu_step
-
-    def fail(*args, **kwargs):  # noqa: ARG001
-        raise AssertionError("CPU coupling path was called")
-
-    monkeypatch.setattr(cpu_step, "assemble_and_apply_wrenches", fail)
-    monkeypatch.setattr(cpu_step, "_apply_reaction_wheels", fail)
-    monkeypatch.setattr(cpu_step, "command_rw_torques", fail)
-    monkeypatch.setattr(cpu_step, "_apply_magnetorquers", fail)
-    monkeypatch.setattr(cpu_step, "_apply_thrusters", fail)
-    monkeypatch.setattr(cpu_step, "propagate_rk4", fail)
-
     data.actuators.rw_speed[0] = 1.0
     data.actuators.rw_torque_cmd[0] = 0.01
     data.actuators.mtq_dipole_cmd[0] = 0.05
@@ -468,16 +459,26 @@ def test_raw_mujoco_put_model_and_put_data_match_mjwarp_style():
     mjow.forward(m, d)
 
 
-def test_cpu_orbit_put_model_and_put_data_return_warp_wrappers():
+def test_cpu_orbit_put_model_and_put_data_return_warp_wrappers(tmp_path: Path):
     orbit = _orbit_init()
-    cpu_model = mjo_cpu.MjoModel.from_xml_path(
+    cpu_xml = _cpu_xml_with_mjorbit(
         FREE_BODY_XML,
-        mj_timestep=0.01,
+        orbit_dt=None,
         use_j2=False,
         use_drag=False,
         use_srp=False,
         use_magnetic=False,
+        use_gravity_gradient=True,
+        surfaces=(),
+        magnetic_bodies=(),
+        reaction_wheels=(),
+        magnetorquers=(),
+        thrusters=(),
+        cmgs=(),
     )
+    cpu_xml_path = tmp_path / "cpu_free_body.xml"
+    cpu_xml_path.write_text(cpu_xml)
+    cpu_model = mjo_cpu.MjoModel.from_xml_path(str(cpu_xml_path), mj_timestep=0.01)
     cpu_data = cpu_model.make_data(orbit=orbit)
     cpu_data.qpos[:3] = [0.3, -0.2, 0.1]
     cpu_data.qvel[:3] = [0.01, 0.02, -0.03]

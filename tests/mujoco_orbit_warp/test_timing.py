@@ -18,8 +18,8 @@ import warp as wp
 
 import mujoco_orbit_warp as mjow
 from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
 from mujoco_orbit.testdata import HUMANOID_XML
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
 
 def _env_int(name: str, default: int) -> int:
@@ -53,7 +53,7 @@ def test_humanoid_zero_g_orbit_warp_overhead_benchmark():
     This is skipped by default because timing assertions are hardware-sensitive.
     Run with:
 
-        MJO_WARP_TIMING=1 uv run pytest tests/mujoco_orbit_warp/test_timing.py -q -s
+        MJO_WARP_TIMING=1 pixi run -e warp pytest tests/mujoco_orbit_warp/test_timing.py -q -s
 
     Optional environment knobs:
       MJO_WARP_TIMING_NWORLD, MJO_WARP_TIMING_STEPS,
