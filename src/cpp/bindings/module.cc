@@ -579,6 +579,12 @@ NB_MODULE(_bindings, m) {
       .def_prop_ro("ctrl", [](MjoData& self) {
         return view(self.raw()->ctrl, {static_cast<size_t>(self.model().nu())});
       })
+      .def_prop_ro("actuator_force", [](MjoData& self) {
+        return view(self.raw()->actuator_force, {static_cast<size_t>(self.model().nu())});
+      })
+      .def_prop_ro("qfrc_actuator", [](MjoData& self) {
+        return view(self.raw()->qfrc_actuator, {static_cast<size_t>(self.model().nv())});
+      })
       .def_prop_ro("qfrc_applied", [](MjoData& self) {
         return view(self.raw()->qfrc_applied, {static_cast<size_t>(self.model().nv())});
       })

@@ -113,8 +113,8 @@ def test_forward_and_step_smoke_for_single_world():
     assert np.all(np.isfinite(data.qpos))
     assert np.all(np.isfinite(data.qvel))
     assert np.all(np.isfinite(data.xmat))
-    truth = data.sensors.measure("gyro_body", noisy=False)
-    assert truth.shape == (3,)
+    # TODO(sensors): re-add data.sensors.measure(...) check once Warp-side
+    # sensors are reimplemented. CPU sensor stack is the current reference.
 
 
 def test_batched_step_smoke():

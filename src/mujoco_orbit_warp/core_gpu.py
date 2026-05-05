@@ -81,6 +81,7 @@ class DeviceCoreData:
     orbit_R_eci: Any
     orbit_V_eci: Any
     orbit_t: Any
+    feedback_force_world: Any  # accumulated non-gravitational force on chief, in N
     orbit_segment_start_R_eci: Any
     orbit_segment_start_V_eci: Any
     orbit_segment_start_t: Any
@@ -268,6 +269,11 @@ def make_device_core_data(
         orbit_R_eci=wp.array(orbit_R, dtype=wp.vec3d, shape=(nworld,)),
         orbit_V_eci=wp.array(orbit_V, dtype=wp.vec3d, shape=(nworld,)),
         orbit_t=wp.array(orbit_t, dtype=wp.float64),
+        # External (non-gravitational) net force on chief: sum of drag/SRP/thrust
+        # forces on all bodies. Used to drive chief feedback acceleration AND
+        # to apply origin-acceleration compensation -m·a_chief to each body.
+        # Mirrors CPU OrbitInstance::feedback_force_world.
+        feedback_force_world=wp.zeros((nworld,), dtype=wp.vec3d),
         # Multirate orbit schedule: lazily initialized in the step kernel when
         # ``orbit_segment_duration[w] <= 0``.
         orbit_segment_start_R_eci=wp.zeros((nworld,), dtype=wp.vec3d),
@@ -469,6 +475,51 @@ def _spatial_add(value: wp.spatial_vector, force: wp.vec3d, torque: wp.vec3d) ->
         value[4] + wp.float32(torque[1]),
         value[5] + wp.float32(torque[2]),
     )
+
+
+@wp.func
+def _net_linear_force(
+    world_id: int,
+    nbody: int,
+    wrench_buffer: wp.array2d(dtype=wp.spatial_vector),
+) -> wp.vec3d:
+    net = wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(0.0))
+    for body_id in range(nbody):
+        wrench = wrench_buffer[world_id, body_id]
+        net = net + wp.vec3d(
+            wp.float64(wrench[0]),
+            wp.float64(wrench[1]),
+            wp.float64(wrench[2]),
+        )
+    return net
+
+
+@wp.func
+def _apply_origin_compensation(
+    world_id: int,
+    nbody: int,
+    body_mass: wp.array(dtype=wp.float64),
+    a_chief_m_s2: wp.vec3d,
+    wrench_buffer: wp.array2d(dtype=wp.spatial_vector),
+    xfrc_applied: wp.array2d(dtype=wp.spatial_vector),
+):
+    """Apply -m_body * a_chief to each body. Mirrors CPU
+    apply_origin_acceleration_wrenches (src/cpp/src/coupling_passive.cc:593).
+
+    A chief-centered translating frame is non-inertial when the chief experiences
+    non-gravitational acceleration; each body in MJ-world feels a corresponding
+    pseudo-force so its absolute-frame motion comes out correct."""
+    zero64 = wp.float64(0.0)
+    for body_id in range(1, nbody):
+        mass_b = body_mass[body_id]
+        if mass_b > zero64:
+            comp_force = a_chief_m_s2 * (-mass_b)
+            wrench_buffer[world_id, body_id] = _spatial_add(
+                wrench_buffer[world_id, body_id],
+                comp_force,
+                wp.vec3d(zero64, zero64, zero64),
+            )
+            xfrc_applied[world_id, body_id] = wrench_buffer[world_id, body_id]
 
 
 @wp.func
@@ -765,6 +816,10 @@ def _assemble_forward_kernel(
     rw_body_id: wp.array(dtype=int),
     rw_axis_body: wp.array(dtype=wp.vec3d),
     rw_inertia: wp.array(dtype=wp.float64),
+    rw_speed_limit: wp.array(dtype=wp.float64),
+    rw_has_speed_limit: wp.array(dtype=int),
+    rw_torque_limit: wp.array(dtype=wp.float64),
+    rw_has_torque_limit: wp.array(dtype=int),
     mtq_body_id: wp.array(dtype=int),
     mtq_axis_body: wp.array(dtype=wp.vec3d),
     mtq_dipole_limit: wp.array(dtype=wp.float64),
@@ -796,9 +851,12 @@ def _assemble_forward_kernel(
     env_sun_vector_eci: wp.array(dtype=wp.vec3d),
     env_eclipse: wp.array(dtype=wp.float64),
     env_mag_field_eci: wp.array(dtype=wp.vec3d),
+    env_atmosphere_omega_eci: wp.array(dtype=wp.vec3d),
     env_atm_density: wp.array(dtype=wp.float64),
+    feedback_force_world: wp.array(dtype=wp.vec3d),
     rw_speed: wp.array2d(dtype=wp.float64),
     rw_momentum: wp.array2d(dtype=wp.float64),
+    rw_torque_cmd: wp.array2d(dtype=wp.float64),
     mtq_dipole_cmd: wp.array2d(dtype=wp.float64),
     thr_force_cmd: wp.array2d(dtype=wp.float64),
     wrench_buffer: wp.array2d(dtype=wp.spatial_vector),
@@ -858,9 +916,16 @@ def _assemble_forward_kernel(
         env_sun_vector_eci,
         env_eclipse,
         env_mag_field_eci,
+        env_atmosphere_omega_eci,
         env_atm_density,
+        feedback_force_world,
         rw_speed,
         rw_momentum,
+        rw_torque_cmd,
+        rw_torque_limit,
+        rw_has_torque_limit,
+        rw_speed_limit,
+        rw_has_speed_limit,
         mtq_dipole_cmd,
         thr_force_cmd,
         wrench_buffer,
@@ -870,6 +935,18 @@ def _assemble_forward_kernel(
         cvel,
         xfrc_applied,
     )
+
+    # Origin-acceleration compensation so that mjo_forward leaves xfrc_applied
+    # in the same state as a CPU forward pass (otherwise downstream qacc and
+    # wrench_buffer parity tests see uncompensated thrust/drag forces).
+    total_mass = wp.float64(0.0)
+    for bid in range(nbody):
+        total_mass = total_mass + body_mass[bid]
+    if total_mass > wp.float64(0.0):
+        a_chief_m_s2 = feedback_force_world[world_id] / total_mass
+        _apply_origin_compensation(
+            world_id, nbody, body_mass, a_chief_m_s2, wrench_buffer, xfrc_applied
+        )
 
 
 @wp.kernel
@@ -941,6 +1018,7 @@ def _assemble_step_kernel(
     env_mag_field_eci: wp.array(dtype=wp.vec3d),
     env_atmosphere_omega_eci: wp.array(dtype=wp.vec3d),
     env_atm_density: wp.array(dtype=wp.float64),
+    feedback_force_world: wp.array(dtype=wp.vec3d),
     rw_speed: wp.array2d(dtype=wp.float64),
     rw_momentum: wp.array2d(dtype=wp.float64),
     rw_torque_cmd: wp.array2d(dtype=wp.float64),
@@ -1003,9 +1081,16 @@ def _assemble_step_kernel(
         env_sun_vector_eci,
         env_eclipse,
         env_mag_field_eci,
+        env_atmosphere_omega_eci,
         env_atm_density,
+        feedback_force_world,
         rw_speed,
         rw_momentum,
+        rw_torque_cmd,
+        rw_torque_limit,
+        rw_has_torque_limit,
+        rw_speed_limit,
+        rw_has_speed_limit,
         mtq_dipole_cmd,
         thr_force_cmd,
         wrench_buffer,
@@ -1035,19 +1120,15 @@ def _assemble_step_kernel(
         xfrc_applied,
     )
 
-    net_force = wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(0.0))
-    for body_id in range(nbody):
-        wrench = wrench_buffer[world_id, body_id]
-        net_force = net_force + wp.vec3d(
-            wp.float64(wrench[0]),
-            wp.float64(wrench[1]),
-            wp.float64(wrench[2]),
-        )
-
     a_feedback = wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(0.0))
     if total_mass > wp.float64(0.0):
-        a_world_km = (net_force / total_mass) * wp.float64(1.0e-3)
-        a_feedback = frame_C_IL[world_id] @ a_world_km
+        # External (drag + SRP + thruster) force on chief, accumulated by
+        # _assemble_wrenches above. Mirrors CPU compute_feedback_accel.
+        a_chief_m_s2 = feedback_force_world[world_id] / total_mass
+        a_feedback = a_chief_m_s2 * wp.float64(1.0e-3)
+        _apply_origin_compensation(
+            world_id, nbody, body_mass, a_chief_m_s2, wrench_buffer, xfrc_applied
+        )
 
     # Multirate orbit advance, mirroring src/cpp/src/orbit_schedule.cc.
     # When orbit_dt <= mj_dt: RK4 substeps over mj_dt with current feedback.
@@ -1237,9 +1318,16 @@ def _assemble_wrenches(
     env_sun_vector_eci: wp.array(dtype=wp.vec3d),
     env_eclipse: wp.array(dtype=wp.float64),
     env_mag_field_eci: wp.array(dtype=wp.vec3d),
+    env_atmosphere_omega_eci: wp.array(dtype=wp.vec3d),
     env_atm_density: wp.array(dtype=wp.float64),
+    feedback_force_world: wp.array(dtype=wp.vec3d),
     rw_speed: wp.array2d(dtype=wp.float64),
     rw_momentum: wp.array2d(dtype=wp.float64),
+    rw_torque_cmd: wp.array2d(dtype=wp.float64),
+    rw_torque_limit: wp.array(dtype=wp.float64),
+    rw_has_torque_limit: wp.array(dtype=int),
+    rw_speed_limit: wp.array(dtype=wp.float64),
+    rw_has_speed_limit: wp.array(dtype=int),
     mtq_dipole_cmd: wp.array2d(dtype=wp.float64),
     thr_force_cmd: wp.array2d(dtype=wp.float64),
     wrench_buffer: wp.array2d(dtype=wp.spatial_vector),
@@ -1261,32 +1349,36 @@ def _assemble_wrenches(
     V_ref = orbit_V_eci[world_id]
     C_LI = frame_C_LI[world_id]
     C_IL = frame_C_IL[world_id]
-    omega = frame_omega_lvlh[world_id]
-    omega_dot = frame_omega_dot_lvlh[world_id]
 
+    # Reset the per-world non-gravitational force accumulator. Surface drag/SRP
+    # and thruster loops below add into it; differential gravity (Encke) and
+    # internal torques (RW gyro/cmd, MTQ, GG) do not contribute. Mirrors CPU
+    # apply_passive_wrenches's zeroing of inst->feedback_force_world at the top
+    # of each pass.
+    feedback_force_world[world_id] = wp.vec3d(zero64, zero64, zero64)
+
+    # MJ-world frame is the chief-centered local inertial frame with axes
+    # parallel to ECI (per CLAUDE.md / project convention). xipos is therefore
+    # the chief-relative offset already in ECI orientation; no LVLH rotation
+    # is needed and no rotating-frame pseudo-forces apply. Mirrors CPU's
+    # apply_inertial_wrenches (src/cpp/src/coupling_passive.cc:140-167).
     for body_id in range(1, nbody):
         mass = body_mass[body_id]
         if mass <= zero64:
             continue
 
-        r_lvlh_km = _vec3d_from_vec3(xipos[world_id, body_id]) * m_to_km
-        rho_eci = C_IL @ r_lvlh_km
-        dg = C_LI @ _relative_accel(rho_eci, R_ref, use_j2)
-        v_lvlh_km_s = _spatial_lin(cvel[world_id, body_id]) * m_to_km
-        a_total = dg
-        a_total = a_total - wp.cross(omega, v_lvlh_km_s) * wp.float64(2.0)
-        a_total = a_total - wp.cross(omega_dot, r_lvlh_km)
-        a_total = a_total - wp.cross(omega, wp.cross(omega, r_lvlh_km))
-        force = a_total * (mass * km_to_m)
+        rho_km = _vec3d_from_vec3(xipos[world_id, body_id]) * m_to_km
+        dg = _relative_accel(rho_km, R_ref, use_j2)
+        force = dg * (mass * km_to_m)
 
         tau_gg = wp.vec3d(zero64, zero64, zero64)
         if use_gravity_gradient != 0:
-            r_body_eci = R_ref + rho_eci
+            r_body_eci = R_ref + rho_km
             r_mag_km = wp.length(r_body_eci)
-            r_hat_lvlh = C_LI @ (r_body_eci / r_mag_km)
-            ximat_lvlh = _mat33d_from_mat33(ximat[world_id, body_id])
+            r_hat_world = r_body_eci / r_mag_km
+            ximat_world = _mat33d_from_mat33(ximat[world_id, body_id])
             tau_gg = _gravity_gradient_torque(
-                r_hat_lvlh, r_mag_km, ximat_lvlh, body_inertia[body_id]
+                r_hat_world, r_mag_km, ximat_world, body_inertia[body_id]
             )
 
         wrench_buffer[world_id, body_id] = _spatial_add(
@@ -1295,33 +1387,35 @@ def _assemble_wrenches(
             tau_gg,
         )
 
-    omega_earth = wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(OMEGA_EARTH))
-    v_rel_chief_lvlh = C_LI @ (V_ref - wp.cross(omega_earth, R_ref))
-    sun_world = C_LI @ env_sun_vector_eci[world_id]
-    omega_earth_lvlh = C_LI @ omega_earth
+    # Surface drag + SRP. Mirrors CPU apply_surface_wrenches at
+    # src/cpp/src/coupling_passive.cc:246-340. All math is in MJ-world (≡ ECI
+    # orientation): v_point in MJ-world, r_point in absolute ECI = R_chief +
+    # body offset (no LVLH rotation), v_rel against the rotating atmosphere.
+    omega_earth_eci = env_atmosphere_omega_eci[world_id]
+    sun_eci = env_sun_vector_eci[world_id]
 
-    sun_hat_eci = env_sun_vector_eci[world_id]
     for surface_id in range(nsurface):
         bid = surface_body_id[surface_id]
         R_body = _mat33d_from_mat33(xmat[world_id, bid])
         r_cop_world = R_body @ surface_cop_body[surface_id]
         n_world = R_body @ surface_normal_body[surface_id]
         vel = cvel[world_id, bid]
-        v_com = _spatial_lin(vel)
-        omega_body = _spatial_ang(vel)
-        v_point = v_com + wp.cross(omega_body, r_cop_world)
-        r_point_lvlh_km = (_vec3d_from_vec3(xipos[world_id, bid]) + r_cop_world) * m_to_km
-        r_point_eci = R_ref + C_IL @ r_point_lvlh_km
-        correction_km_s = wp.cross(omega - omega_earth_lvlh, r_point_lvlh_km)
-        v_rel_m_s = v_rel_chief_lvlh * km_to_m + v_point + correction_km_s * km_to_m
+        v_com_world = _spatial_lin(vel)
+        omega_body_world = _spatial_ang(vel)
+        v_point_world = v_com_world + wp.cross(omega_body_world, r_cop_world)
+
+        r_point_eci_km = R_ref + (_vec3d_from_vec3(xipos[world_id, bid]) + r_cop_world) * m_to_km
+        v_point_eci_m_s = V_ref * km_to_m + v_point_world
+        v_atm_eci_m_s = wp.cross(omega_earth_eci, r_point_eci_km) * km_to_m
+        v_rel_m_s = v_point_eci_m_s - v_atm_eci_m_s
         speed = wp.length(v_rel_m_s)
-        force = wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(0.0))
+        force = wp.vec3d(zero64, zero64, zero64)
 
         if surface_use_drag[surface_id] != 0 and use_drag != 0 and speed > wp.float64(1.0e-10):
             v_hat = v_rel_m_s / speed
             cos_angle = wp.dot(n_world, v_hat)
             if cos_angle > zero64:
-                rho_local = _atm_density(r_point_eci, atm_h0_km, atm_rho0, atm_h_scale_km)
+                rho_local = _atm_density(r_point_eci_km, atm_h0_km, atm_rho0, atm_h_scale_km)
                 projected_area = surface_area[surface_id] * cos_angle
                 drag_scale = -wp.float64(0.5) * rho_local
                 drag_scale = drag_scale * surface_drag_coeff[surface_id]
@@ -1329,21 +1423,24 @@ def _assemble_wrenches(
                 force = force + v_hat * drag_scale
 
         if surface_use_srp[surface_id] != 0 and use_srp != 0:
-            cos_sun = wp.dot(n_world, sun_world)
+            cos_sun = wp.dot(n_world, sun_eci)
             if cos_sun > zero64:
-                eclipse_local = _eclipse_factor(r_point_eci, sun_hat_eci)
+                eclipse_local = _eclipse_factor(r_point_eci_km, sun_eci)
                 if eclipse_local > zero64:
                     projected_area = surface_area[surface_id] * cos_sun
                     srp_scale = -eclipse_local * wp.float64(P_SUN)
                     srp_scale = srp_scale * surface_srp_coeff[surface_id]
                     srp_scale = srp_scale * projected_area
-                    force = force + sun_world * srp_scale
+                    force = force + sun_eci * srp_scale
 
         torque = wp.cross(r_cop_world, force)
         wrench_buffer[world_id, bid] = _spatial_add(wrench_buffer[world_id, bid], force, torque)
+        feedback_force_world[world_id] = feedback_force_world[world_id] + force
 
+    # Magnetic field is given in ECI. With MJ-world ≡ ECI orientation, no
+    # rotation is needed to bring it into the simulation frame.
     if use_magnetic != 0:
-        B_world = C_LI @ env_mag_field_eci[world_id]
+        B_world = env_mag_field_eci[world_id]
 
         for magnetic_id in range(nmagnetic):
             bid = magnetic_body_id[magnetic_id]
@@ -1353,7 +1450,7 @@ def _assemble_wrenches(
             tau_world = R_body @ tau_body
             wrench_buffer[world_id, bid] = _spatial_add(
                 wrench_buffer[world_id, bid],
-                wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(0.0)),
+                wp.vec3d(zero64, zero64, zero64),
                 tau_world,
             )
 
@@ -1370,22 +1467,46 @@ def _assemble_wrenches(
             tau_world = R_body @ tau_body
             wrench_buffer[world_id, bid] = _spatial_add(
                 wrench_buffer[world_id, bid],
-                wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(0.0)),
+                wp.vec3d(zero64, zero64, zero64),
                 tau_world,
             )
 
+    # Reaction wheels: apply both gyroscopic τ = -ω_body × h_body and command
+    # τ_cmd = -I·α, mirroring CPU apply_reaction_wheel_wrenches at
+    # src/cpp/src/coupling_passive.cc:363. Speed advance lives in
+    # _command_rw_torques (only called from the step kernel).
     for rw_id in range(nrw):
         bid = rw_body_id[rw_id]
+        inertia_rw = rw_inertia[rw_id]
+        speed_rw = rw_speed[world_id, rw_id]
+        rw_momentum[world_id, rw_id] = inertia_rw * speed_rw
+
         R_body = _mat33d_from_mat33(xmat[world_id, bid])
         w_body = wp.transpose(R_body) @ _spatial_ang(cvel[world_id, bid])
-        h_body = rw_axis_body[rw_id] * (rw_inertia[rw_id] * rw_speed[world_id, rw_id])
-        tau_world = R_body @ (-wp.cross(w_body, h_body))
+        h_body = rw_axis_body[rw_id] * (inertia_rw * speed_rw)
+        gyro_tau_body = -wp.cross(w_body, h_body)
+
+        cmd_tau_body = wp.vec3d(zero64, zero64, zero64)
+        if inertia_rw > zero64:
+            tau_cmd = rw_torque_cmd[world_id, rw_id]
+            if rw_has_torque_limit[rw_id] != 0:
+                lim = rw_torque_limit[rw_id]
+                tau_cmd = wp.clamp(tau_cmd, -lim, lim)
+            alpha = tau_cmd / inertia_rw
+            if rw_has_speed_limit[rw_id] != 0:
+                slim = rw_speed_limit[rw_id]
+                if speed_rw >= slim and alpha > zero64:
+                    alpha = zero64
+                elif speed_rw <= -slim and alpha < zero64:
+                    alpha = zero64
+            cmd_tau_body = rw_axis_body[rw_id] * (-inertia_rw * alpha)
+
+        tau_world = R_body @ (gyro_tau_body + cmd_tau_body)
         wrench_buffer[world_id, bid] = _spatial_add(
             wrench_buffer[world_id, bid],
-            wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(0.0)),
+            wp.vec3d(zero64, zero64, zero64),
             tau_world,
         )
-        rw_momentum[world_id, rw_id] = rw_inertia[rw_id] * rw_speed[world_id, rw_id]
 
     for thr_id in range(nthr):
         bid = thr_body_id[thr_id]
@@ -1401,6 +1522,7 @@ def _assemble_wrenches(
             force_world,
             tau_world,
         )
+        feedback_force_world[world_id] = feedback_force_world[world_id] + force_world
 
     for body_id in range(nbody):
         xfrc_applied[world_id, body_id] = wrench_buffer[world_id, body_id]
@@ -1425,6 +1547,9 @@ def _command_rw_torques(
     xmat: wp.array2d(dtype=wp.mat33),
     xfrc_applied: wp.array2d(dtype=wp.spatial_vector),
 ):
+    # Reaction torque is applied in _assemble_wrenches so the forward path also
+    # sees it. This kernel only advances the wheel speed (Advance phase).
+    # Mirrors CPU advance_reaction_wheels (src/cpp/src/coupling_passive.cc:612).
     for rw_id in range(nrw):
         inertia = rw_inertia[rw_id]
         if inertia <= wp.float64(0.0):
@@ -1448,18 +1573,6 @@ def _command_rw_torques(
             speed = wp.clamp(speed, -rw_speed_limit[rw_id], rw_speed_limit[rw_id])
         rw_speed[world_id, rw_id] = speed
         rw_momentum[world_id, rw_id] = inertia * speed
-
-        bid = rw_body_id[rw_id]
-        reaction_tau = -inertia * alpha
-        tau_body = rw_axis_body[rw_id] * reaction_tau
-        R_body = _mat33d_from_mat33(xmat[world_id, bid])
-        tau_world = R_body @ tau_body
-        wrench_buffer[world_id, bid] = _spatial_add(
-            wrench_buffer[world_id, bid],
-            wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(0.0)),
-            tau_world,
-        )
-        xfrc_applied[world_id, bid] = wrench_buffer[world_id, bid]
 
 
 @wp.kernel
@@ -1575,6 +1688,10 @@ def assemble_forward_wrenches(model: Any, data: Any) -> None:
             cm.rw_body_id,
             cm.rw_axis_body,
             cm.rw_inertia,
+            cm.rw_speed_limit,
+            cm.rw_has_speed_limit,
+            cm.rw_torque_limit,
+            cm.rw_has_torque_limit,
             cm.mtq_body_id,
             cm.mtq_axis_body,
             cm.mtq_dipole_limit,
@@ -1605,9 +1722,12 @@ def assemble_forward_wrenches(model: Any, data: Any) -> None:
             cd.env_sun_vector_eci,
             cd.env_eclipse,
             cd.env_mag_field_eci,
+            cd.env_atmosphere_omega_eci,
             cd.env_atm_density,
+            cd.feedback_force_world,
             cd.rw_speed,
             cd.rw_momentum,
+            cd.rw_torque_cmd,
             cd.mtq_dipole_cmd,
             cd.thr_force_cmd,
             cd.wrench_buffer,
@@ -1695,6 +1815,7 @@ def assemble_step_and_propagate(model: Any, data: Any, *, mj_dt: float, orbit_dt
             cd.env_mag_field_eci,
             cd.env_atmosphere_omega_eci,
             cd.env_atm_density,
+            cd.feedback_force_world,
             cd.rw_speed,
             cd.rw_momentum,
             cd.rw_torque_cmd,

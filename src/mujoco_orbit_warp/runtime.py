@@ -273,51 +273,14 @@ class BatchedActuatorData:
         np.multiply(self.rw_speed, inertia, out=self.rw_momentum)
 
 
-@dataclass
-class WarpSensorDataNamespace:
-    """Sensor helper that delegates per-world behavior to host shadow data."""
-
-    model: "MjoModel"
-    data: "MjoData"
-
-    @property
-    def gyro_biases(self) -> dict[str, np.ndarray]:
-        names = [
-            descriptor.name
-            for descriptor in self.model.sensors.descriptors
-            if descriptor.sensor_type == int(mujoco.mjtSensor.mjSENS_GYRO)
-        ]
-        if self.data.nworld == 1:
-            return {name: self.data._host_runs[0].sensors.bias(name) for name in names}
-        return {
-            name: np.stack([run.sensors.bias(name) for run in self.data._host_runs], axis=0)
-            for name in names
-        }
-
-    def descriptor(self, name: str):
-        return self.model.sensor(name)
-
-    def bias(self, name: str, *, world_id: int = 0) -> np.ndarray:
-        return self.data._host_runs[world_id].sensors.bias(name)
-
-    def measure(
-        self,
-        name: str,
-        *,
-        noisy: bool = True,
-        rng: np.random.Generator | None = None,
-        world_id: int = 0,
-    ) -> np.ndarray:
-        return self.data._host_runs[world_id].sensors.measure(name, noisy=noisy, rng=rng)
-
-    def measure_all(
-        self,
-        *,
-        noisy: bool = True,
-        rng: np.random.Generator | None = None,
-        world_id: int = 0,
-    ) -> dict[str, np.ndarray]:
-        return self.data._host_runs[world_id].sensors.measure_all(noisy=noisy, rng=rng)
+# TODO(sensors): Warp-side sensor implementation removed pending GPU-native
+# port. The previous WarpSensorDataNamespace delegated per-world reads to the
+# CPU host shadow, which obscured Warp-side bugs and made the sensor parity
+# test misleading. The CPU sensor stack (mujoco_orbit.data.MjoData.sensors,
+# src/cpp/src/sensors_plugin.cc, tests/mujoco_orbit/test_sensors.py) is
+# untouched and remains the reference. Reintroduce here when GPU sensor
+# kernels are written. mj_data.sensordata is still allocated below because
+# MJWarp's solver writes to it during step.
 
 
 @dataclass
@@ -608,7 +571,7 @@ class MjoData:
             len(model.thrusters),
         )
         self.wrench_buffer = _zeros_world(nworld, model.nbody, 6)
-        self.sensors = WarpSensorDataNamespace(model=model, data=self)
+        # TODO(sensors): re-attach a GPU-native sensors namespace here.
         from .core_gpu import make_device_core_data
 
         self.core_data = make_device_core_data(orbit_inits, nworld=nworld, model=model.host_model)
@@ -861,5 +824,4 @@ __all__ = [
     "MjoData",
     "MjoModel",
     "OrbitBatchState",
-    "WarpSensorDataNamespace",
 ]
