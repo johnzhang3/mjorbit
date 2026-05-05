@@ -26,9 +26,8 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-from mujoco_orbit.orbit.elements import keplerian_to_cartesian
-
-from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
+from mujoco_orbit import MjoData, MjoModel, MjoSpec, OrbitInit, mjo_forward, mjo_step
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
 from mujoco_orbit.testdata import TWO_BODIES_XML
 
@@ -136,14 +135,12 @@ def make_orbit_init() -> tuple[OrbitInit, float]:
 
 def make_model() -> MjoModel:
     """Compile the two-box contact fixture with non-gravitational environment off."""
-    return MjoModel.from_xml_path(
-        TWO_BODIES_XML,
-        mj_timestep=TIMESTEP,
-        use_j2=False,
-        use_drag=False,
-        use_srp=False,
-        use_magnetic=False,
-    )
+    spec = MjoSpec.from_xml_path(TWO_BODIES_XML)
+    spec.mjorbit.use_j2 = False
+    spec.mjorbit.use_drag = False
+    spec.mjorbit.use_srp = False
+    spec.mjorbit.use_magnetic = False
+    return spec.compile(mj_timestep=TIMESTEP)
 
 
 def run_orbit_simulation() -> Trajectory:

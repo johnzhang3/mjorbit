@@ -44,6 +44,9 @@ from typing import Any
 
 import numpy as np
 
+import mujoco
+import mujoco.rollout
+
 import mujoco_orbit as mjo_cpu
 from mujoco_orbit import OrbitInit
 from mujoco_orbit.constants import R_EARTH
@@ -106,6 +109,67 @@ def _build_control(nstep: int, nu: int, dt: float, mode: str) -> np.ndarray:
             ctrl[0, :, 1] = 1.0 * np.sin(2.0 * np.pi * 0.7 * t)
         return ctrl
     raise ValueError(f"unknown control mode: {mode!r}")
+
+
+# ----------------------------------------------------------------------
+# CPU reference: pure ``mujoco.rollout`` (no orbit overlay)
+# ----------------------------------------------------------------------
+
+
+def _benchmark_pure_mujoco(
+    *, nbatch: int, nstep: int, ctrl_per_step: np.ndarray, threads: list[int]
+) -> dict[str, Any]:
+    """Bare MuJoCo rollout on the same XML — orbit overlay disabled.
+
+    The orbit-aware build wraps every step in body inertial wrenches, GG torque,
+    origin compensation, etc. This reference shows the raw MuJoCo physics
+    throughput so the overlay's cost can be priced honestly.
+    """
+    model = mujoco.MjModel.from_xml_path(str(XML_PATH))
+    nu = int(model.nu)
+    nstate = int(mujoco.mj_stateSize(model, int(mujoco.mjtState.mjSTATE_FULLPHYSICS)))
+
+    # Build initial state vector via mj_getState on a configured MjData.
+    data = mujoco.MjData(model)
+    _set_initial_state(data.qpos, data.qvel)
+    mujoco.mj_forward(model, data)
+    initial_state = np.zeros(nstate)
+    mujoco.mj_getState(model, data, initial_state, int(mujoco.mjtState.mjSTATE_FULLPHYSICS))
+    initial_batch = np.tile(initial_state, (nbatch, 1))
+
+    ctrl_batch = np.broadcast_to(ctrl_per_step, (nbatch, nstep, nu)).copy()
+    state_buf = np.empty((nbatch, nstep, nstate), dtype=np.float64)
+    sensor_buf = np.empty((nbatch, nstep, int(model.nsensordata)), dtype=np.float64)
+
+    # Warm up.
+    mujoco.rollout.rollout(model, data, initial_batch[:1], control=ctrl_batch[:1, :8],
+                           nstep=8)
+
+    runs: list[dict[str, Any]] = []
+    for nthread in threads:
+        nthread_eff = min(max(1, int(nthread)), nbatch)
+        # mujoco.rollout uses one MjData per thread.
+        thread_datas = [data] + [mujoco.MjData(model) for _ in range(nthread_eff - 1)]
+        t0 = time.perf_counter()
+        mujoco.rollout.rollout(
+            model,
+            thread_datas,
+            initial_batch,
+            control=ctrl_batch,
+            nstep=nstep,
+            state=state_buf,
+            sensordata=sensor_buf,
+        )
+        wall = time.perf_counter() - t0
+        runs.append({
+            "threads": nthread_eff,
+            "wall_s": wall,
+            "sim_steps": nbatch * nstep,
+            "sim_steps_per_s": (nbatch * nstep) / wall,
+        })
+
+    return {"backend": "mujoco.rollout (no orbit overlay)", "nbatch": nbatch,
+            "nstep": nstep, "runs": runs}
 
 
 # ----------------------------------------------------------------------
@@ -176,6 +240,66 @@ def _benchmark_cpu(
             for r in runs
         ],
     }
+
+
+# ----------------------------------------------------------------------
+# GPU reference: pure MJWarp (no orbit overlay)
+# ----------------------------------------------------------------------
+
+
+def _benchmark_pure_mjwarp(
+    *, nworlds: list[int], nstep: int, ctrl_per_step: np.ndarray, dt: float
+) -> dict[str, Any]:
+    """Bare MJWarp step loop on the same XML — orbit overlay disabled."""
+    try:
+        import mujoco_warp as mjw
+        import warp as wp
+    except ImportError as exc:
+        return {"available": False, "message": f"mujoco_warp unavailable: {exc}"}
+
+    mj_model = mujoco.MjModel.from_xml_path(str(XML_PATH))
+    mj_model.opt.timestep = dt
+    nu = int(mj_model.nu)
+
+    runs: list[dict[str, Any]] = []
+    for nworld in nworlds:
+        # Configure initial state on a host MjData, then put_data into MJWarp.
+        host_data = mujoco.MjData(mj_model)
+        _set_initial_state(host_data.qpos, host_data.qvel)
+        mujoco.mj_forward(mj_model, host_data)
+
+        warp_model = mjw.put_model(mj_model)
+        warp_data = mjw.put_data(mj_model, host_data, nworld=nworld)
+
+        ctrl_traj = ctrl_per_step[0]  # (nstep, nu)
+        ctrl_zero = bool(np.all(ctrl_traj == 0.0))
+
+        # Warm up: kernel compile, broadcasted state.
+        mjw.forward(warp_model, warp_data)
+        if nu > 0:
+            ctrl0 = np.broadcast_to(ctrl_traj[0], (nworld, nu)).astype(np.float32)
+            warp_data.ctrl.assign(ctrl0)
+        for _ in range(4):
+            mjw.step(warp_model, warp_data)
+        wp.synchronize()
+
+        t0 = time.perf_counter()
+        for k in range(nstep):
+            if not ctrl_zero and nu > 0:
+                ctrl_k = np.broadcast_to(ctrl_traj[k], (nworld, nu)).astype(np.float32)
+                warp_data.ctrl.assign(ctrl_k)
+            mjw.step(warp_model, warp_data)
+        wp.synchronize()
+        wall = time.perf_counter() - t0
+        runs.append({
+            "nworld": nworld,
+            "wall_s": wall,
+            "sim_steps": nworld * nstep,
+            "sim_steps_per_s": (nworld * nstep) / wall,
+        })
+
+    return {"available": True, "backend": "mujoco_warp.step (no orbit overlay)",
+            "nstep": nstep, "runs": runs}
 
 
 # ----------------------------------------------------------------------
@@ -309,28 +433,53 @@ def _basilisk_status() -> dict[str, Any]:
 # ----------------------------------------------------------------------
 
 
-def _print_report(summary: dict[str, Any]) -> None:
-    print("=" * 78)
-    print(f"capture_arm benchmark — mode={summary['mode']!r}, nstep={summary['nstep']}")
-    print("=" * 78)
+def _overlay_overhead_pct(orbit_steps_per_s: float, pure_steps_per_s: float) -> str:
+    if pure_steps_per_s <= 0.0 or orbit_steps_per_s <= 0.0:
+        return "n/a"
+    # Overhead expressed as the percentage by which the orbit overlay slows
+    # things down. Negative values mean orbit is *faster* (noise / cache effects).
+    pct = 100.0 * (pure_steps_per_s - orbit_steps_per_s) / pure_steps_per_s
+    return f"{pct:+5.1f}%"
 
-    cpu = summary["cpu"]
-    print(f"\n[CPU] {cpu['backend']}  (nbatch={cpu['nbatch']})")
-    print(f"  {'threads':>8}  {'wall_s':>10}  {'sim_steps/s':>14}")
-    for run in cpu["runs"]:
+
+def _print_report(summary: dict[str, Any]) -> None:
+    print("=" * 86)
+    print(f"capture_arm benchmark — mode={summary['mode']!r}, nstep={summary['nstep']}")
+    print("=" * 86)
+
+    cpu_pure = summary["cpu_pure"]
+    cpu_orbit = summary["cpu"]
+    print(f"\n[CPU]  pure: {cpu_pure['backend']}    "
+          f"orbit: {cpu_orbit['backend']}    "
+          f"(nbatch={cpu_orbit['nbatch']})")
+    print(f"  {'threads':>8}  {'pure steps/s':>14}  {'orbit steps/s':>15}  "
+          f"{'overlay tax':>12}")
+    pure_by_t = {r["threads"]: r["sim_steps_per_s"] for r in cpu_pure["runs"]}
+    for run in cpu_orbit["runs"]:
+        pure = pure_by_t.get(run["threads"], 0.0)
         print(
-            f"  {run['threads']:>8}  {run['wall_s']:>10.4f}  {run['sim_steps_per_s']:>14,.0f}"
+            f"  {run['threads']:>8}  {pure:>14,.0f}  {run['sim_steps_per_s']:>15,.0f}  "
+            f"{_overlay_overhead_pct(run['sim_steps_per_s'], pure):>12}"
         )
 
-    gpu = summary["gpu"]
-    if not gpu.get("available"):
-        print(f"\n[GPU] skipped: {gpu.get('message', '?')}")
+    gpu_pure = summary.get("gpu_pure", {"available": False})
+    gpu_orbit = summary["gpu"]
+    if not gpu_orbit.get("available"):
+        print(f"\n[GPU] skipped: {gpu_orbit.get('message', '?')}")
     else:
-        print(f"\n[GPU] {gpu['backend']}")
-        print(f"  {'nworld':>8}  {'wall_s':>10}  {'sim_steps/s':>14}")
-        for run in gpu["runs"]:
+        print(f"\n[GPU]  pure: {gpu_pure.get('backend', 'n/a')}    "
+              f"orbit: {gpu_orbit['backend']}")
+        if gpu_pure.get("available"):
+            pure_by_w = {r["nworld"]: r["sim_steps_per_s"] for r in gpu_pure["runs"]}
+        else:
+            pure_by_w = {}
+        print(f"  {'nworld':>8}  {'pure steps/s':>14}  {'orbit steps/s':>15}  "
+              f"{'overlay tax':>12}")
+        for run in gpu_orbit["runs"]:
+            pure = pure_by_w.get(run["nworld"], 0.0)
             print(
-                f"  {run['nworld']:>8}  {run['wall_s']:>10.4f}  {run['sim_steps_per_s']:>14,.0f}"
+                f"  {run['nworld']:>8}  {pure:>14,.0f}  {run['sim_steps_per_s']:>15,.0f}  "
+                f"{_overlay_overhead_pct(run['sim_steps_per_s'], pure):>12}"
             )
 
     print(f"\n[Basilisk-MuJoCo] {summary['basilisk']['message']}")
@@ -349,8 +498,14 @@ def run_for_mode(
     dt = 0.01
     ctrl_per_step = _build_control(nstep, nu, dt, mode)
 
+    cpu_pure = _benchmark_pure_mujoco(
+        nbatch=args.nbatch, nstep=nstep, ctrl_per_step=ctrl_per_step, threads=args.threads
+    )
     cpu_summary = _benchmark_cpu(
         nbatch=args.nbatch, nstep=nstep, ctrl_per_step=ctrl_per_step, threads=args.threads
+    )
+    gpu_pure = _benchmark_pure_mjwarp(
+        nworlds=args.nworlds, nstep=nstep, ctrl_per_step=ctrl_per_step, dt=dt
     )
     gpu_summary = _benchmark_gpu(
         nworlds=args.nworlds, nstep=nstep, ctrl_per_step=ctrl_per_step, dt=dt
@@ -360,7 +515,9 @@ def run_for_mode(
         "mode": mode,
         "nstep": nstep,
         "dt_s": dt,
+        "cpu_pure": cpu_pure,
         "cpu": cpu_summary,
+        "gpu_pure": gpu_pure,
         "gpu": gpu_summary,
         "basilisk": _basilisk_status(),
     }
