@@ -262,12 +262,19 @@ def _benchmark_pure_mjwarp(
             mjw.step(warp_model, warp_data)
         wp.synchronize()
 
+        # Capture per-step kernel sequence into a CUDA Graph. Replaying via
+        # ``wp.capture_launch`` skips Python-side dispatch overhead.
+        with wp.ScopedCapture() as capture:
+            mjw.step(warp_model, warp_data)
+        graph = capture.graph
+        wp.synchronize()
+
         t0 = time.perf_counter()
         for k in range(nstep):
             if not ctrl_zero and nu > 0:
                 ctrl_k = np.broadcast_to(ctrl_traj[k], (nworld, nu)).astype(np.float32)
                 warp_data.ctrl.assign(ctrl_k)
-            mjw.step(warp_model, warp_data)
+            wp.capture_launch(graph)
         wp.synchronize()
         wall = time.perf_counter() - t0
         runs.append({
@@ -336,12 +343,19 @@ def _benchmark_gpu(
             mjo_warp.mjo_step(model, data)
         wp.synchronize()
 
+        # Capture mjo_step into a CUDA Graph (refresh_core + step1 +
+        # assemble_step_and_propagate + step2 are pure ``wp.launch`` chains).
+        with wp.ScopedCapture() as capture:
+            mjo_warp.mjo_step(model, data)
+        graph = capture.graph
+        wp.synchronize()
+
         t0 = time.perf_counter()
         for _ in range(nstep):
             if not ctrl_zero and nu > 0:
                 # Reserved for future actuated variants of this benchmark.
                 pass
-            mjo_warp.mjo_step(model, data)
+            wp.capture_launch(graph)
         wp.synchronize()
         wall = time.perf_counter() - t0
         runs.append(GpuRun(nworld=nworld, wall_s=wall, sim_steps=nworld * nstep))

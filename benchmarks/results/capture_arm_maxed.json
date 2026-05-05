@@ -1,0 +1,390 @@
+{
+  "config": {
+    "nstep": 2000,
+    "nbatch": 256,
+    "threads": [
+      1,
+      2,
+      4,
+      8,
+      12,
+      16,
+      20
+    ],
+    "nworlds": [
+      1,
+      64,
+      512,
+      4096,
+      16384
+    ],
+    "modes": [
+      "both"
+    ],
+    "json": "benchmarks/results/capture_arm_maxed.json"
+  },
+  "zero": {
+    "mode": "zero",
+    "nstep": 2000,
+    "dt_s": 0.01,
+    "cpu_pure": {
+      "backend": "mujoco.rollout (no orbit overlay)",
+      "nbatch": 256,
+      "nstep": 2000,
+      "runs": [
+        {
+          "threads": 1,
+          "wall_s": 1.1149852951057255,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 459198.8811399086
+        },
+        {
+          "threads": 2,
+          "wall_s": 0.5548512157984078,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 922769.898346989
+        },
+        {
+          "threads": 4,
+          "wall_s": 0.2847889196127653,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 1797822.7548184786
+        },
+        {
+          "threads": 8,
+          "wall_s": 0.15798167698085308,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 3240882.169278738
+        },
+        {
+          "threads": 12,
+          "wall_s": 0.12983700819313526,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 3943405.714019452
+        },
+        {
+          "threads": 16,
+          "wall_s": 0.11825692281126976,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 4329556.256229652
+        },
+        {
+          "threads": 20,
+          "wall_s": 0.1086677829734981,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 4711608.040488564
+        }
+      ]
+    },
+    "cpu": {
+      "backend": "mujoco_orbit.rollout",
+      "nbatch": 256,
+      "nstep": 2000,
+      "runs": [
+        {
+          "threads": 1,
+          "wall_s": 1.604620615951717,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 319078.5378862452
+        },
+        {
+          "threads": 2,
+          "wall_s": 0.7862210874445736,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 651216.3158382528
+        },
+        {
+          "threads": 4,
+          "wall_s": 0.41066466784104705,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 1246759.3150676796
+        },
+        {
+          "threads": 8,
+          "wall_s": 0.2704885699786246,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 1892871.1111174158
+        },
+        {
+          "threads": 12,
+          "wall_s": 0.21466202614828944,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 2385144.728142593
+        },
+        {
+          "threads": 16,
+          "wall_s": 0.19393254816532135,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 2640093.1913890815
+        },
+        {
+          "threads": 20,
+          "wall_s": 0.17751727625727654,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 2884226.3175441935
+        }
+      ]
+    },
+    "gpu_pure": {
+      "available": true,
+      "backend": "mujoco_warp.step (no orbit overlay)",
+      "nstep": 2000,
+      "runs": [
+        {
+          "nworld": 1,
+          "wall_s": 0.4326398419216275,
+          "sim_steps": 2000,
+          "sim_steps_per_s": 4622.782754165066
+        },
+        {
+          "nworld": 64,
+          "wall_s": 0.46876932913437486,
+          "sim_steps": 128000,
+          "sim_steps_per_s": 273055.40709406824
+        },
+        {
+          "nworld": 512,
+          "wall_s": 0.58897939696908,
+          "sim_steps": 1024000,
+          "sim_steps_per_s": 1738600.7138272743
+        },
+        {
+          "nworld": 4096,
+          "wall_s": 1.1462096660397947,
+          "sim_steps": 8192000,
+          "sim_steps_per_s": 7147034.47607777
+        },
+        {
+          "nworld": 16384,
+          "wall_s": 3.392534493934363,
+          "sim_steps": 32768000,
+          "sim_steps_per_s": 9658855.365682239
+        }
+      ]
+    },
+    "gpu": {
+      "available": true,
+      "backend": "mujoco_orbit_warp.mjo_step (batched)",
+      "nstep": 2000,
+      "runs": [
+        {
+          "nworld": 1,
+          "wall_s": 0.47934067295864224,
+          "sim_steps": 2000,
+          "sim_steps_per_s": 4172.397864039718
+        },
+        {
+          "nworld": 64,
+          "wall_s": 0.5624556429684162,
+          "sim_steps": 128000,
+          "sim_steps_per_s": 227573.50130664016
+        },
+        {
+          "nworld": 512,
+          "wall_s": 0.7824837961234152,
+          "sim_steps": 1024000,
+          "sim_steps_per_s": 1308653.297452427
+        },
+        {
+          "nworld": 4096,
+          "wall_s": 1.3792608701623976,
+          "sim_steps": 8192000,
+          "sim_steps_per_s": 5939413.041591946
+        },
+        {
+          "nworld": 16384,
+          "wall_s": 3.821279732976109,
+          "sim_steps": 32768000,
+          "sim_steps_per_s": 8575137.726041181
+        }
+      ]
+    },
+    "basilisk": {
+      "available": false,
+      "installed": false,
+      "message": "Basilisk-MuJoCo capture-arm benchmark is not yet implemented; Basilisk has no GPU-batched path so its only point of comparison is the CPU rollout backend, which the existing comparisons/basilisk_mujoco harness already covers for single-body scenarios."
+    }
+  },
+  "sin": {
+    "mode": "sin",
+    "nstep": 2000,
+    "dt_s": 0.01,
+    "cpu_pure": {
+      "backend": "mujoco.rollout (no orbit overlay)",
+      "nbatch": 256,
+      "nstep": 2000,
+      "runs": [
+        {
+          "threads": 1,
+          "wall_s": 1.0869306889362633,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 471051.19508684997
+        },
+        {
+          "threads": 2,
+          "wall_s": 0.5609354595653713,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 912760.9803750188
+        },
+        {
+          "threads": 4,
+          "wall_s": 0.28182251984253526,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 1816746.2283925128
+        },
+        {
+          "threads": 8,
+          "wall_s": 0.16471695434302092,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 3108362.47575199
+        },
+        {
+          "threads": 12,
+          "wall_s": 0.1305794888176024,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 3920983.338471925
+        },
+        {
+          "threads": 16,
+          "wall_s": 0.12009569304063916,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 4263266.958514027
+        },
+        {
+          "threads": 20,
+          "wall_s": 0.11141139175742865,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 4595580.32552682
+        }
+      ]
+    },
+    "cpu": {
+      "backend": "mujoco_orbit.rollout",
+      "nbatch": 256,
+      "nstep": 2000,
+      "runs": [
+        {
+          "threads": 1,
+          "wall_s": 1.6137660420499742,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 317270.2775116052
+        },
+        {
+          "threads": 2,
+          "wall_s": 0.8085226211696863,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 633253.7724909808
+        },
+        {
+          "threads": 4,
+          "wall_s": 0.4081048290245235,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 1254579.616771046
+        },
+        {
+          "threads": 8,
+          "wall_s": 0.2565654222853482,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 1995592.3734358926
+        },
+        {
+          "threads": 12,
+          "wall_s": 0.22086417116224766,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 2318166.850266913
+        },
+        {
+          "threads": 16,
+          "wall_s": 0.1954532819800079,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 2619551.817259177
+        },
+        {
+          "threads": 20,
+          "wall_s": 0.19115020101889968,
+          "sim_steps": 512000,
+          "sim_steps_per_s": 2678521.901995681
+        }
+      ]
+    },
+    "gpu_pure": {
+      "available": true,
+      "backend": "mujoco_warp.step (no orbit overlay)",
+      "nstep": 2000,
+      "runs": [
+        {
+          "nworld": 1,
+          "wall_s": 0.42387058585882187,
+          "sim_steps": 2000,
+          "sim_steps_per_s": 4718.421298207604
+        },
+        {
+          "nworld": 64,
+          "wall_s": 0.48307435400784016,
+          "sim_steps": 128000,
+          "sim_steps_per_s": 264969.56201057736
+        },
+        {
+          "nworld": 512,
+          "wall_s": 0.5892713889479637,
+          "sim_steps": 1024000,
+          "sim_steps_per_s": 1737739.2135534778
+        },
+        {
+          "nworld": 4096,
+          "wall_s": 1.1640268908813596,
+          "sim_steps": 8192000,
+          "sim_steps_per_s": 7037638.102842547
+        },
+        {
+          "nworld": 16384,
+          "wall_s": 3.3772793114185333,
+          "sim_steps": 32768000,
+          "sim_steps_per_s": 9702484.449305646
+        }
+      ]
+    },
+    "gpu": {
+      "available": true,
+      "backend": "mujoco_orbit_warp.mjo_step (batched)",
+      "nstep": 2000,
+      "runs": [
+        {
+          "nworld": 1,
+          "wall_s": 0.47900642501190305,
+          "sim_steps": 2000,
+          "sim_steps_per_s": 4175.309339431723
+        },
+        {
+          "nworld": 64,
+          "wall_s": 0.5755564626306295,
+          "sim_steps": 128000,
+          "sim_steps_per_s": 222393.47190189676
+        },
+        {
+          "nworld": 512,
+          "wall_s": 0.7921083532273769,
+          "sim_steps": 1024000,
+          "sim_steps_per_s": 1292752.431946716
+        },
+        {
+          "nworld": 4096,
+          "wall_s": 1.3725115852430463,
+          "sim_steps": 8192000,
+          "sim_steps_per_s": 5968619.928661184
+        },
+        {
+          "nworld": 16384,
+          "wall_s": 3.6891851099207997,
+          "sim_steps": 32768000,
+          "sim_steps_per_s": 8882178.319510639
+        }
+      ]
+    },
+    "basilisk": {
+      "available": false,
+      "installed": false,
+      "message": "Basilisk-MuJoCo capture-arm benchmark is not yet implemented; Basilisk has no GPU-batched path so its only point of comparison is the CPU rollout backend, which the existing comparisons/basilisk_mujoco harness already covers for single-body scenarios."
+    }
+  }
+}

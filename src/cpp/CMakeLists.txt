@@ -6,8 +6,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(MUJOCO_ORBIT_ENABLE_TSAN "Build C++ tests with ThreadSanitizer" OFF)
+option(MUJOCO_ORBIT_BUILD_TESTS "Build the C++ test executables" ON)
 
-enable_testing()
+if(MUJOCO_ORBIT_BUILD_TESTS)
+    enable_testing()
+endif()
 find_package(Threads REQUIRED)
 
 if(MUJOCO_ORBIT_ENABLE_TSAN)
@@ -278,4 +281,6 @@ if(APPLE)
     ")
 endif()
 
-add_subdirectory(tests)
+if(MUJOCO_ORBIT_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()

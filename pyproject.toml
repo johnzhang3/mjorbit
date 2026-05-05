@@ -26,6 +26,11 @@ warp = [
 [tool.scikit-build]
 cmake.source-dir = "src/cpp"
 cmake.version = ">=3.16"
+# Skip the C++ test executables when building the wheel via pip / scikit-build-core.
+# They only matter for local development (`pixi run cpp-test`), and they pull in
+# pthreads/libdl which can fail to link inside pip's isolated build env on conda
+# Linux setups (compiler_compat libdl vs glibc mismatch).
+cmake.define = { MUJOCO_ORBIT_BUILD_TESTS = "OFF" }
 wheel.packages = ["src/mujoco_orbit", "src/mujoco_orbit_warp", "src/viewer"]
 # ship XML testdata with the wheel
 wheel.exclude = []

@@ -283,12 +283,20 @@ def _benchmark_pure_mjwarp(
             mjw.step(warp_model, warp_data)
         wp.synchronize()
 
+        # Capture the per-step kernel sequence into a CUDA Graph. Replaying via
+        # ``wp.capture_launch`` skips Python-side dispatch on each of MJWarp's
+        # ~30–50 kernels per step, which dominates wall time for small scenes.
+        with wp.ScopedCapture() as capture:
+            mjw.step(warp_model, warp_data)
+        graph = capture.graph
+        wp.synchronize()
+
         t0 = time.perf_counter()
         for k in range(nstep):
             if not ctrl_zero and nu > 0:
                 ctrl_k = np.broadcast_to(ctrl_traj[k], (nworld, nu)).astype(np.float32)
                 warp_data.ctrl.assign(ctrl_k)
-            mjw.step(warp_model, warp_data)
+            wp.capture_launch(graph)
         wp.synchronize()
         wall = time.perf_counter() - t0
         runs.append({
@@ -367,6 +375,14 @@ def _benchmark_gpu(
             mjo_warp.mjo_step(model, data)
         wp.synchronize()
 
+        # Capture mjo_step into a CUDA Graph. mjo_step's body is refresh_core +
+        # MJWarp step1 + assemble_step_and_propagate + MJWarp step2; all of
+        # these are pure ``wp.launch`` chains so they capture cleanly.
+        with wp.ScopedCapture() as capture:
+            mjo_warp.mjo_step(model, data)
+        graph = capture.graph
+        wp.synchronize()
+
         t0 = time.perf_counter()
         for k in range(nstep):
             if not ctrl_zero and nu > 0:
@@ -375,7 +391,7 @@ def _benchmark_gpu(
                 else:
                     data.ctrl[:] = ctrl_traj[k]
                 mjo_warp.mjo_upload(model, data, fields=("ctrl",))
-            mjo_warp.mjo_step(model, data)
+            wp.capture_launch(graph)
         wp.synchronize()
         wall = time.perf_counter() - t0
         runs.append(GpuRun(nworld=nworld, wall_s=wall, sim_steps=nworld * nstep))

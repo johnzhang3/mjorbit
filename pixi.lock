@@ -5110,7 +5110,7 @@ packages:
 - pypi: ./
   name: mujoco-orbit
   version: 0.1.0
-  sha256: 9a77f9e5d0948c3b3fd5f446dab521aa9aa0c8e2c47ea03a3d739c6997f800f7
+  sha256: 9ccf947f5285875661546cbb32a7ae65f4c7fe52275daf8ab879db738219c1d7
   requires_dist:
   - cvxpy>=1.7.5
   - mujoco>=3.7,<3.8
