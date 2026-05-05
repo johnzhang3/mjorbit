@@ -23,9 +23,6 @@ from mujoco_orbit.constants import (
 )
 
 _DEG_TO_RAD = np.pi / 180.0
-_ATM_H0_KM = 400.0
-_ATM_RHO0 = 2.62e-13
-_ATM_H_SCALE = 58.2
 
 
 @dataclass
@@ -34,6 +31,7 @@ class DeviceCoreModel:
 
     body_mass: Any
     body_ipos: Any
+    body_inertia: Any
 
     surface_body_id: Any
     surface_cop_body: Any
@@ -71,6 +69,9 @@ class DeviceCoreModel:
     nmtq: int
     nthr: int
     total_mass: float
+    atm_h0_km: float
+    atm_rho0: float
+    atm_h_scale_km: float
 
 
 @dataclass
@@ -80,6 +81,15 @@ class DeviceCoreData:
     orbit_R_eci: Any
     orbit_V_eci: Any
     orbit_t: Any
+    orbit_segment_start_R_eci: Any
+    orbit_segment_start_V_eci: Any
+    orbit_segment_start_t: Any
+    orbit_segment_end_R_eci: Any
+    orbit_segment_end_V_eci: Any
+    orbit_segment_duration: Any
+    orbit_segment_elapsed: Any
+    orbit_feedback_int_eci: Any
+    orbit_feedback_int_dt: Any
     frame_C_LI: Any
     frame_C_IL: Any
     frame_omega_lvlh: Any
@@ -193,10 +203,12 @@ def make_device_core_model(model: Any) -> DeviceCoreModel:
     )
 
     total_mass = float(np.sum(model.body_mass[1:]))
+    central_body = model.central_body
 
     return DeviceCoreModel(
         body_mass=_array_f64(model.body_mass),
         body_ipos=_array_vec3d(model.body_ipos),
+        body_inertia=_array_vec3d(model.body_inertia),
         surface_body_id=_array_i32([surface.body_id for surface in surfaces] or empty_int),
         surface_cop_body=_array_vec3d(
             [surface.center_of_pressure_body for surface in surfaces] or empty_vec3
@@ -234,6 +246,9 @@ def make_device_core_model(model: Any) -> DeviceCoreModel:
         nmtq=len(magnetorquers),
         nthr=len(thrusters),
         total_mass=total_mass,
+        atm_h0_km=float(central_body.atmosphere_h0),
+        atm_rho0=float(central_body.atmosphere_rho0),
+        atm_h_scale_km=float(central_body.atmosphere_scale_height),
     )
 
 
@@ -253,6 +268,17 @@ def make_device_core_data(
         orbit_R_eci=wp.array(orbit_R, dtype=wp.vec3d, shape=(nworld,)),
         orbit_V_eci=wp.array(orbit_V, dtype=wp.vec3d, shape=(nworld,)),
         orbit_t=wp.array(orbit_t, dtype=wp.float64),
+        # Multirate orbit schedule: lazily initialized in the step kernel when
+        # ``orbit_segment_duration[w] <= 0``.
+        orbit_segment_start_R_eci=wp.zeros((nworld,), dtype=wp.vec3d),
+        orbit_segment_start_V_eci=wp.zeros((nworld,), dtype=wp.vec3d),
+        orbit_segment_start_t=wp.zeros((nworld,), dtype=wp.float64),
+        orbit_segment_end_R_eci=wp.zeros((nworld,), dtype=wp.vec3d),
+        orbit_segment_end_V_eci=wp.zeros((nworld,), dtype=wp.vec3d),
+        orbit_segment_duration=wp.zeros((nworld,), dtype=wp.float64),
+        orbit_segment_elapsed=wp.zeros((nworld,), dtype=wp.float64),
+        orbit_feedback_int_eci=wp.zeros((nworld,), dtype=wp.vec3d),
+        orbit_feedback_int_dt=wp.zeros((nworld,), dtype=wp.float64),
         frame_C_LI=wp.zeros((nworld,), dtype=wp.mat33d),
         frame_C_IL=wp.zeros((nworld,), dtype=wp.mat33d),
         frame_omega_lvlh=wp.zeros((nworld,), dtype=wp.vec3d),
@@ -446,29 +472,106 @@ def _spatial_add(value: wp.spatial_vector, force: wp.vec3d, torque: wp.vec3d) ->
 
 
 @wp.func
-def _total_accel(R: wp.vec3d, use_j2: int) -> wp.vec3d:
+def _j2_accel(R: wp.vec3d) -> wp.vec3d:
     one = wp.float64(1.0)
     gm = wp.float64(GM_EARTH)
     earth_radius = wp.float64(R_EARTH)
     j2 = wp.float64(J2_EARTH)
     r = wp.length(R)
+    factor = wp.float64(1.5) * j2 * gm * earth_radius * earth_radius
+    factor = factor / (r * r * r * r * r)
+    x = R[0]
+    y = R[1]
+    z = R[2]
+    z_r2 = (z / r) * (z / r)
+    return wp.vec3d(
+        factor * x * (wp.float64(5.0) * z_r2 - one),
+        factor * y * (wp.float64(5.0) * z_r2 - one),
+        factor * z * (wp.float64(5.0) * z_r2 - wp.float64(3.0)),
+    )
+
+
+@wp.func
+def _total_accel(R: wp.vec3d, use_j2: int) -> wp.vec3d:
+    one = wp.float64(1.0)
+    gm = wp.float64(GM_EARTH)
+    r = wp.length(R)
     inv_r3 = one / (r * r * r)
     accel = R * (-gm * inv_r3)
-
     if use_j2 != 0:
-        x = R[0]
-        y = R[1]
-        z = R[2]
-        factor = wp.float64(1.5) * j2 * gm * earth_radius * earth_radius
-        factor = factor / (r * r * r * r * r)
-        z_r2 = (z / r) * (z / r)
-        accel = accel + wp.vec3d(
-            factor * x * (wp.float64(5.0) * z_r2 - one),
-            factor * y * (wp.float64(5.0) * z_r2 - one),
-            factor * z * (wp.float64(5.0) * z_r2 - wp.float64(3.0)),
-        )
-
+        accel = accel + _j2_accel(R)
     return accel
+
+
+@wp.func
+def _encke_point_mass_relative_accel(
+    rho: wp.vec3d,
+    R_chief: wp.vec3d,
+) -> wp.vec3d:
+    """Encke's identity for the two-body differential ``g_pm(R+rho) - g_pm(R)``.
+
+    Cancellation-safe at single precision when ||rho|| << ||R_chief||.
+    Mirrors src/cpp/src/gravity.cc:57.
+    """
+    one = wp.float64(1.0)
+    two = wp.float64(2.0)
+    three = wp.float64(3.0)
+    gm = wp.float64(GM_EARTH)
+    rc2 = wp.dot(R_chief, R_chief)
+    rc = wp.sqrt(rc2)
+    sigma = (two * wp.dot(rho, R_chief) + wp.dot(rho, rho)) / rc2
+    one_plus_sigma = one + sigma
+    one_plus_sigma_3_2 = one_plus_sigma * wp.sqrt(one_plus_sigma)
+    f = (
+        sigma
+        * (three + three * sigma + sigma * sigma)
+        / ((one + one_plus_sigma_3_2) * one_plus_sigma_3_2)
+    )
+    scale = -gm / (rc2 * rc)
+    return (rho - (R_chief + rho) * f) * scale
+
+
+@wp.func
+def _relative_accel(
+    rho: wp.vec3d,
+    R_chief: wp.vec3d,
+    use_j2: int,
+) -> wp.vec3d:
+    """Differential gravity ``g(R+rho) - g(R)``: Encke for point-mass, direct
+    subtraction for J2 (J2 itself is ~3 orders smaller, no cancellation issue)."""
+    a = _encke_point_mass_relative_accel(rho, R_chief)
+    if use_j2 != 0:
+        a = a + _j2_accel(R_chief + rho) - _j2_accel(R_chief)
+    return a
+
+
+@wp.func
+def _gravity_gradient_torque(
+    r_hat: wp.vec3d,
+    r_mag_km: wp.float64,
+    ximat_target: wp.mat33d,
+    inertia_principal: wp.vec3d,
+) -> wp.vec3d:
+    """Body gravity-gradient torque ``tau = 3 GM / r^3 * r_hat x (J r_hat)``.
+
+    ``r_hat`` and ``ximat_target`` must be in the same frame; the returned torque
+    is in that frame. Pass r_hat in MuJoCo-world (LVLH for the Warp backend) and
+    ``ximat`` from MJWarp data, since ``ximat`` is world-from-principal-axes so
+    ``J = ximat @ diag(I) @ ximat^T`` directly. Inertia is in kg·m², r in km, GM
+    in km³/s², so the resulting torque is in N·m. Mirrors
+    src/cpp/src/coupling_passive.cc:170.
+    """
+    three = wp.float64(3.0)
+    gm = wp.float64(GM_EARTH)
+    a = wp.transpose(ximat_target) @ r_hat
+    Ja = wp.vec3d(
+        inertia_principal[0] * a[0],
+        inertia_principal[1] * a[1],
+        inertia_principal[2] * a[2],
+    )
+    j_rhat = ximat_target @ Ja
+    coeff = three * gm / (r_mag_km * r_mag_km * r_mag_km)
+    return wp.cross(r_hat, j_rhat) * coeff
 
 
 @wp.func
@@ -546,11 +649,14 @@ def _dipole_field_eci(R: wp.vec3d) -> wp.vec3d:
 
 
 @wp.func
-def _atm_density(R: wp.vec3d) -> wp.float64:
+def _atm_density(
+    R: wp.vec3d,
+    atm_h0_km: wp.float64,
+    atm_rho0: wp.float64,
+    atm_h_scale_km: wp.float64,
+) -> wp.float64:
     alt_km = wp.length(R) - wp.float64(R_EARTH)
-    rho = wp.float64(_ATM_RHO0) * wp.exp(
-        -(alt_km - wp.float64(_ATM_H0_KM)) / wp.float64(_ATM_H_SCALE)
-    )
+    rho = atm_rho0 * wp.exp(-(alt_km - atm_h0_km) / atm_h_scale_km)
     return wp.max(rho, wp.float64(0.0))
 
 
@@ -558,6 +664,9 @@ def _atm_density(R: wp.vec3d) -> wp.float64:
 def _refresh_core(
     world_id: int,
     use_j2: int,
+    atm_h0_km: wp.float64,
+    atm_rho0: wp.float64,
+    atm_h_scale_km: wp.float64,
     orbit_R_eci: wp.array(dtype=wp.vec3d),
     orbit_V_eci: wp.array(dtype=wp.vec3d),
     orbit_t: wp.array(dtype=wp.float64),
@@ -587,12 +696,15 @@ def _refresh_core(
         wp.float64(0.0),
         wp.float64(OMEGA_EARTH),
     )
-    env_atm_density[world_id] = _atm_density(R)
+    env_atm_density[world_id] = _atm_density(R, atm_h0_km, atm_rho0, atm_h_scale_km)
 
 
 @wp.kernel
 def _refresh_core_kernel(
     use_j2: int,
+    atm_h0_km: wp.float64,
+    atm_rho0: wp.float64,
+    atm_h_scale_km: wp.float64,
     orbit_R_eci: wp.array(dtype=wp.vec3d),
     orbit_V_eci: wp.array(dtype=wp.vec3d),
     orbit_t: wp.array(dtype=wp.float64),
@@ -614,6 +726,9 @@ def _refresh_core_kernel(
     _refresh_core(
         world_id,
         use_j2,
+        atm_h0_km,
+        atm_rho0,
+        atm_h_scale_km,
         orbit_R_eci,
         orbit_V_eci,
         orbit_t,
@@ -636,6 +751,7 @@ def _assemble_forward_kernel(
     # model
     body_mass: wp.array(dtype=wp.float64),
     body_ipos: wp.array(dtype=wp.vec3d),
+    body_inertia: wp.array(dtype=wp.vec3d),
     surface_body_id: wp.array(dtype=int),
     surface_cop_body: wp.array(dtype=wp.vec3d),
     surface_normal_body: wp.array(dtype=wp.vec3d),
@@ -666,6 +782,10 @@ def _assemble_forward_kernel(
     use_drag: int,
     use_srp: int,
     use_magnetic: int,
+    use_gravity_gradient: int,
+    atm_h0_km: wp.float64,
+    atm_rho0: wp.float64,
+    atm_h_scale_km: wp.float64,
     # core data
     orbit_R_eci: wp.array(dtype=wp.vec3d),
     orbit_V_eci: wp.array(dtype=wp.vec3d),
@@ -685,6 +805,7 @@ def _assemble_forward_kernel(
     # MJWarp data
     xipos: wp.array2d(dtype=wp.vec3),
     xmat: wp.array2d(dtype=wp.mat33),
+    ximat: wp.array2d(dtype=wp.mat33),
     cvel: wp.array2d(dtype=wp.spatial_vector),
     xfrc_applied: wp.array2d(dtype=wp.spatial_vector),
 ):
@@ -693,6 +814,7 @@ def _assemble_forward_kernel(
         world_id,
         body_mass,
         body_ipos,
+        body_inertia,
         surface_body_id,
         surface_cop_body,
         surface_normal_body,
@@ -723,6 +845,10 @@ def _assemble_forward_kernel(
         use_drag,
         use_srp,
         use_magnetic,
+        use_gravity_gradient,
+        atm_h0_km,
+        atm_rho0,
+        atm_h_scale_km,
         orbit_R_eci,
         orbit_V_eci,
         frame_C_LI,
@@ -740,6 +866,7 @@ def _assemble_forward_kernel(
         wrench_buffer,
         xipos,
         xmat,
+        ximat,
         cvel,
         xfrc_applied,
     )
@@ -750,6 +877,7 @@ def _assemble_step_kernel(
     # model
     body_mass: wp.array(dtype=wp.float64),
     body_ipos: wp.array(dtype=wp.vec3d),
+    body_inertia: wp.array(dtype=wp.vec3d),
     surface_body_id: wp.array(dtype=int),
     surface_cop_body: wp.array(dtype=wp.vec3d),
     surface_normal_body: wp.array(dtype=wp.vec3d),
@@ -784,6 +912,10 @@ def _assemble_step_kernel(
     use_drag: int,
     use_srp: int,
     use_magnetic: int,
+    use_gravity_gradient: int,
+    atm_h0_km: wp.float64,
+    atm_rho0: wp.float64,
+    atm_h_scale_km: wp.float64,
     total_mass: wp.float64,
     mj_dt: wp.float64,
     orbit_dt: wp.float64,
@@ -791,6 +923,15 @@ def _assemble_step_kernel(
     orbit_R_eci: wp.array(dtype=wp.vec3d),
     orbit_V_eci: wp.array(dtype=wp.vec3d),
     orbit_t: wp.array(dtype=wp.float64),
+    orbit_segment_start_R_eci: wp.array(dtype=wp.vec3d),
+    orbit_segment_start_V_eci: wp.array(dtype=wp.vec3d),
+    orbit_segment_start_t: wp.array(dtype=wp.float64),
+    orbit_segment_end_R_eci: wp.array(dtype=wp.vec3d),
+    orbit_segment_end_V_eci: wp.array(dtype=wp.vec3d),
+    orbit_segment_duration: wp.array(dtype=wp.float64),
+    orbit_segment_elapsed: wp.array(dtype=wp.float64),
+    orbit_feedback_int_eci: wp.array(dtype=wp.vec3d),
+    orbit_feedback_int_dt: wp.array(dtype=wp.float64),
     frame_C_LI: wp.array(dtype=wp.mat33d),
     frame_C_IL: wp.array(dtype=wp.mat33d),
     frame_omega_lvlh: wp.array(dtype=wp.vec3d),
@@ -809,6 +950,7 @@ def _assemble_step_kernel(
     # MJWarp data
     xipos: wp.array2d(dtype=wp.vec3),
     xmat: wp.array2d(dtype=wp.mat33),
+    ximat: wp.array2d(dtype=wp.mat33),
     cvel: wp.array2d(dtype=wp.spatial_vector),
     xfrc_applied: wp.array2d(dtype=wp.spatial_vector),
 ):
@@ -817,6 +959,7 @@ def _assemble_step_kernel(
         world_id,
         body_mass,
         body_ipos,
+        body_inertia,
         surface_body_id,
         surface_cop_body,
         surface_normal_body,
@@ -847,6 +990,10 @@ def _assemble_step_kernel(
         use_drag,
         use_srp,
         use_magnetic,
+        use_gravity_gradient,
+        atm_h0_km,
+        atm_rho0,
+        atm_h_scale_km,
         orbit_R_eci,
         orbit_V_eci,
         frame_C_LI,
@@ -864,6 +1011,7 @@ def _assemble_step_kernel(
         wrench_buffer,
         xipos,
         xmat,
+        ximat,
         cvel,
         xfrc_applied,
     )
@@ -901,20 +1049,130 @@ def _assemble_step_kernel(
         a_world_km = (net_force / total_mass) * wp.float64(1.0e-3)
         a_feedback = frame_C_IL[world_id] @ a_world_km
 
-    R_next, V_next = _propagate_rk4(
-        orbit_R_eci[world_id],
-        orbit_V_eci[world_id],
-        orbit_dt,
-        use_j2,
-        a_feedback,
-    )
-    orbit_R_eci[world_id] = R_next
-    orbit_V_eci[world_id] = V_next
-    orbit_t[world_id] = orbit_t[world_id] + orbit_dt
+    # Multirate orbit advance, mirroring src/cpp/src/orbit_schedule.cc.
+    # When orbit_dt <= mj_dt: RK4 substeps over mj_dt with current feedback.
+    # When orbit_dt > mj_dt:  walk mj_dt across the open segment, accumulating
+    # a time-averaged feedback acceleration; commit each segment with one RK4
+    # call from segment_start using that average, and linearly interpolate
+    # R/V at intermediate mj_dt ticks.
+    zero64 = wp.float64(0.0)
+    one64 = wp.float64(1.0)
+    eps_dt = wp.float64(1.0e-12)
+    R_curr = orbit_R_eci[world_id]
+    V_curr = orbit_V_eci[world_id]
+    t_curr = orbit_t[world_id]
+
+    # Lazy init: triggered on first step or after a state edit that zeros
+    # orbit_segment_duration (see init_orbit_schedule).
+    if orbit_segment_duration[world_id] <= eps_dt:
+        orbit_segment_start_R_eci[world_id] = R_curr
+        orbit_segment_start_V_eci[world_id] = V_curr
+        orbit_segment_start_t[world_id] = t_curr
+        orbit_segment_duration[world_id] = orbit_dt
+        orbit_segment_elapsed[world_id] = zero64
+        orbit_feedback_int_eci[world_id] = wp.vec3d(zero64, zero64, zero64)
+        orbit_feedback_int_dt[world_id] = zero64
+        R_e0, V_e0 = _propagate_rk4(
+            R_curr, V_curr, orbit_dt, use_j2,
+            wp.vec3d(zero64, zero64, zero64),
+        )
+        orbit_segment_end_R_eci[world_id] = R_e0
+        orbit_segment_end_V_eci[world_id] = V_e0
+
+    if orbit_dt <= mj_dt + eps_dt:
+        # Substep regime — chief integrates faster than MuJoCo, so do
+        # ceil(mj_dt / orbit_dt) RK4 substeps with the current feedback.
+        R = R_curr
+        V = V_curr
+        t = t_curr
+        remaining = mj_dt
+        while remaining > eps_dt:
+            sub_dt = wp.min(remaining, orbit_dt)
+            R, V = _propagate_rk4(R, V, sub_dt, use_j2, a_feedback)
+            t = t + sub_dt
+            remaining = remaining - sub_dt
+        orbit_R_eci[world_id] = R
+        orbit_V_eci[world_id] = V
+        orbit_t[world_id] = t
+        orbit_segment_start_R_eci[world_id] = R
+        orbit_segment_start_V_eci[world_id] = V
+        orbit_segment_start_t[world_id] = t
+        orbit_segment_duration[world_id] = orbit_dt
+        orbit_segment_elapsed[world_id] = zero64
+        orbit_feedback_int_eci[world_id] = wp.vec3d(zero64, zero64, zero64)
+        orbit_feedback_int_dt[world_id] = zero64
+        R_e1, V_e1 = _propagate_rk4(R, V, orbit_dt, use_j2, a_feedback)
+        orbit_segment_end_R_eci[world_id] = R_e1
+        orbit_segment_end_V_eci[world_id] = V_e1
+    else:
+        # Multirate regime — orbit_dt > mj_dt.
+        R_start = orbit_segment_start_R_eci[world_id]
+        V_start = orbit_segment_start_V_eci[world_id]
+        t_start = orbit_segment_start_t[world_id]
+        R_end = orbit_segment_end_R_eci[world_id]
+        V_end = orbit_segment_end_V_eci[world_id]
+        duration = orbit_segment_duration[world_id]
+        elapsed = orbit_segment_elapsed[world_id]
+        feedback_int = orbit_feedback_int_eci[world_id]
+        feedback_int_dt_local = orbit_feedback_int_dt[world_id]
+
+        R_out = R_curr
+        V_out = V_curr
+        t_out = t_curr
+        remaining = mj_dt
+        while remaining > eps_dt:
+            seg_remaining = duration - elapsed
+            dt_chunk = wp.min(remaining, seg_remaining)
+            feedback_int = feedback_int + a_feedback * dt_chunk
+            feedback_int_dt_local = feedback_int_dt_local + dt_chunk
+            elapsed = elapsed + dt_chunk
+            remaining = remaining - dt_chunk
+
+            if elapsed + eps_dt >= duration:
+                avg = feedback_int / feedback_int_dt_local
+                R_committed, V_committed = _propagate_rk4(
+                    R_start, V_start, duration, use_j2, avg
+                )
+                R_out = R_committed
+                V_out = V_committed
+                t_out = t_start + duration
+                R_start = R_out
+                V_start = V_out
+                t_start = t_out
+                duration = orbit_dt
+                elapsed = zero64
+                feedback_int = wp.vec3d(zero64, zero64, zero64)
+                feedback_int_dt_local = zero64
+                R_pred, V_pred = _propagate_rk4(
+                    R_start, V_start, duration, use_j2, avg
+                )
+                R_end = R_pred
+                V_end = V_pred
+            else:
+                alpha = elapsed / duration
+                R_out = R_start * (one64 - alpha) + R_end * alpha
+                V_out = V_start * (one64 - alpha) + V_end * alpha
+                t_out = t_start + elapsed
+
+        orbit_R_eci[world_id] = R_out
+        orbit_V_eci[world_id] = V_out
+        orbit_t[world_id] = t_out
+        orbit_segment_start_R_eci[world_id] = R_start
+        orbit_segment_start_V_eci[world_id] = V_start
+        orbit_segment_start_t[world_id] = t_start
+        orbit_segment_end_R_eci[world_id] = R_end
+        orbit_segment_end_V_eci[world_id] = V_end
+        orbit_segment_duration[world_id] = duration
+        orbit_segment_elapsed[world_id] = elapsed
+        orbit_feedback_int_eci[world_id] = feedback_int
+        orbit_feedback_int_dt[world_id] = feedback_int_dt_local
 
     _refresh_core(
         world_id,
         use_j2,
+        atm_h0_km,
+        atm_rho0,
+        atm_h_scale_km,
         orbit_R_eci,
         orbit_V_eci,
         orbit_t,
@@ -935,6 +1193,7 @@ def _assemble_wrenches(
     world_id: int,
     body_mass: wp.array(dtype=wp.float64),
     body_ipos: wp.array(dtype=wp.vec3d),
+    body_inertia: wp.array(dtype=wp.vec3d),
     surface_body_id: wp.array(dtype=int),
     surface_cop_body: wp.array(dtype=wp.vec3d),
     surface_normal_body: wp.array(dtype=wp.vec3d),
@@ -965,6 +1224,10 @@ def _assemble_wrenches(
     use_drag: int,
     use_srp: int,
     use_magnetic: int,
+    use_gravity_gradient: int,
+    atm_h0_km: wp.float64,
+    atm_rho0: wp.float64,
+    atm_h_scale_km: wp.float64,
     orbit_R_eci: wp.array(dtype=wp.vec3d),
     orbit_V_eci: wp.array(dtype=wp.vec3d),
     frame_C_LI: wp.array(dtype=wp.mat33d),
@@ -982,6 +1245,7 @@ def _assemble_wrenches(
     wrench_buffer: wp.array2d(dtype=wp.spatial_vector),
     xipos: wp.array2d(dtype=wp.vec3),
     xmat: wp.array2d(dtype=wp.mat33),
+    ximat: wp.array2d(dtype=wp.mat33),
     cvel: wp.array2d(dtype=wp.spatial_vector),
     xfrc_applied: wp.array2d(dtype=wp.spatial_vector),
 ):
@@ -999,7 +1263,6 @@ def _assemble_wrenches(
     C_IL = frame_C_IL[world_id]
     omega = frame_omega_lvlh[world_id]
     omega_dot = frame_omega_dot_lvlh[world_id]
-    g_ref = _total_accel(R_ref, use_j2)
 
     for body_id in range(1, nbody):
         mass = body_mass[body_id]
@@ -1007,19 +1270,29 @@ def _assemble_wrenches(
             continue
 
         r_lvlh_km = _vec3d_from_vec3(xipos[world_id, body_id]) * m_to_km
-        r_body_eci = R_ref + C_IL @ r_lvlh_km
-        g_body = _total_accel(r_body_eci, use_j2)
-        dg = C_LI @ (g_body - g_ref)
+        rho_eci = C_IL @ r_lvlh_km
+        dg = C_LI @ _relative_accel(rho_eci, R_ref, use_j2)
         v_lvlh_km_s = _spatial_lin(cvel[world_id, body_id]) * m_to_km
         a_total = dg
         a_total = a_total - wp.cross(omega, v_lvlh_km_s) * wp.float64(2.0)
         a_total = a_total - wp.cross(omega_dot, r_lvlh_km)
         a_total = a_total - wp.cross(omega, wp.cross(omega, r_lvlh_km))
         force = a_total * (mass * km_to_m)
+
+        tau_gg = wp.vec3d(zero64, zero64, zero64)
+        if use_gravity_gradient != 0:
+            r_body_eci = R_ref + rho_eci
+            r_mag_km = wp.length(r_body_eci)
+            r_hat_lvlh = C_LI @ (r_body_eci / r_mag_km)
+            ximat_lvlh = _mat33d_from_mat33(ximat[world_id, body_id])
+            tau_gg = _gravity_gradient_torque(
+                r_hat_lvlh, r_mag_km, ximat_lvlh, body_inertia[body_id]
+            )
+
         wrench_buffer[world_id, body_id] = _spatial_add(
             wrench_buffer[world_id, body_id],
             force,
-            wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(0.0)),
+            tau_gg,
         )
 
     omega_earth = wp.vec3d(wp.float64(0.0), wp.float64(0.0), wp.float64(OMEGA_EARTH))
@@ -1048,7 +1321,7 @@ def _assemble_wrenches(
             v_hat = v_rel_m_s / speed
             cos_angle = wp.dot(n_world, v_hat)
             if cos_angle > zero64:
-                rho_local = _atm_density(r_point_eci)
+                rho_local = _atm_density(r_point_eci, atm_h0_km, atm_rho0, atm_h_scale_km)
                 projected_area = surface_area[surface_id] * cos_angle
                 drag_scale = -wp.float64(0.5) * rho_local
                 drag_scale = drag_scale * surface_drag_coeff[surface_id]
@@ -1189,6 +1462,14 @@ def _command_rw_torques(
         xfrc_applied[world_id, bid] = wrench_buffer[world_id, bid]
 
 
+@wp.kernel
+def _reset_orbit_schedule_kernel(
+    orbit_segment_duration: wp.array(dtype=wp.float64),
+):
+    world_id = wp.tid()
+    orbit_segment_duration[world_id] = wp.float64(0.0)
+
+
 @wp.func
 def _prop_deriv(
     R: wp.vec3d,
@@ -1219,6 +1500,22 @@ def _propagate_rk4(
     return R_next, V_next
 
 
+def reset_orbit_schedule(data: Any) -> None:
+    """Mark the multirate orbit schedule as needing re-initialization.
+
+    Call after directly mutating ``data.orbit.R_eci``, ``orbit.V_eci``, or
+    ``orbit.t`` so the next step rebuilds the segment endpoints from current
+    state.
+    """
+
+    cd = data.core_data
+    wp.launch(
+        _reset_orbit_schedule_kernel,
+        dim=(data.nworld,),
+        inputs=[cd.orbit_segment_duration],
+    )
+
+
 def refresh_core(model: Any, data: Any) -> None:
     """Update device frame/environment caches from device orbit state."""
 
@@ -1229,6 +1526,9 @@ def refresh_core(model: Any, data: Any) -> None:
         dim=(data.nworld,),
         inputs=[
             int(model.use_j2),
+            cm.atm_h0_km,
+            cm.atm_rho0,
+            cm.atm_h_scale_km,
             cd.orbit_R_eci,
             cd.orbit_V_eci,
             cd.orbit_t,
@@ -1261,6 +1561,7 @@ def assemble_forward_wrenches(model: Any, data: Any) -> None:
         inputs=[
             cm.body_mass,
             cm.body_ipos,
+            cm.body_inertia,
             cm.surface_body_id,
             cm.surface_cop_body,
             cm.surface_normal_body,
@@ -1291,6 +1592,10 @@ def assemble_forward_wrenches(model: Any, data: Any) -> None:
             int(model.use_drag),
             int(model.use_srp),
             int(model.use_magnetic),
+            int(model.use_gravity_gradient),
+            cm.atm_h0_km,
+            cm.atm_rho0,
+            cm.atm_h_scale_km,
             cd.orbit_R_eci,
             cd.orbit_V_eci,
             cd.frame_C_LI,
@@ -1308,6 +1613,7 @@ def assemble_forward_wrenches(model: Any, data: Any) -> None:
             cd.wrench_buffer,
             wd.xipos,
             wd.xmat,
+            wd.ximat,
             wd.cvel,
             wd.xfrc_applied,
         ],
@@ -1326,6 +1632,7 @@ def assemble_step_and_propagate(model: Any, data: Any, *, mj_dt: float, orbit_dt
         inputs=[
             cm.body_mass,
             cm.body_ipos,
+            cm.body_inertia,
             cm.surface_body_id,
             cm.surface_cop_body,
             cm.surface_normal_body,
@@ -1360,12 +1667,25 @@ def assemble_step_and_propagate(model: Any, data: Any, *, mj_dt: float, orbit_dt
             int(model.use_drag),
             int(model.use_srp),
             int(model.use_magnetic),
+            int(model.use_gravity_gradient),
+            cm.atm_h0_km,
+            cm.atm_rho0,
+            cm.atm_h_scale_km,
             cm.total_mass,
             float(mj_dt),
             float(orbit_dt),
             cd.orbit_R_eci,
             cd.orbit_V_eci,
             cd.orbit_t,
+            cd.orbit_segment_start_R_eci,
+            cd.orbit_segment_start_V_eci,
+            cd.orbit_segment_start_t,
+            cd.orbit_segment_end_R_eci,
+            cd.orbit_segment_end_V_eci,
+            cd.orbit_segment_duration,
+            cd.orbit_segment_elapsed,
+            cd.orbit_feedback_int_eci,
+            cd.orbit_feedback_int_dt,
             cd.frame_C_LI,
             cd.frame_C_IL,
             cd.frame_omega_lvlh,
@@ -1383,6 +1703,7 @@ def assemble_step_and_propagate(model: Any, data: Any, *, mj_dt: float, orbit_dt
             cd.wrench_buffer,
             wd.xipos,
             wd.xmat,
+            wd.ximat,
             wd.cvel,
             wd.xfrc_applied,
         ],
@@ -1398,5 +1719,6 @@ __all__ = [
     "make_device_core_model",
     "pull_core_device_to_public",
     "refresh_core",
+    "reset_orbit_schedule",
     "sync_core_device_from_public",
 ]

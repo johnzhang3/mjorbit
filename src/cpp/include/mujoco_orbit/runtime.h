@@ -100,6 +100,9 @@ class MjoModel {
   int nq() const { return model_->nq; }
   int nv() const { return model_->nv; }
   int nu() const { return model_->nu; }
+  int na() const { return model_->na; }
+  int nmocap() const { return model_->nmocap; }
+  int neq() const { return model_->neq; }
   int nsensordata() const { return model_->nsensordata; }
   int nsensor() const { return model_->nsensor; }
   int ngeom() const { return model_->ngeom; }

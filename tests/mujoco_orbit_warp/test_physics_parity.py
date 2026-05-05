@@ -20,9 +20,18 @@ from mujoco_orbit.testdata import FREE_BODY_SENSORS_XML, FREE_BODY_XML, SPACECRA
 from tests.mujoco_orbit._helpers import _xml_with_mjorbit as _cpu_xml_with_mjorbit
 from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
-STATE_ATOL = 2e-5
-STATE_RTOL = 2e-5
-DERIVED_ATOL = 5e-5
+# MJWarp runs in fp32 by default while the CPU mjorbit backend runs in fp64,
+# so cross-backend state divergence is dominated by accumulated fp32 round-off
+# in MJWarp's solver. Empirically (no-torque free body, 50 mj_dt steps):
+#   d(qvel_lin) ≈ 4.5e-7 per step → ~2.3e-5 at 50 steps, ~4.5e-5 at 100
+#   d(qpos)     grows quadratically as the integral of velocity round-off
+#   d(qvel_ang) stays at fp64 noise (~1e-9) when there is no torque
+#   d(R_eci)    stays in fp64 (mjorbit overlay is fp64) — only the chief
+#               feedback path picks up fp32 noise from MJWarp wrenches
+# Tolerances are chosen to cover ~100 steps of round-off, not to mask physics.
+STATE_ATOL = 1e-4
+STATE_RTOL = 1e-4
+DERIVED_ATOL = 1e-4
 
 
 def _orbit_init(alt_km: float = 400.0) -> mjo_cpu.OrbitInit:
@@ -568,9 +577,77 @@ def test_initial_contact_dynamics_match_cpu_reference(tmp_path):
     mjo_cpu.mjo_forward(cpu_model, cpu_data)
     _forward_and_pull_warp(warp_model, warp_data)
     assert cpu_data.ncon == warp_data.ncon == 1
-    _assert_close(warp_data.qpos, cpu_data.qpos, atol=1e-5)
-    _assert_close(warp_data.qvel, cpu_data.qvel, atol=1e-5)
+    # MJWarp's fp32 contact solver leaves a ~1e-5 noise floor in qvel where the
+    # fp64 CPU MuJoCo resolves to numerical zero — this is fp32 round-off in
+    # the constraint solve, not a physics divergence.
+    _assert_close(warp_data.qpos, cpu_data.qpos, atol=1e-4)
+    _assert_close(warp_data.qvel, cpu_data.qvel, atol=1e-4)
     cpu_force = np.zeros(6)
     mj_contact_force = getattr(mujoco, "mj_contactForce")
     mj_contact_force(cpu_model.mj_model, cpu_data.mj_data, 0, cpu_force)
     _assert_close(warp_data.contact_force(0), cpu_force, atol=1e-3)
+
+
+def test_multirate_orbit_step_matches_cpu_reference():
+    """orbit_dt > mj_dt: chief follows averaged-feedback schedule (CPU parity)."""
+    cpu_model, cpu_data, warp_model, warp_data = _make_pair(
+        FREE_BODY_XML,
+        use_j2=True,
+        orbit_dt=0.05,  # 5x mj_timestep=0.01
+    )
+    qpos = _normalize_quat([0.2, -0.1, 0.05, 0.98, 0.1, -0.15, 0.05])
+    qvel = np.array([0.01, -0.02, 0.03, 0.04, -0.03, 0.02])
+    cpu_data.qpos[:] = qpos
+    warp_data.qpos[:] = qpos
+    cpu_data.qvel[:] = qvel
+    warp_data.qvel[:] = qvel
+    _upload_warp_inputs(warp_model, warp_data)
+
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+
+    # Run long enough that several orbit_dt segments elapse and the averaged
+    # feedback path is exercised (mj_dt=0.01, orbit_dt=0.05 → 5 mj steps per
+    # segment, 100 mj steps = 20 segments).
+    for _ in range(100):
+        mjo_cpu.mjo_step(cpu_model, cpu_data)
+        mjo_warp.mjo_step(warp_model, warp_data)
+
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+    _assert_close(warp_data.orbit.R_eci, cpu_data.orbit.R_eci, atol=1e-5, rtol=1e-7)
+    _assert_close(warp_data.orbit.V_eci, cpu_data.orbit.V_eci, atol=1e-6, rtol=1e-5)
+
+
+def test_atmosphere_config_propagates_to_warp_device_core():
+    """CentralBodySpec atmosphere fields must reach the GPU density kernel."""
+    from mujoco_orbit.spec import CentralBodySpec, MjoSpec
+    from mujoco_orbit_warp.core_gpu import make_device_core_model
+
+    # Default model: defaults from mujoco_orbit.spec.CentralBodySpec.
+    default_model = mjo_warp.MjoModel.from_xml_path(
+        FREE_BODY_XML,
+        mj_timestep=0.01,
+        use_j2=False,
+        use_drag=False,
+        use_srp=False,
+        use_magnetic=False,
+    )
+    default_core = make_device_core_model(default_model.host_model)
+    assert default_core.atm_h0_km == pytest.approx(400.0)
+    assert default_core.atm_rho0 == pytest.approx(2.62e-13)
+    assert default_core.atm_h_scale_km == pytest.approx(58.2)
+
+    # Build a model with a custom CentralBodySpec by mutating the spec before
+    # compile. The atmosphere_* fields are baked in at compile time, so
+    # mutating a compiled model's central_body has no effect — the spec is
+    # the right place to override.
+    spec = MjoSpec.from_xml_path(FREE_BODY_XML)
+    custom_central = CentralBodySpec()
+    custom_central.atmosphere_scale_height = 30.0
+    custom_central.atmosphere_h0 = 350.0
+    spec.mjorbit.central_body = custom_central
+    custom_host = spec.compile(mj_timestep=0.01)
+    custom_core = make_device_core_model(custom_host)
+    assert custom_core.atm_h_scale_km == pytest.approx(30.0)
+    assert custom_core.atm_h0_km == pytest.approx(350.0)

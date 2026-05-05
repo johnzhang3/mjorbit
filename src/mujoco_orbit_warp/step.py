@@ -369,10 +369,17 @@ def mjo_forward(model: MjoModel, data: MjoData, *, sync: bool = False) -> None:
     are uploaded and host mirrors are refreshed only when ``sync=True``.
     """
     mjw, _ = require_mjwarp()
-    from .core_gpu import assemble_forward_wrenches, refresh_core
+    from .core_gpu import (
+        assemble_forward_wrenches,
+        refresh_core,
+        reset_orbit_schedule,
+    )
 
     if sync:
         mjo_upload(model, data)
+    # Direct mutation may have invalidated the multirate segment endpoints;
+    # the next step will rebuild the schedule from current state.
+    reset_orbit_schedule(data)
     refresh_core(model, data)
     mjw.forward(model.warp_model, data.warp_data)
     assemble_forward_wrenches(model, data)
@@ -393,7 +400,10 @@ def mjo_step(model: MjoModel, data: MjoData, *, sync: bool = False) -> None:
     from .core_gpu import assemble_step_and_propagate, refresh_core
 
     mj_dt = model.opt.timestep
-    orbit_dt = model.orbit_dt if model.orbit_dt is not None else mj_dt
+    # The native binding stores an unset orbit_dt as 0.0 (not None), so treat
+    # any non-positive value as "use mj_dt" — otherwise the kernel ends up
+    # substepping with sub_dt=0 and loops forever.
+    orbit_dt = model.orbit_dt if (model.orbit_dt is not None and model.orbit_dt > 0.0) else mj_dt
 
     if sync:
         mjo_upload(model, data)

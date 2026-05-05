@@ -24,6 +24,13 @@ pyright = ">=1.1.0"
 matplotlib = ">=3.10.8"
 scipy = ">=1.17.1"
 
+[feature.warp]
+# mujoco-warp publishes wheels only for linux-64 (manylinux_2_28_x86_64) and
+# win-amd64 / osx-arm64. Restrict the warp environment to linux-64 to keep the
+# default and report envs solvable on osx-64. macOS users should use the CPU
+# (mujoco_orbit) backend only.
+platforms = ["linux-64"]
+
 [feature.warp.pypi-dependencies]
 mujoco-warp = ">=3.6.0"
 

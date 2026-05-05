@@ -474,6 +474,9 @@ NB_MODULE(_bindings, m) {
       .def_prop_ro("nq", &MjoModel::nq)
       .def_prop_ro("nv", &MjoModel::nv)
       .def_prop_ro("nu", &MjoModel::nu)
+      .def_prop_ro("na", &MjoModel::na)
+      .def_prop_ro("nmocap", &MjoModel::nmocap)
+      .def_prop_ro("neq", &MjoModel::neq)
       .def_prop_ro("njnt", [](MjoModel& self) { return self.raw()->njnt; })
       .def_prop_ro("nsensordata", &MjoModel::nsensordata)
       .def_prop_ro("nsensor", &MjoModel::nsensor)
@@ -538,7 +541,13 @@ NB_MODULE(_bindings, m) {
           [](ModelOptView& self, double value) { self.model->raw()->opt.timestep = value; })
       .def_prop_ro("gravity", [](ModelOptView& self) {
         return view(self.model->raw()->opt.gravity, {static_cast<size_t>(3)});
-      });
+      })
+      .def_prop_rw(
+          "integrator",
+          [](const ModelOptView& self) { return static_cast<int>(self.model->raw()->opt.integrator); },
+          [](ModelOptView& self, int value) {
+            self.model->raw()->opt.integrator = static_cast<mjtIntegrator>(value);
+          });
 
   nb::class_<MjoData>(m, "MjoData")
       .def(nb::init<MjoModel&, const std::array<double, 3>&,
@@ -560,6 +569,12 @@ NB_MODULE(_bindings, m) {
       })
       .def_prop_ro("qvel", [](MjoData& self) {
         return view(self.raw()->qvel, {static_cast<size_t>(self.model().nv())});
+      })
+      .def_prop_ro("qacc", [](MjoData& self) {
+        return view(self.raw()->qacc, {static_cast<size_t>(self.model().nv())});
+      })
+      .def_prop_ro("act", [](MjoData& self) {
+        return view(self.raw()->act, {static_cast<size_t>(self.model().na())});
       })
       .def_prop_ro("ctrl", [](MjoData& self) {
         return view(self.raw()->ctrl, {static_cast<size_t>(self.model().nu())});

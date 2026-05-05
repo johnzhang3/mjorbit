@@ -8,6 +8,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <new>
+#include <utility>
 
 #include <mujoco/mjdata.h>
 #include <mujoco/mjmodel.h>
@@ -42,12 +44,13 @@ int NState(const mjModel* /*m*/, int /*instance*/) {
 }
 
 int Init(const mjModel* m, mjData* d, int instance) {
-  auto* inst = static_cast<mujoco_orbit::OrbitInstance*>(
-      std::calloc(1, sizeof(mujoco_orbit::OrbitInstance)));
+  // value-initialize so std::string members (e.g. central_body.name) are
+  // properly constructed; calloc + assignment is UB on a non-trivial type.
+  auto* inst = new (std::nothrow) mujoco_orbit::OrbitInstance{};
   if (!inst) return -1;
 
-  // Defaults — Python shim / XML attributes override these later.
-  inst->central_body = mujoco_orbit::CentralBodySpecNative{};
+  // Override the member-initializer defaults that aren't picked up by
+  // value-initialization for the int flags.
   inst->use_j2 = 1;
   inst->use_drag = 1;
   inst->use_srp = 1;
@@ -72,7 +75,7 @@ int Init(const mjModel* m, mjData* d, int instance) {
 
 void Destroy(mjData* d, int instance) {
   if (auto* inst = GetInstance(d, instance)) {
-    std::free(inst);
+    delete inst;
     d->plugin_data[instance] = 0;
   }
 }
@@ -80,10 +83,10 @@ void Destroy(mjData* d, int instance) {
 void Copy(mjData* dest, const mjModel* /*m*/, const mjData* src, int instance) {
   auto* src_inst = reinterpret_cast<mujoco_orbit::OrbitInstance*>(src->plugin_data[instance]);
   if (!src_inst) return;
-  auto* dest_inst = static_cast<mujoco_orbit::OrbitInstance*>(
-      std::calloc(1, sizeof(mujoco_orbit::OrbitInstance)));
+  // Copy-construct so std::string members are properly cloned; raw memcpy of a
+  // type containing std::string aliases the SSO buffer and is UB.
+  auto* dest_inst = new (std::nothrow) mujoco_orbit::OrbitInstance(*src_inst);
   if (!dest_inst) return;
-  std::memcpy(dest_inst, src_inst, sizeof(mujoco_orbit::OrbitInstance));
   dest->plugin_data[instance] = reinterpret_cast<uintptr_t>(dest_inst);
 }
 
@@ -91,10 +94,12 @@ void Reset(const mjModel* /*m*/, mjtNum* /*plugin_state*/, void* plugin_data, in
   auto* inst = reinterpret_cast<mujoco_orbit::OrbitInstance*>(plugin_data);
   if (!inst) return;
   // Preserve shim-populated config/metadata across mj_resetData. Only the
-  // runtime chief orbit + derived caches should be reset to zero.
-  const auto preserved = *inst;
-  std::memset(inst, 0, sizeof(*inst));
-  inst->central_body = preserved.central_body;
+  // runtime chief orbit + derived caches should be reset to zero. Use move +
+  // destructor + placement-new so the std::string in central_body stays valid.
+  mujoco_orbit::OrbitInstance preserved = std::move(*inst);
+  inst->~OrbitInstance();
+  new (inst) mujoco_orbit::OrbitInstance{};
+  inst->central_body = std::move(preserved.central_body);
   inst->use_j2 = preserved.use_j2;
   inst->use_drag = preserved.use_drag;
   inst->use_srp = preserved.use_srp;
