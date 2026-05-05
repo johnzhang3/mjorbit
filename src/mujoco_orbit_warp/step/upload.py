@@ -1,0 +1,162 @@
+"""``mjo_upload`` and the device-side sync of MJWarp-mirrored public buffers."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from typing import Any
+
+import numpy as np
+
+from .._deps import require_mjwarp
+from ..core_gpu import sync_core_device_from_public
+from ..data import MjoData
+from ..model import MjoModel
+from .field_specs import (
+    _CORE_UPLOAD_FIELDS,
+    _DEVICE_UPLOAD_FIELDS,
+    _field_enabled,
+    _normalize_upload_fields,
+)
+
+
+def _as_batched(values: np.ndarray | float, *, nworld: int) -> np.ndarray:
+    array = np.asarray(values)
+    if nworld == 1:
+        return np.expand_dims(array, axis=0)
+    return array
+
+def _copy_to_device(
+    wp: Any,
+    dest: Any,
+    values: np.ndarray | float,
+    *,
+    dtype: Any,
+    shape: tuple[int, ...] | None = None,
+) -> None:
+    array = np.asarray(values)
+    if array.size == 0:
+        return
+
+    if shape is None:
+        src = wp.array(array, dtype=dtype)
+    else:
+        src = wp.array(array, shape=shape, dtype=dtype)
+    wp.copy(dest, src)
+
+def _sync_device_from_public(
+    model: MjoModel,
+    data: MjoData,
+    fields: frozenset[str] | None = None,
+) -> None:
+    _, wp = require_mjwarp()
+
+    if _field_enabled(fields, "qpos"):
+        _copy_to_device(
+            wp,
+            data.warp_data.qpos,
+            _as_batched(data.qpos, nworld=data.nworld),
+            dtype=float,
+        )
+    if _field_enabled(fields, "qvel"):
+        _copy_to_device(
+            wp,
+            data.warp_data.qvel,
+            _as_batched(data.qvel, nworld=data.nworld),
+            dtype=float,
+        )
+    if _field_enabled(fields, "qacc_warmstart"):
+        _copy_to_device(
+            wp,
+            data.warp_data.qacc_warmstart,
+            _as_batched(data.qacc_warmstart, nworld=data.nworld),
+            dtype=float,
+        )
+    if _field_enabled(fields, "qfrc_applied"):
+        _copy_to_device(
+            wp,
+            data.warp_data.qfrc_applied,
+            _as_batched(data.qfrc_applied, nworld=data.nworld),
+            dtype=float,
+        )
+    if _field_enabled(fields, "ctrl"):
+        _copy_to_device(
+            wp,
+            data.warp_data.ctrl,
+            _as_batched(data.ctrl, nworld=data.nworld),
+            dtype=float,
+        )
+    if _field_enabled(fields, "time"):
+        _copy_to_device(
+            wp,
+            data.warp_data.time,
+            _as_batched(np.asarray(data.time), nworld=data.nworld).reshape(data.nworld),
+            dtype=float,
+        )
+
+    if model.na > 0 and _field_enabled(fields, "act"):
+        _copy_to_device(
+            wp,
+            data.warp_data.act,
+            _as_batched(data.act, nworld=data.nworld),
+            dtype=float,
+        )
+
+    if _field_enabled(fields, "xfrc_applied"):
+        _copy_to_device(
+            wp,
+            data.warp_data.xfrc_applied,
+            _as_batched(data.xfrc_applied, nworld=data.nworld),
+            dtype=wp.spatial_vector,
+            shape=(data.nworld, model.nbody),
+        )
+
+    if model.nmocap > 0 and _field_enabled(fields, "mocap_pos"):
+        _copy_to_device(
+            wp,
+            data.warp_data.mocap_pos,
+            _as_batched(data.mocap_pos, nworld=data.nworld),
+            dtype=wp.vec3,
+            shape=(data.nworld, model.nmocap),
+        )
+    if model.nmocap > 0 and _field_enabled(fields, "mocap_quat"):
+        _copy_to_device(
+            wp,
+            data.warp_data.mocap_quat,
+            _as_batched(data.mocap_quat, nworld=data.nworld),
+            dtype=wp.quat,
+            shape=(data.nworld, model.nmocap),
+        )
+
+    if model.neq > 0 and _field_enabled(fields, "eq_active"):
+        _copy_to_device(
+            wp,
+            data.warp_data.eq_active,
+            _as_batched(data.eq_active, nworld=data.nworld),
+            dtype=bool,
+        )
+
+def mjo_upload(
+    model: MjoModel,
+    data: MjoData,
+    *,
+    fields: Iterable[str] | str | None = None,
+) -> None:
+    """Upload explicitly selected public NumPy inputs to device state.
+
+    ``fields=None`` preserves the old broad upload behavior.  Passing field
+    names or groups uploads only those public buffers.
+    """
+
+    selected = None if fields is None else _normalize_upload_fields(fields)
+    device_fields = None if selected is None else selected & _DEVICE_UPLOAD_FIELDS
+    core_fields = None if selected is None else selected & _CORE_UPLOAD_FIELDS
+
+    if selected is None or device_fields:
+        _sync_device_from_public(model, data, fields=device_fields)
+    if selected is None or core_fields:
+        sync_core_device_from_public(data, fields=core_fields)
+
+
+__all__ = [
+    'mjo_upload',
+]

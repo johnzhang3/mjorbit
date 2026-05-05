@@ -22,7 +22,8 @@ from mujoco_orbit.config import (
 )
 
 from ._deps import require_mjwarp
-from .runtime import MjoData, MjoModel
+from .data import MjoData
+from .model import MjoModel
 from .step import mjo_forward, mjo_pull, mjo_step, mjo_upload
 
 _MJWARP_FACTORY_NAMES = {
