@@ -1,16 +1,15 @@
-"""Minimal MuJoCo frame study for orbital relative motion and attitude.
+"""Self-contained Newton-Euler frame study (no MuJoCo).
 
-This experiment intentionally does not import ``mujoco_orbit``. It uses raw
-MuJoCo plus a tiny two-body propagator to compare three choices for the MuJoCo
-world coordinates:
+Compares three choices for the local-simulator world coordinates:
 
 - ``eci``: absolute Earth-centered inertial position/velocity.
 - ``chief_inertial``: chief-centered position/velocity with inertially fixed axes.
 - ``lvlh``: chief-centered rotating LVLH coordinates.
 
-Each scenario uses a small chief-relative LVLH initial condition plus
-torque-free rigid-body attitude. It runs for a few orbits and compares each
-MuJoCo result against an independent ECI two-body RK4 reference.
+The local simulator is a 6-DOF rigid-body Newton-Euler propagator implemented
+in this module. Single-precision runs use ``np.float32`` for every state array
+and intermediate computation in the body propagator end-to-end; the chief and
+truth-body reference orbits stay in float64 (they are the truth signal).
 
 Usage:
     pixi run python experiments/frame_study/run.py
@@ -19,48 +18,49 @@ Usage:
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import Callable, Literal
 
-import mujoco
 import numpy as np
 
 MU_EARTH = 3.986004418e14  # m^3/s^2
 R_EARTH = 6_378_137.0  # m
 MASS = 100.0  # kg
+BOX_HALF_EXTENTS = np.array([0.5, 0.3, 0.2])  # m, matches the prior MuJoCo XML
 OUT_DIR = Path(__file__).with_name("out")
 StudyPrecision = Literal["float64", "float32"]
+Integrator = Literal["euler", "rk4"]
 
 ORBIT_TIMESTEP = 0.5  # s
-MUJOCO_TIMESTEP = 0.1  # s
+SIM_TIMESTEP = 0.1  # s, body propagator step
 N_ORBITS = 3.0
-MUJOCO_INTEGRATOR = mujoco.mjtIntegrator.mjINT_RK4
+DEFAULT_INTEGRATOR: Integrator = "rk4"
+TRUTH_SUBSTEPS = 10  # truth-body RK4 substeps per body propagator step
 
 INITIAL_REL_POS_LVLH = np.array([1.0, 0.0, 5.0])  # m
 INITIAL_ATTITUDE_WXYZ = np.array([1.0, 0.0, 0.0, 0.0])
 INITIAL_OMEGA_BODY = np.array([0.012, -0.018, 0.009])  # rad/s
-
-XML = f"""
-<mujoco model="frame_study_body">
-  <compiler angle="radian"/>
-  <option timestep="{MUJOCO_TIMESTEP}" gravity="0 0 0"/>
-  <worldbody>
-    <body name="body" pos="0 0 0">
-      <freejoint/>
-      <geom type="box" size="0.5 0.3 0.2" mass="{MASS}" rgba="0.3 0.5 0.9 1"/>
-    </body>
-  </worldbody>
-</mujoco>
-"""
 
 
 class FrameMode(StrEnum):
     ECI = "eci"
     CHIEF_INERTIAL = "chief_inertial"
     LVLH = "lvlh"
+
+
+def box_inertia_diag(mass: float, half_extents: np.ndarray) -> np.ndarray:
+    """Principal-axes inertia of a uniform-density box about its center."""
+    full = 2.0 * np.asarray(half_extents, dtype=np.float64)
+    a, b, c = full
+    return mass / 12.0 * np.array(
+        [b * b + c * c, a * a + c * c, a * a + b * b],
+        dtype=np.float64,
+    )
+
+
+INERTIA_DIAG = box_inertia_diag(MASS, BOX_HALF_EXTENTS)
 
 
 @dataclass
@@ -75,20 +75,6 @@ class FrameCache:
     c_il: np.ndarray
     omega_lvlh: np.ndarray
     omega_dot_lvlh: np.ndarray
-
-
-@dataclass
-class ChiefContext:
-    step_start: OrbitState
-    step_start_time: float
-    precision: StudyPrecision
-    length_unit_m: float
-
-    def state_at(self, time_s: float) -> OrbitState:
-        elapsed = time_s - self.step_start_time
-        if abs(elapsed) < 1.0e-15:
-            return self.step_start
-        return rk4_orbit_step(self.step_start, elapsed, self.length_unit_m)
 
 
 @dataclass(frozen=True)
@@ -125,7 +111,7 @@ class TimeHistory:
     label: str
     scenario: Scenario
     mode: FrameMode
-    integrator: mujoco.mjtIntegrator
+    integrator: Integrator
     precision: StudyPrecision
     length_unit_m: float
     times_s: np.ndarray
@@ -174,31 +160,13 @@ SCENARIOS = [
 ]
 
 
-def gravity(r: np.ndarray) -> np.ndarray:
-    """Two-body acceleration in SI units."""
-    return gravity_in_units(r, length_unit_m=1.0)
-
-
 def gravity_in_units(r: np.ndarray, length_unit_m: float) -> np.ndarray:
     """Two-body acceleration in the requested length unit per second squared."""
     radius = np.linalg.norm(r)
     mu = MU_EARTH / length_unit_m**3
+    dtype = r.dtype if isinstance(r, np.ndarray) else np.float64
+    mu = np.asarray(mu, dtype=dtype)
     return -mu / radius**3 * r
-
-
-def precision_view(values: np.ndarray, precision: StudyPrecision) -> np.ndarray:
-    """Return values rounded to the requested study precision."""
-    if precision == "float32":
-        return np.asarray(values, dtype=np.float32).astype(np.float64)
-    return np.asarray(values, dtype=np.float64)
-
-
-def quantize_mujoco_state(data: mujoco.MjData, precision: StudyPrecision) -> None:
-    """Round MuJoCo state storage for reduced-precision study runs."""
-    if precision != "float32":
-        return
-    data.qpos[:] = np.asarray(data.qpos, dtype=np.float32).astype(np.float64)
-    data.qvel[:] = np.asarray(data.qvel, dtype=np.float32).astype(np.float64)
 
 
 def rk4_orbit_step(
@@ -206,7 +174,7 @@ def rk4_orbit_step(
     dt: float,
     length_unit_m: float = 1.0,
 ) -> OrbitState:
-    """RK4 step for an inertial two-body point mass."""
+    """RK4 step for an inertial two-body point mass (always float64)."""
 
     def deriv(r: np.ndarray, v: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         return v, gravity_in_units(r, length_unit_m)
@@ -242,6 +210,24 @@ def frame_cache(chief: OrbitState, length_unit_m: float = 1.0) -> FrameCache:
     omega_dot_lvlh = c_li @ omega_dot_eci
 
     return FrameCache(c_li, c_il, omega_lvlh, omega_dot_lvlh)
+
+
+def propagate_truth_body(
+    state: OrbitState,
+    dt: float,
+    length_unit_m: float,
+    substeps: int = TRUTH_SUBSTEPS,
+) -> OrbitState:
+    """Advance the truth-body reference by ``dt`` with finer RK4 substeps."""
+    sub_dt = dt / substeps
+    for _ in range(substeps):
+        state = rk4_orbit_step(state, sub_dt, length_unit_m)
+    return state
+
+
+def scale_orbit_state(state: OrbitState, factor: float) -> OrbitState:
+    """Multiply an OrbitState's r and v by ``factor`` (e.g., orbit-unit -> meters)."""
+    return OrbitState(state.r * factor, state.v * factor)
 
 
 def rot_x(angle: float) -> np.ndarray:
@@ -305,67 +291,66 @@ def initial_body_from_lvlh(
     return OrbitState(r, v)
 
 
-def make_model_data(
-    integrator: mujoco.mjtIntegrator = MUJOCO_INTEGRATOR,
-    timestep: float = MUJOCO_TIMESTEP,
-) -> tuple[mujoco.MjModel, mujoco.MjData]:
-    """Compile the one-body MuJoCo model."""
-    model = mujoco.MjModel.from_xml_string(XML)
-    model.opt.timestep = timestep
-    model.opt.integrator = integrator
-    data = mujoco.MjData(model)
-    return model, data
+def initial_states(
+    scenario: Scenario,
+    rel_vel_bias_lvlh: np.ndarray | None = None,
+    length_unit_m: float = 1.0,
+) -> tuple[OrbitState, OrbitState, float, float]:
+    """Return initial chief/body states plus mean motion and orbit period."""
+    chief0, mean_motion, orbit_period = make_initial_chief(scenario, length_unit_m)
+    rho0 = INITIAL_REL_POS_LVLH / length_unit_m
+    rhod0_si = np.array([0.0, -2.0 * mean_motion * INITIAL_REL_POS_LVLH[0], 0.0])
+    if rel_vel_bias_lvlh is not None:
+        rhod0_si = rhod0_si + np.asarray(rel_vel_bias_lvlh, dtype=np.float64).reshape(3)
+    rhod0 = rhod0_si / length_unit_m
+    body0 = initial_body_from_lvlh(chief0, rho0, rhod0, length_unit_m)
+    return chief0, body0, mean_motion, orbit_period
 
 
-def interpolate_orbit(start: OrbitState, end: OrbitState, alpha: float) -> OrbitState:
-    """Linear interpolation used only to update frame terms during substeps."""
-    return OrbitState(
-        (1.0 - alpha) * start.r + alpha * end.r,
-        (1.0 - alpha) * start.v + alpha * end.v,
-    )
-
-
-def set_initial_mujoco_state(
-    data: mujoco.MjData,
+def initial_local_state(
     mode: FrameMode,
     chief: OrbitState,
     body: OrbitState,
-    length_unit_m: float = 1.0,
-) -> None:
-    """Set free-joint position, attitude, and velocity for one frame mode."""
+    length_unit_m: float,
+    dtype: np.dtype,
+) -> np.ndarray:
+    """Pack initial 13-vector body state in the active frame and dtype."""
     fc = frame_cache(chief, length_unit_m)
     rho_eci = body.r - chief.r
     rel_v_eci = body.v - chief.v
 
     if mode == FrameMode.ECI:
-        data.qpos[:3] = body.r
-        data.qvel[:3] = body.v
+        r_local = body.r
+        v_local = body.v
     elif mode == FrameMode.CHIEF_INERTIAL:
-        data.qpos[:3] = rho_eci
-        data.qvel[:3] = rel_v_eci
+        r_local = rho_eci
+        v_local = rel_v_eci
     elif mode == FrameMode.LVLH:
         rho_lvlh = fc.c_li @ rho_eci
         rhod_lvlh = fc.c_li @ rel_v_eci - np.cross(fc.omega_lvlh, rho_lvlh)
-        data.qpos[:3] = rho_lvlh
-        data.qvel[:3] = rhod_lvlh
+        r_local = rho_lvlh
+        v_local = rhod_lvlh
     else:  # pragma: no cover - exhaustive for type checkers
         raise ValueError(mode)
 
-    data.qpos[3:7] = INITIAL_ATTITUDE_WXYZ
-    data.qvel[3:6] = INITIAL_OMEGA_BODY
+    y = np.empty(13, dtype=dtype)
+    y[0:3] = np.asarray(r_local, dtype=dtype)
+    y[3:6] = np.asarray(v_local, dtype=dtype)
+    y[6:10] = np.asarray(INITIAL_ATTITUDE_WXYZ, dtype=dtype)
+    y[10:13] = np.asarray(INITIAL_OMEGA_BODY, dtype=dtype)
+    return y
 
 
 def reconstruct_eci_state(
-    data: mujoco.MjData,
+    y: np.ndarray,
     mode: FrameMode,
     chief: OrbitState,
-    precision: StudyPrecision = "float64",
     length_unit_m: float = 1.0,
 ) -> OrbitState:
-    """Convert the MuJoCo free-joint state back to absolute ECI."""
+    """Convert a body 13-vector back to absolute ECI state."""
     fc = frame_cache(chief, length_unit_m)
-    qpos = precision_view(data.qpos[:3], precision)
-    qvel = precision_view(data.qvel[:3], precision)
+    qpos = np.asarray(y[0:3], dtype=np.float64)
+    qvel = np.asarray(y[3:6], dtype=np.float64)
 
     if mode == FrameMode.ECI:
         return OrbitState(qpos, qvel)
@@ -378,41 +363,226 @@ def reconstruct_eci_state(
     raise ValueError(mode)  # pragma: no cover
 
 
+def encke_diff_gravity(
+    chief_r: np.ndarray,
+    r_local_eci: np.ndarray,
+    length_unit_m: float,
+) -> np.ndarray:
+    """Exact differential gravity g(chief + r) - g(chief) (Encke).
+
+    Uses the identity  g_diff = -mu/|chief|^3 * (r - f(q) * (chief + r))  with
+    q = r . (2 chief + r) / |chief|^2  and
+    f(q) = 1 - 1/(1+q)^{3/2}  computed cancellation-free as
+    f(q) = [q(3+3q+q^2) / (1+(1+q)^{3/2})] / (1+q)^{3/2}.
+
+    No Taylor truncation, no catastrophic cancellation. ``r_local_eci`` and
+    ``chief_r`` must be in the same axes (ECI). Output dtype follows
+    ``r_local_eci``.
+    """
+    dtype = r_local_eci.dtype
+    c = np.asarray(chief_r, dtype=np.float64)
+    r = np.asarray(r_local_eci, dtype=np.float64)
+    c_sq = float(np.dot(c, c))
+    q = float(np.dot(r, 2.0 * c + r)) / c_sq
+    one_plus_q_pow_three_half = (1.0 + q) ** 1.5
+    big_f = q * (3.0 + 3.0 * q + q * q) / (1.0 + one_plus_q_pow_three_half)
+    f = big_f / one_plus_q_pow_three_half
+    coeff = -MU_EARTH / length_unit_m**3 / (c_sq * np.sqrt(c_sq))
+    diff = coeff * (r - f * (c + r))
+    return np.asarray(diff, dtype=dtype)
+
+
 def frame_acceleration(
-    data: mujoco.MjData,
+    r_local: np.ndarray,
+    v_local: np.ndarray,
     mode: FrameMode,
     chief: OrbitState,
-    precision: StudyPrecision = "float64",
-    length_unit_m: float = 1.0,
+    length_unit_m: float,
 ) -> np.ndarray:
-    """Return the translational acceleration to apply in the active frame."""
-    qpos = precision_view(data.qpos[:3], precision)
-    qvel = precision_view(data.qvel[:3], precision)
+    """Translational acceleration in the active frame, in coord units / s^2.
+
+    Output dtype follows ``r_local`` so float32 propagation stays in float32.
+    """
+    dtype = r_local.dtype
+
+    def cast(value: np.ndarray) -> np.ndarray:
+        return np.asarray(value, dtype=dtype)
 
     if mode == FrameMode.ECI:
-        return gravity_in_units(qpos, length_unit_m)
+        return cast(gravity_in_units(r_local, length_unit_m))
 
-    chief_gravity = gravity_in_units(chief.r, length_unit_m)
     if mode == FrameMode.CHIEF_INERTIAL:
-        return gravity_in_units(chief.r + qpos, length_unit_m) - chief_gravity
+        return encke_diff_gravity(chief.r, r_local, length_unit_m)
+
     if mode == FrameMode.LVLH:
         fc = frame_cache(chief, length_unit_m)
-        body_r = chief.r + fc.c_il @ qpos
-        gravity_diff = fc.c_li @ (gravity_in_units(body_r, length_unit_m) - chief_gravity)
-        coriolis = -2.0 * np.cross(fc.omega_lvlh, qvel)
-        euler = -np.cross(fc.omega_dot_lvlh, qpos)
-        centrifugal = -np.cross(fc.omega_lvlh, np.cross(fc.omega_lvlh, qpos))
+        c_il = cast(fc.c_il)
+        c_li = cast(fc.c_li)
+        omega = cast(fc.omega_lvlh)
+        omega_dot = cast(fc.omega_dot_lvlh)
+        r_local_eci = c_il @ r_local
+        gravity_diff = c_li @ encke_diff_gravity(chief.r, r_local_eci, length_unit_m)
+        coriolis = cast(-2.0) * np.cross(omega, v_local)
+        euler = -np.cross(omega_dot, r_local)
+        centrifugal = -np.cross(omega, np.cross(omega, r_local))
         return gravity_diff + coriolis + euler + centrifugal
     raise ValueError(mode)  # pragma: no cover
 
 
-def attitude_invariants(model: mujoco.MjModel, data: mujoco.MjData) -> tuple[float, float, float]:
-    """Return rotational energy, angular momentum norm, and quaternion norm error."""
-    inertia = model.body_inertia[1]
-    omega_body = data.qvel[3:6]
-    energy = 0.5 * float(np.dot(inertia * omega_body, omega_body))
-    angular_momentum_norm = float(np.linalg.norm(inertia * omega_body))
-    quat_norm_error = abs(float(np.linalg.norm(data.qpos[3:7])) - 1.0)
+def quat_kinematic_rhs(q: np.ndarray, omega_body: np.ndarray) -> np.ndarray:
+    """Body-to-frame quaternion derivative (w-first) for body-frame omega.
+
+    qdot = 0.5 * q (Hamilton-product) (0, omega_body)
+    """
+    qw, qx, qy, qz = q
+    wx, wy, wz = omega_body
+    half = np.asarray(0.5, dtype=q.dtype)
+    return half * np.array(
+        [
+            -qx * wx - qy * wy - qz * wz,
+            qw * wx + qy * wz - qz * wy,
+            qw * wy + qz * wx - qx * wz,
+            qw * wz + qx * wy - qy * wx,
+        ],
+        dtype=q.dtype,
+    )
+
+
+def euler_rotational_rhs(
+    omega_body: np.ndarray,
+    inertia_diag: np.ndarray,
+) -> np.ndarray:
+    """Torque-free Euler equation: omega_dot = -I^{-1} (omega x I omega)."""
+    Iw = inertia_diag * omega_body
+    return -np.cross(omega_body, Iw) / inertia_diag
+
+
+def state_dot(
+    y: np.ndarray,
+    t: float,
+    mode: FrameMode,
+    chief_at: Callable[[float], OrbitState],
+    length_unit_m: float,
+    inertia_diag: np.ndarray,
+) -> np.ndarray:
+    """RHS for the packed 13-vector body state."""
+    r = y[0:3]
+    v = y[3:6]
+    q = y[6:10]
+    omega_body = y[10:13]
+
+    chief = chief_at(t)
+    rdot = v
+    vdot = frame_acceleration(r, v, mode, chief, length_unit_m)
+    qdot = quat_kinematic_rhs(q, omega_body)
+    omegadot = euler_rotational_rhs(omega_body, inertia_diag)
+
+    out = np.empty(13, dtype=y.dtype)
+    out[0:3] = rdot
+    out[3:6] = vdot
+    out[6:10] = qdot
+    out[10:13] = omegadot
+    return out
+
+
+def _renormalize_quat(y: np.ndarray) -> tuple[np.ndarray, float]:
+    """Renormalize quaternion in-place; return (new_y, |q|-1) at pre-renorm."""
+    q = y[6:10]
+    norm = float(np.linalg.norm(q))
+    drift = abs(norm - 1.0)
+    if norm > 0.0:
+        y = y.copy()
+        y[6:10] = (q / norm).astype(y.dtype)
+    return y, drift
+
+
+def euler_step(
+    y: np.ndarray,
+    t: float,
+    dt: float,
+    mode: FrameMode,
+    chief_at: Callable[[float], OrbitState],
+    length_unit_m: float,
+    inertia_diag: np.ndarray,
+) -> tuple[np.ndarray, float]:
+    """Semi-implicit (symplectic) Euler — matches MuJoCo's mjINT_EULER default.
+
+    Velocities are advanced using the current acceleration; positions and
+    orientation are then advanced using the *new* velocities. On Hamiltonian
+    systems this preserves energy on average, giving bounded periodic error
+    instead of the secular blow-up of forward Euler.
+    """
+    dy = state_dot(y, t, mode, chief_at, length_unit_m, inertia_diag)
+    dt_t = np.asarray(dt, dtype=y.dtype)
+
+    y_next = np.empty_like(y)
+    y_next[3:6] = y[3:6] + dt_t * dy[3:6]
+    y_next[10:13] = y[10:13] + dt_t * dy[10:13]
+    y_next[0:3] = y[0:3] + dt_t * y_next[3:6]
+    qdot_new = quat_kinematic_rhs(y[6:10], y_next[10:13])
+    y_next[6:10] = y[6:10] + dt_t * qdot_new
+    return _renormalize_quat(y_next)
+
+
+def rk4_step(
+    y: np.ndarray,
+    t: float,
+    dt: float,
+    mode: FrameMode,
+    chief_at: Callable[[float], OrbitState],
+    length_unit_m: float,
+    inertia_diag: np.ndarray,
+) -> tuple[np.ndarray, float]:
+    dt_t = np.asarray(dt, dtype=y.dtype)
+    half_dt = np.asarray(0.5 * dt, dtype=y.dtype)
+    k1 = state_dot(y, t, mode, chief_at, length_unit_m, inertia_diag)
+    k2 = state_dot(y + half_dt * k1, t + 0.5 * dt, mode, chief_at, length_unit_m, inertia_diag)
+    k3 = state_dot(y + half_dt * k2, t + 0.5 * dt, mode, chief_at, length_unit_m, inertia_diag)
+    k4 = state_dot(y + dt_t * k3, t + dt, mode, chief_at, length_unit_m, inertia_diag)
+    sixth = np.asarray(dt / 6.0, dtype=y.dtype)
+    two = np.asarray(2.0, dtype=y.dtype)
+    y_next = y + sixth * (k1 + two * k2 + two * k3 + k4)
+    return _renormalize_quat(y_next)
+
+
+def step_function(integrator: Integrator) -> Callable[..., tuple[np.ndarray, float]]:
+    if integrator == "euler":
+        return euler_step
+    if integrator == "rk4":
+        return rk4_step
+    raise ValueError(f"Unknown integrator: {integrator}")
+
+
+def make_chief_at(
+    chief_step_start: OrbitState,
+    step_start_time: float,
+    length_unit_m: float,
+) -> Callable[[float], OrbitState]:
+    """Closure returning the chief state at any time within the current step."""
+
+    def chief_at(stage_time: float) -> OrbitState:
+        elapsed = stage_time - step_start_time
+        if abs(elapsed) < 1.0e-15:
+            return chief_step_start
+        return rk4_orbit_step(chief_step_start, elapsed, length_unit_m)
+
+    return chief_at
+
+
+def attitude_invariants_from_y(
+    y: np.ndarray,
+    inertia_diag: np.ndarray,
+) -> tuple[float, float, float]:
+    """Return rotational energy, angular momentum norm, and quaternion norm error.
+
+    Uses post-renormalization quaternion, so quat_norm_error is reported
+    separately (per-step pre-renorm drift) by the simulation loop.
+    """
+    omega = np.asarray(y[10:13], dtype=np.float64)
+    inertia = np.asarray(inertia_diag, dtype=np.float64)
+    energy = 0.5 * float(np.dot(inertia * omega, omega))
+    angular_momentum_norm = float(np.linalg.norm(inertia * omega))
+    quat_norm_error = abs(float(np.linalg.norm(y[6:10])) - 1.0)
     return energy, angular_momentum_norm, quat_norm_error
 
 
@@ -428,122 +598,89 @@ def orbital_invariants(
     return energy, angular_momentum_norm
 
 
-@contextmanager
-def frame_force_callback(
-    model: mujoco.MjModel,
-    mode: FrameMode,
-    chief_context: ChiefContext,
-) -> Iterator[None]:
-    """Apply frame acceleration inside MuJoCo dynamics evaluations."""
-    previous_callback = mujoco.get_mjcb_passive()
-    zero_torque = np.zeros(3, dtype=np.float64)
-    body_id = 1
-    body_mass = float(model.body_mass[body_id])
-
-    def passive_callback(cb_model: mujoco.MjModel, cb_data: mujoco.MjData) -> None:
-        point = np.asarray(cb_data.xipos[body_id], dtype=np.float64)
-        force = body_mass * frame_acceleration(
-            cb_data,
-            mode,
-            chief_context.state_at(float(cb_data.time)),
-            chief_context.precision,
-            chief_context.length_unit_m,
-        )
-        mujoco.mj_applyFT(
-            cb_model,
-            cb_data,
-            force,
-            zero_torque,
-            point,
-            body_id,
-            cb_data.qfrc_passive,
-        )
-
-    mujoco.set_mjcb_passive(passive_callback)
-    try:
-        yield
-    finally:
-        mujoco.set_mjcb_passive(previous_callback)
-
-
 def simulate(
     scenario: Scenario,
     mode: FrameMode,
     n_orbits: float = N_ORBITS,
+    integrator: Integrator = DEFAULT_INTEGRATOR,
+    precision: StudyPrecision = "float64",
+    dt: float = SIM_TIMESTEP,
+    orbit_unit_m: float = 1.0,
 ) -> Result:
-    """Run one frame mode and return numerical stability metrics."""
-    chief0, mean_motion, orbit_period = make_initial_chief(scenario)
+    """Run one frame mode and return numerical stability metrics.
+
+    The body propagator runs in meters; chief and truth-body propagator run in
+    ``orbit_unit_m`` (e.g. 1000 for km, 100000 for 100 km).
+    """
+    chief0_m, mean_motion, orbit_period = make_initial_chief(scenario, length_unit_m=1.0)
     rho0 = INITIAL_REL_POS_LVLH
-    rhod0 = np.array([0.0, -2.0 * mean_motion * rho0[0], 0.0])
-    body0 = initial_body_from_lvlh(chief0, rho0, rhod0)
+    rhod0 = np.array([0.0, -2.0 * mean_motion * INITIAL_REL_POS_LVLH[0], 0.0])
+    body0_m = initial_body_from_lvlh(chief0_m, rho0, rhod0, length_unit_m=1.0)
 
-    chief = OrbitState(chief0.r.copy(), chief0.v.copy())
-    truth_body = OrbitState(body0.r.copy(), body0.v.copy())
+    dtype = np.dtype(precision)
+    chief = OrbitState(chief0_m.r / orbit_unit_m, chief0_m.v / orbit_unit_m)
+    truth_body = OrbitState(body0_m.r / orbit_unit_m, body0_m.v / orbit_unit_m)
 
-    model, data = make_model_data()
-    set_initial_mujoco_state(data, mode, chief, body0)
-    chief_context = ChiefContext(chief, float(data.time), "float64", 1.0)
+    y = initial_local_state(mode, chief0_m, body0_m, length_unit_m=1.0, dtype=dtype)
+    inertia_diag = np.asarray(INERTIA_DIAG, dtype=dtype)
 
-    n_steps = int(round(n_orbits * orbit_period / ORBIT_TIMESTEP))
-    substeps = int(round(ORBIT_TIMESTEP / MUJOCO_TIMESTEP))
-    if not np.isclose(substeps * MUJOCO_TIMESTEP, ORBIT_TIMESTEP):
-        raise ValueError("MUJOCO_TIMESTEP must divide ORBIT_TIMESTEP for this experiment.")
+    n_steps = int(round(n_orbits * orbit_period / dt))
+    if n_steps < 1:
+        raise ValueError("n_orbits and dt must produce at least one step")
+    step_fn = step_function(integrator)
 
-    with frame_force_callback(model, mode, chief_context):
-        mujoco.mj_forward(model, data)
+    energy0, h0, _ = attitude_invariants_from_y(y, inertia_diag)
+    orbital_energy0, orbital_h0 = orbital_invariants(body0_m, length_unit_m=1.0)
 
-        energy0, h0, _ = attitude_invariants(model, data)
-        max_energy_drift = 0.0
-        max_h_drift = 0.0
-        max_quat_norm_error = 0.0
-        max_position_error = 0.0
-        max_relative_radius = 0.0
-        orbital_energy0, orbital_h0 = orbital_invariants(body0)
-        max_orbital_energy_drift = 0.0
-        max_orbital_h_drift = 0.0
-        final_orbital_energy_drift = 0.0
-        final_orbital_h_drift = 0.0
-        finite = True
+    max_energy_drift = 0.0
+    max_h_drift = 0.0
+    max_quat_norm_error = 0.0
+    max_position_error = 0.0
+    max_relative_radius = 0.0
+    max_orbital_energy_drift = 0.0
+    max_orbital_h_drift = 0.0
+    final_orbital_energy_drift = 0.0
+    final_orbital_h_drift = 0.0
+    finite = True
 
-        for _ in range(n_steps):
-            for _ in range(substeps):
-                chief_context.step_start = chief
-                chief_context.step_start_time = float(data.time)
-                data.xfrc_applied[:] = 0.0
-                mujoco.mj_step(model, data)
-                chief = rk4_orbit_step(chief, MUJOCO_TIMESTEP)
+    t = 0.0
+    for _ in range(n_steps):
+        chief_step_start = OrbitState(chief.r.copy(), chief.v.copy())
+        chief_at_orbit = make_chief_at(chief_step_start, t, orbit_unit_m)
 
-            for _ in range(substeps):
-                truth_body = rk4_orbit_step(truth_body, MUJOCO_TIMESTEP)
+        def chief_at_m(stage_time: float, _f=chief_at_orbit, _u=orbit_unit_m) -> OrbitState:
+            return scale_orbit_state(_f(stage_time), _u)
 
-            sim_body = reconstruct_eci_state(data, mode, chief)
-            relative = sim_body.r - chief.r
-            position_error = float(np.linalg.norm(sim_body.r - truth_body.r))
+        y, quat_drift = step_fn(y, t, dt, mode, chief_at_m, 1.0, inertia_diag)
+        t += dt
+        chief = rk4_orbit_step(chief, dt, orbit_unit_m)
+        truth_body = propagate_truth_body(truth_body, dt, orbit_unit_m)
 
-            orbital_energy, orbital_h = orbital_invariants(sim_body)
-            final_orbital_energy_drift = abs(orbital_energy - orbital_energy0) / abs(
-                orbital_energy0
-            )
-            final_orbital_h_drift = abs(orbital_h - orbital_h0) / orbital_h0
-            max_orbital_energy_drift = max(
-                max_orbital_energy_drift,
-                final_orbital_energy_drift,
-            )
-            max_orbital_h_drift = max(max_orbital_h_drift, final_orbital_h_drift)
+        chief_m = scale_orbit_state(chief, orbit_unit_m)
+        truth_body_m = scale_orbit_state(truth_body, orbit_unit_m)
+        sim_body_m = reconstruct_eci_state(y, mode, chief_m, length_unit_m=1.0)
+        relative_m = sim_body_m.r - chief_m.r
+        position_error = float(np.linalg.norm(sim_body_m.r - truth_body_m.r))
 
-            energy, h_norm, quat_norm_error = attitude_invariants(model, data)
-            max_energy_drift = max(max_energy_drift, abs(energy - energy0) / energy0)
-            max_h_drift = max(max_h_drift, abs(h_norm - h0) / h0)
-            max_quat_norm_error = max(max_quat_norm_error, quat_norm_error)
-            max_position_error = max(max_position_error, position_error)
-            max_relative_radius = max(max_relative_radius, float(np.linalg.norm(relative)))
-            finite = finite and np.all(np.isfinite(data.qpos)) and np.all(
-                np.isfinite(data.qvel)
-            )
+        orbital_energy, orbital_h = orbital_invariants(sim_body_m, length_unit_m=1.0)
+        final_orbital_energy_drift = abs(orbital_energy - orbital_energy0) / abs(orbital_energy0)
+        final_orbital_h_drift = abs(orbital_h - orbital_h0) / orbital_h0
+        max_orbital_energy_drift = max(max_orbital_energy_drift, final_orbital_energy_drift)
+        max_orbital_h_drift = max(max_orbital_h_drift, final_orbital_h_drift)
 
-    final_body = reconstruct_eci_state(data, mode, chief)
-    final_error = float(np.linalg.norm(final_body.r - truth_body.r))
-    final_relative_lvlh = frame_cache(chief).c_li @ (final_body.r - chief.r)
+        energy, h_norm, _ = attitude_invariants_from_y(y, inertia_diag)
+        max_energy_drift = max(max_energy_drift, abs(energy - energy0) / energy0)
+        max_h_drift = max(max_h_drift, abs(h_norm - h0) / h0)
+        max_quat_norm_error = max(max_quat_norm_error, quat_drift)
+        max_position_error = max(max_position_error, position_error)
+        max_relative_radius = max(max_relative_radius, float(np.linalg.norm(relative_m)))
+        finite = finite and bool(np.all(np.isfinite(y)))
+
+    chief_m = scale_orbit_state(chief, orbit_unit_m)
+    truth_body_m = scale_orbit_state(truth_body, orbit_unit_m)
+    final_body_m = reconstruct_eci_state(y, mode, chief_m, length_unit_m=1.0)
+    final_error = float(np.linalg.norm(final_body_m.r - truth_body_m.r))
+    final_relative_lvlh = frame_cache(chief_m, length_unit_m=1.0).c_li @ (final_body_m.r - chief_m.r)
     return Result(
         scenario=scenario,
         mode=mode,
@@ -562,90 +699,70 @@ def simulate(
     )
 
 
-def initial_states(
-    scenario: Scenario,
-    rel_vel_bias_lvlh: np.ndarray | None = None,
-    length_unit_m: float = 1.0,
-) -> tuple[OrbitState, OrbitState, float, float]:
-    """Return initial chief/body states plus mean motion and orbit period."""
-    chief0, mean_motion, orbit_period = make_initial_chief(scenario, length_unit_m)
-    rho0 = INITIAL_REL_POS_LVLH / length_unit_m
-    rhod0_si = np.array([0.0, -2.0 * mean_motion * INITIAL_REL_POS_LVLH[0], 0.0])
-    if rel_vel_bias_lvlh is not None:
-        rhod0_si = rhod0_si + np.asarray(rel_vel_bias_lvlh, dtype=np.float64).reshape(3)
-    rhod0 = rhod0_si / length_unit_m
-    body0 = initial_body_from_lvlh(chief0, rho0, rhod0, length_unit_m)
-    return chief0, body0, mean_motion, orbit_period
-
-
 def simulate_time_history(
     scenario: Scenario,
     mode: FrameMode,
-    integrator: mujoco.mjtIntegrator,
+    integrator: Integrator,
     dt: float,
     duration: float,
     label: str,
     precision: StudyPrecision,
     rel_vel_bias_lvlh: np.ndarray,
-    length_unit_m: float,
+    orbit_unit_m: float,
 ) -> TimeHistory:
-    """Run one frame/integrator pair and record position error at each step."""
-    chief0, body0, _, _ = initial_states(scenario, rel_vel_bias_lvlh, length_unit_m)
-    chief = OrbitState(chief0.r.copy(), chief0.v.copy())
-    truth_body = OrbitState(body0.r.copy(), body0.v.copy())
+    """Body in meters; chief and truth-body in ``orbit_unit_m``."""
+    chief0_m, body0_m, _, _ = initial_states(scenario, rel_vel_bias_lvlh, length_unit_m=1.0)
+    chief = OrbitState(chief0_m.r / orbit_unit_m, chief0_m.v / orbit_unit_m)
+    truth_body = OrbitState(body0_m.r / orbit_unit_m, body0_m.v / orbit_unit_m)
 
-    model, data = make_model_data(integrator=integrator, timestep=dt)
-    set_initial_mujoco_state(data, mode, chief, body0, length_unit_m)
-    quantize_mujoco_state(data, precision)
-    chief_context = ChiefContext(chief, float(data.time), precision, length_unit_m)
+    dtype = np.dtype(precision)
+    y = initial_local_state(mode, chief0_m, body0_m, length_unit_m=1.0, dtype=dtype)
+    inertia_diag = np.asarray(INERTIA_DIAG, dtype=dtype)
 
     n_steps = int(round(duration / dt))
     if n_steps < 1:
         raise ValueError("duration must cover at least one step")
     duration = n_steps * dt
+    step_fn = step_function(integrator)
 
     times_s = np.empty(n_steps + 1, dtype=np.float64)
     position_error_m = np.empty(n_steps + 1, dtype=np.float64)
     energy_error_rel = np.empty(n_steps + 1, dtype=np.float64)
     relative_radius_m = np.empty(n_steps + 1, dtype=np.float64)
     finite = True
-    energy0, _ = orbital_invariants(body0, length_unit_m)
+    energy0, _ = orbital_invariants(body0_m, length_unit_m=1.0)
 
-    with frame_force_callback(model, mode, chief_context):
-        mujoco.mj_forward(model, data)
+    times_s[0] = 0.0
+    sim_body_m = reconstruct_eci_state(y, mode, chief0_m, length_unit_m=1.0)
+    position_error_m[0] = float(np.linalg.norm(sim_body_m.r - body0_m.r))
+    energy, _ = orbital_invariants(sim_body_m, length_unit_m=1.0)
+    energy_error_rel[0] = abs(energy - energy0) / abs(energy0)
+    relative_radius_m[0] = float(np.linalg.norm(sim_body_m.r - chief0_m.r))
 
-        times_s[0] = float(data.time)
-        sim_body = reconstruct_eci_state(data, mode, chief, precision, length_unit_m)
-        position_error_m[0] = float(
-            np.linalg.norm(sim_body.r - truth_body.r) * length_unit_m
-        )
-        energy, _ = orbital_invariants(sim_body, length_unit_m)
-        energy_error_rel[0] = abs(energy - energy0) / abs(energy0)
-        relative_radius_m[0] = float(np.linalg.norm(sim_body.r - chief.r) * length_unit_m)
+    t = 0.0
+    for idx in range(1, n_steps + 1):
+        chief_step_start = OrbitState(chief.r.copy(), chief.v.copy())
+        chief_at_orbit = make_chief_at(chief_step_start, t, orbit_unit_m)
 
-        for idx in range(1, n_steps + 1):
-            chief_context.step_start = chief
-            chief_context.step_start_time = float(data.time)
-            data.xfrc_applied[:] = 0.0
-            mujoco.mj_step(model, data)
-            quantize_mujoco_state(data, precision)
+        def chief_at_m(stage_time: float, _f=chief_at_orbit, _u=orbit_unit_m) -> OrbitState:
+            return scale_orbit_state(_f(stage_time), _u)
 
-            chief = rk4_orbit_step(chief, dt, length_unit_m)
-            truth_body = rk4_orbit_step(truth_body, dt, length_unit_m)
-            sim_body = reconstruct_eci_state(data, mode, chief, precision, length_unit_m)
+        y, _ = step_fn(y, t, dt, mode, chief_at_m, 1.0, inertia_diag)
+        t += dt
 
-            times_s[idx] = min(float(data.time), duration)
-            position_error_m[idx] = float(
-                np.linalg.norm(sim_body.r - truth_body.r) * length_unit_m
-            )
-            energy, _ = orbital_invariants(sim_body, length_unit_m)
-            energy_error_rel[idx] = abs(energy - energy0) / abs(energy0)
-            relative_radius_m[idx] = float(
-                np.linalg.norm(sim_body.r - chief.r) * length_unit_m
-            )
-            finite = finite and np.all(np.isfinite(data.qpos)) and np.all(
-                np.isfinite(data.qvel)
-            )
+        chief = rk4_orbit_step(chief, dt, orbit_unit_m)
+        truth_body = propagate_truth_body(truth_body, dt, orbit_unit_m)
+
+        chief_m = scale_orbit_state(chief, orbit_unit_m)
+        truth_body_m = scale_orbit_state(truth_body, orbit_unit_m)
+        sim_body_m = reconstruct_eci_state(y, mode, chief_m, length_unit_m=1.0)
+
+        times_s[idx] = min(t, duration)
+        position_error_m[idx] = float(np.linalg.norm(sim_body_m.r - truth_body_m.r))
+        energy, _ = orbital_invariants(sim_body_m, length_unit_m=1.0)
+        energy_error_rel[idx] = abs(energy - energy0) / abs(energy0)
+        relative_radius_m[idx] = float(np.linalg.norm(sim_body_m.r - chief_m.r))
+        finite = finite and bool(np.all(np.isfinite(y)))
 
     return TimeHistory(
         label=label,
@@ -653,7 +770,7 @@ def simulate_time_history(
         mode=mode,
         integrator=integrator,
         precision=precision,
-        length_unit_m=length_unit_m,
+        length_unit_m=orbit_unit_m,
         times_s=times_s,
         position_error_m=position_error_m,
         energy_error_rel=energy_error_rel,
@@ -668,39 +785,17 @@ def run_integrator_study(
     n_orbits: float,
     precision: StudyPrecision,
     rel_vel_bias_lvlh: np.ndarray,
-    length_unit_m: float,
+    orbit_unit_m: float,
 ) -> list[TimeHistory]:
-    """Run the ECI/local-chief and MuJoCo integrator time-history cases."""
-    _, _, _, orbit_period = initial_states(scenario, rel_vel_bias_lvlh, length_unit_m)
-    cases = [
-        ("ECI + Euler", FrameMode.ECI, mujoco.mjtIntegrator.mjINT_EULER),
-        ("ECI + RK4", FrameMode.ECI, mujoco.mjtIntegrator.mjINT_RK4),
-        ("ECI + implicit", FrameMode.ECI, mujoco.mjtIntegrator.mjINT_IMPLICIT),
-        (
-            "ECI + implicitfast",
-            FrameMode.ECI,
-            mujoco.mjtIntegrator.mjINT_IMPLICITFAST,
-        ),
-        (
-            "local chief + Euler",
-            FrameMode.CHIEF_INERTIAL,
-            mujoco.mjtIntegrator.mjINT_EULER,
-        ),
-        (
-            "local chief + RK4",
-            FrameMode.CHIEF_INERTIAL,
-            mujoco.mjtIntegrator.mjINT_RK4,
-        ),
-        (
-            "local chief + implicit",
-            FrameMode.CHIEF_INERTIAL,
-            mujoco.mjtIntegrator.mjINT_IMPLICIT,
-        ),
-        (
-            "local chief + implicitfast",
-            FrameMode.CHIEF_INERTIAL,
-            mujoco.mjtIntegrator.mjINT_IMPLICITFAST,
-        ),
+    """Run the four ECI/local-chief x Euler/RK4 time-history cases."""
+    _, _, _, orbit_period = initial_states(scenario, rel_vel_bias_lvlh, length_unit_m=1.0)
+    cases: list[tuple[str, FrameMode, Integrator]] = [
+        ("ECI + Euler", FrameMode.ECI, "euler"),
+        ("ECI + RK4", FrameMode.ECI, "rk4"),
+        ("local chief + Euler", FrameMode.CHIEF_INERTIAL, "euler"),
+        ("local chief + RK4", FrameMode.CHIEF_INERTIAL, "rk4"),
+        ("LVLH + Euler", FrameMode.LVLH, "euler"),
+        ("LVLH + RK4", FrameMode.LVLH, "rk4"),
     ]
     return [
         simulate_time_history(
@@ -712,7 +807,7 @@ def run_integrator_study(
             label=label,
             precision=precision,
             rel_vel_bias_lvlh=rel_vel_bias_lvlh,
-            length_unit_m=length_unit_m,
+            orbit_unit_m=orbit_unit_m,
         )
         for label, mode, integrator in cases
     ]
@@ -725,7 +820,7 @@ def write_integrator_study(
     dt: float,
     precision: StudyPrecision,
     rel_vel_bias_lvlh: np.ndarray,
-    length_unit_m: float,
+    orbit_unit_m: float,
 ) -> tuple[Path, Path, Path]:
     """Save the integrator-study error plots and raw samples."""
     if not histories:
@@ -741,7 +836,7 @@ def write_integrator_study(
         velocity_suffix = "_dv_" + "_".join(
             format_float_for_filename(float(value)) for value in rel_vel_bias_lvlh
         )
-    unit_suffix = f"_unit_{format_float_for_filename(length_unit_m)}m"
+    unit_suffix = f"_unit_{format_float_for_filename(orbit_unit_m)}m"
     stem = (
         f"{scenario.name}_{orbit_suffix}_{dt_suffix}_{precision}"
         f"{velocity_suffix}{unit_suffix}_eci_vs_local_integrators"
@@ -755,12 +850,7 @@ def write_integrator_study(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    colors = {
-        mujoco.mjtIntegrator.mjINT_EULER: "tab:blue",
-        mujoco.mjtIntegrator.mjINT_RK4: "tab:orange",
-        mujoco.mjtIntegrator.mjINT_IMPLICIT: "tab:green",
-        mujoco.mjtIntegrator.mjINT_IMPLICITFAST: "tab:red",
-    }
+    colors = {"euler": "tab:blue", "rk4": "tab:orange"}
 
     fig, ax = plt.subplots(figsize=(9.0, 5.2))
     for history in histories:
@@ -777,7 +867,7 @@ def write_integrator_study(
 
     ax.set_title(
         f"ECI vs Local Chief Frame: {scenario.name}, {n_orbits:g} orbits, "
-        f"{length_unit_m:g} m/unit"
+        f"{orbit_unit_m:g} m/unit"
     )
     ax.set_xlabel("time [orbits]")
     ax.set_ylabel("ECI position error vs RK4 reference [m]")
@@ -802,7 +892,7 @@ def write_integrator_study(
 
     ax.set_title(
         f"Specific Energy Error: {scenario.name}, {n_orbits:g} orbits, "
-        f"{length_unit_m:g} m/unit"
+        f"{orbit_unit_m:g} m/unit"
     )
     ax.set_xlabel("time [orbits]")
     ax.set_ylabel("relative specific orbital energy error")
@@ -816,7 +906,7 @@ def write_integrator_study(
         samples_path,
         labels=np.asarray([history.label for history in histories]),
         precision=np.asarray(precision),
-        length_unit_m=np.asarray(length_unit_m),
+        length_unit_m=np.asarray(orbit_unit_m),
         rel_vel_bias_lvlh=np.asarray(rel_vel_bias_lvlh, dtype=np.float64),
         times_s=histories[0].times_s,
         position_error_m=np.vstack([history.position_error_m for history in histories]),
@@ -843,10 +933,10 @@ def parse_args() -> argparse.Namespace:
         help="Chief/reference RK4 timestep in seconds.",
     )
     parser.add_argument(
-        "--mujoco-timestep",
+        "--sim-timestep",
         type=float,
-        default=MUJOCO_TIMESTEP,
-        help="MuJoCo timestep in seconds. Must divide --orbit-timestep.",
+        default=SIM_TIMESTEP,
+        help="Body propagator timestep in seconds for the default sweep.",
     )
     parser.add_argument(
         "--scenario",
@@ -857,10 +947,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--integrator-study",
         action="store_true",
-        help=(
-            "Run an ECI/local-chief comparison with Euler, RK4, implicit, and implicitfast, "
-            "then save error plots."
-        ),
+        help="Run an ECI/local-chief comparison with Euler and RK4, then save error plots.",
     )
     parser.add_argument(
         "--study-orbits",
@@ -871,16 +958,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--study-dt",
         type=float,
-        default=MUJOCO_TIMESTEP,
-        help="Shared MuJoCo, chief-propagation, and reference timestep for --integrator-study.",
+        default=SIM_TIMESTEP,
+        help="Shared body, chief, and reference timestep for --integrator-study.",
     )
     parser.add_argument(
         "--study-precision",
         choices=("float64", "float32"),
         default="float64",
         help=(
-            "Precision used for MuJoCo state rounding and callback force inputs in "
-            "--integrator-study. MuJoCo itself remains the wheel's compiled precision."
+            "Precision used end-to-end inside the body propagator for "
+            "--integrator-study. The chief/reference orbit stays in float64."
         ),
     )
     parser.add_argument(
@@ -895,12 +982,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--orbit-length-unit-m",
         "--study-length-unit-m",
+        dest="orbit_length_unit_m",
         type=float,
         default=1.0,
         help=(
-            "Meters per coordinate length unit for --integrator-study. Use 1000 for km "
-            "or 100000 for 100 km units; plotted errors are still reported in meters."
+            "Meters per length unit used by the chief and truth-body orbit propagators "
+            "for --integrator-study (e.g. 1000 for km, 100000 for 100 km). The body "
+            "propagator always runs in meters; plotted errors are reported in meters."
         ),
     )
     parser.add_argument(
@@ -913,11 +1003,11 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    global MUJOCO_TIMESTEP, N_ORBITS, ORBIT_TIMESTEP
+    global SIM_TIMESTEP, N_ORBITS, ORBIT_TIMESTEP
 
     args = parse_args()
     ORBIT_TIMESTEP = args.orbit_timestep
-    MUJOCO_TIMESTEP = args.mujoco_timestep
+    SIM_TIMESTEP = args.sim_timestep
     N_ORBITS = args.n_orbits
     scenarios = [
         scenario
@@ -928,15 +1018,15 @@ def main() -> None:
         study_scenarios = scenarios if args.scenario is not None else [SCENARIOS[0]]
         if len(study_scenarios) != 1:
             raise SystemExit("--integrator-study expects exactly one --scenario")
-        if args.study_length_unit_m <= 0.0:
-            raise SystemExit("--study-length-unit-m must be positive")
+        if args.orbit_length_unit_m <= 0.0:
+            raise SystemExit("--orbit-length-unit-m must be positive")
         study = run_integrator_study(
             study_scenarios[0],
             args.study_dt,
             args.study_orbits,
             args.study_precision,
             np.asarray(args.study_rel_vel_lvlh, dtype=np.float64),
-            args.study_length_unit_m,
+            args.orbit_length_unit_m,
         )
         plot_path, energy_plot_path, samples_path = write_integrator_study(
             study,
@@ -945,13 +1035,13 @@ def main() -> None:
             args.study_dt,
             args.study_precision,
             np.asarray(args.study_rel_vel_lvlh, dtype=np.float64),
-            args.study_length_unit_m,
+            args.orbit_length_unit_m,
         )
         print("Frame study integrator comparison")
         print(f"Scenario: {study_scenarios[0].name}")
         print(f"Shared dt: {args.study_dt:g} s")
         print(f"Study precision: {args.study_precision}")
-        print(f"Coordinate length unit: {args.study_length_unit_m:g} m")
+        print(f"Body unit: 1 m   Orbit length unit: {args.orbit_length_unit_m:g} m")
         print(f"Initial LVLH velocity bias: {np.asarray(args.study_rel_vel_lvlh)} m/s")
         print(f"Requested duration: {args.study_orbits:g} orbits")
         print(f"Duration: {study[0].times_s[-1]:.6f} s")
@@ -975,11 +1065,10 @@ def main() -> None:
             )
         return
 
-    print("Frame study: raw MuJoCo + tiny two-body propagator")
-    print(f"MuJoCo integrator: {MUJOCO_INTEGRATOR.name}")
-    print("Frame forces: passive callback, re-evaluated inside RK4 stages")
+    print("Frame study: Newton-Euler 6-DOF propagator (no MuJoCo)")
+    print(f"Body integrator: {DEFAULT_INTEGRATOR}")
     print(
-        f"orbit dt: {ORBIT_TIMESTEP:g} s, MuJoCo dt: {MUJOCO_TIMESTEP:g} s, "
+        f"orbit dt: {ORBIT_TIMESTEP:g} s, body dt: {SIM_TIMESTEP:g} s, "
         f"duration: {N_ORBITS:g} orbits per scenario"
     )
 
@@ -1009,6 +1098,7 @@ def main() -> None:
                 scenario,
                 mode,
                 n_orbits=N_ORBITS,
+                dt=SIM_TIMESTEP,
             )
             for mode in FrameMode
         ]
@@ -1044,7 +1134,7 @@ def main() -> None:
             )
 
     if not all(result.finite for result in all_results):
-        raise SystemExit("At least one frame produced a non-finite MuJoCo state.")
+        raise SystemExit("At least one frame produced a non-finite body state.")
 
 
 if __name__ == "__main__":

@@ -10,10 +10,12 @@ import numpy as np
 OUT_DIR = Path(__file__).with_name("out")
 
 CURVES = (
-    ("ECI + Euler", "ECI, Euler", "studyEuler", "solid"),
-    ("ECI + RK4", "ECI, RK4", "studyRkFour", "solid"),
-    ("local chief + Euler", "local, Euler", "studyEuler", "densely dashed"),
-    ("local chief + RK4", "local, RK4", "studyRkFour", "densely dashed"),
+    ("ECI + Euler", "ECI, Euler", "frameEci", "solid"),
+    ("local chief + Euler", "chief-inertial, Euler", "frameChief", "solid"),
+    ("LVLH + Euler", "LVLH, Euler", "frameLvlh", "solid"),
+    ("ECI + RK4", "ECI, RK4\\hphantom{le}", "frameEci", "densely dashed"),
+    ("local chief + RK4", "chief-inertial, RK4\\hphantom{le}", "frameChief", "densely dashed"),
+    ("LVLH + RK4", "LVLH, RK4\\hphantom{le}", "frameLvlh", "densely dashed"),
 )
 
 
@@ -142,7 +144,7 @@ def axis_block(
             [
                 (
                     f"    \\addplot[mark=none, {color_name}, {line_style}, "
-                    "line width=0.85pt] coordinates {"
+                    "line width=1.2pt] coordinates {"
                 ),
                 coordinates_block(x, y),
                 "    };",
@@ -165,7 +167,7 @@ def tikz_document(
             "    width=\\columnwidth,",
             "    height=0.58\\columnwidth,",
             "    xmin=0, xmax=3,",
-            "    ymin=1e-8, ymax=1e4,",
+            "    ymin=1e-9, ymax=1e4,",
             "    ymode=log,",
             "    grid=both,",
             "    minor grid style={draw=gray!15},",
@@ -177,17 +179,19 @@ def tikz_document(
             "    title style={font=\\footnotesize},",
             "    label style={font=\\footnotesize},",
             "    tick label style={font=\\scriptsize},",
-            "    legend columns=2,",
+            "    legend columns=3,",
+            "    legend cell align=left,",
             "    legend style={",
             "      font=\\scriptsize,",
-            "      /tikz/every even column/.append style={column sep=0.35cm},",
+            "      /tikz/every even column/.append style={column sep=0.45cm},",
             "      draw=none,",
             "    },",
             "  },",
             "}",
             "\\pgfplotsset{",
-            "  studyEuler/.style={color={rgb,255:red,201;green,70;blue,52}},",
-            "  studyRkFour/.style={color={rgb,255:red,55;green,126;blue,184}},",
+            "  frameEci/.style={color={rgb,255:red,64;green,99;blue,216}},",
+            "  frameChief/.style={color={rgb,255:red,203;green,60;blue,51}},",
+            "  frameLvlh/.style={color={rgb,255:red,56;green,152;blue,38}},",
             "}",
             "\\begin{groupplot}[",
             "  frameStudyAxis,",
@@ -196,9 +200,7 @@ def tikz_document(
             axis_block("Double precision", float64_curves, add_legend=True, show_xlabel=False),
             axis_block("Single precision", float32_curves, add_legend=False, show_xlabel=True),
             "\\end{groupplot}",
-            "\\node[anchor=north, font=\\scriptsize, yshift=-0.86cm] at (group c1r2.south)",
-            "  {Euler/RK4 denote MuJoCo integration; chief/reference orbit uses RK4.};",
-            "\\node[anchor=north, yshift=-1.48cm] at (group c1r2.south)",
+            "\\node[anchor=north, xshift=-0.35cm, yshift=-1.0cm] at (group c1r2.south)",
             "  {\\pgfplotslegendfromname{frameStudyLegend}};",
             "\\end{tikzpicture}",
             "",
@@ -225,14 +227,12 @@ def standalone_document(tikz_filename: str) -> str:
 
 def write_outputs(
     out_dir: Path,
-    dt: float,
     tikz: str,
 ) -> tuple[Path, Path]:
     """Write the TikZ snippet and standalone wrapper."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    dt_suffix = format_float_for_filename(dt)
-    tikz_path = out_dir / f"paper_eci_local_precision_dt_{dt_suffix}s.tikz"
-    standalone_path = out_dir / f"paper_eci_local_precision_dt_{dt_suffix}s_standalone.tex"
+    tikz_path = out_dir / "frame_comparison.tikz"
+    standalone_path = out_dir / "frame_comparison_standalone.tex"
     tikz_path.write_text(tikz, encoding="utf-8")
     standalone_path.write_text(standalone_document(tikz_path.name), encoding="utf-8")
     return tikz_path, standalone_path
@@ -251,7 +251,13 @@ def parse_args() -> argparse.Namespace:
         default=(0.01, 0.0, 0.0),
         metavar=("VX", "VY", "VZ"),
     )
-    parser.add_argument("--study-length-unit-m", type=float, default=1.0)
+    parser.add_argument(
+        "--orbit-length-unit-m",
+        "--study-length-unit-m",
+        dest="study_length_unit_m",
+        type=float,
+        default=1000.0,
+    )
     parser.add_argument("--max-points", type=int, default=900)
     parser.add_argument("--out-dir", type=Path, default=OUT_DIR)
     return parser.parse_args()
@@ -284,7 +290,6 @@ def main() -> None:
 
     tikz_path, standalone_path = write_outputs(
         args.out_dir,
-        args.dt,
         tikz_document(float64_curves, float32_curves),
     )
 
