@@ -1,0 +1,368 @@
+{
+  "config": {
+    "nstep": 2000,
+    "cpu_nworlds": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32,
+      64,
+      128,
+      256
+    ],
+    "gpu_nworlds": [
+      64,
+      128,
+      256,
+      512,
+      1024,
+      2048,
+      4096
+    ],
+    "nthread_cap": 20,
+    "trials": 3,
+    "json": "benchmarks/results/humanoid_throughput.json"
+  },
+  "nstep": 2000,
+  "dt_s": 0.005,
+  "model": {
+    "nq": 28,
+    "nv": 27,
+    "nu": 21,
+    "nbody": 17
+  },
+  "cpu_pure": {
+    "backend": "mujoco.rollout (pure CPU)",
+    "nstep": 2000,
+    "runs": [
+      {
+        "nworld": 1,
+        "nthread": 1,
+        "wall_s": 0.014279583934694529,
+        "wall_min_s": 0.01423403900116682,
+        "trials": 3,
+        "sim_steps": 2000,
+        "sim_steps_per_s": 140060.1032317672,
+        "sim_steps_per_s_best": 140508.25628874925
+      },
+      {
+        "nworld": 2,
+        "nthread": 2,
+        "wall_s": 0.01462213322520256,
+        "wall_min_s": 0.014386508148163557,
+        "trials": 3,
+        "sim_steps": 4000,
+        "sim_steps_per_s": 273557.89599192276,
+        "sim_steps_per_s_best": 278038.28134004853
+      },
+      {
+        "nworld": 4,
+        "nthread": 4,
+        "wall_s": 0.014542337972670794,
+        "wall_min_s": 0.014476879965513945,
+        "trials": 3,
+        "sim_steps": 8000,
+        "sim_steps_per_s": 550117.8706638702,
+        "sim_steps_per_s_best": 552605.2588028066
+      },
+      {
+        "nworld": 8,
+        "nthread": 8,
+        "wall_s": 0.021346115972846746,
+        "wall_min_s": 0.0161373526789248,
+        "trials": 3,
+        "sim_steps": 16000,
+        "sim_steps_per_s": 749550.8794364625,
+        "sim_steps_per_s_best": 991488.5246881801
+      },
+      {
+        "nworld": 16,
+        "nthread": 16,
+        "wall_s": 0.029315808787941933,
+        "wall_min_s": 0.026735886000096798,
+        "trials": 3,
+        "sim_steps": 32000,
+        "sim_steps_per_s": 1091561.2198003596,
+        "sim_steps_per_s_best": 1196893.194408599
+      },
+      {
+        "nworld": 32,
+        "nthread": 20,
+        "wall_s": 0.04986975993961096,
+        "wall_min_s": 0.04719419311732054,
+        "trials": 3,
+        "sim_steps": 64000,
+        "sim_steps_per_s": 1283342.8530135266,
+        "sim_steps_per_s_best": 1356099.0404243532
+      },
+      {
+        "nworld": 64,
+        "nthread": 20,
+        "wall_s": 0.09434186993166804,
+        "wall_min_s": 0.091194580309093,
+        "trials": 3,
+        "sim_steps": 128000,
+        "sim_steps_per_s": 1356767.6800630577,
+        "sim_steps_per_s_best": 1403592.1824099577
+      },
+      {
+        "nworld": 128,
+        "nthread": 20,
+        "wall_s": 0.18225545715540648,
+        "wall_min_s": 0.16807415708899498,
+        "trials": 3,
+        "sim_steps": 256000,
+        "sim_steps_per_s": 1404621.864253495,
+        "sim_steps_per_s_best": 1523137.1939259432
+      },
+      {
+        "nworld": 256,
+        "nthread": 20,
+        "wall_s": 0.33125387225300074,
+        "wall_min_s": 0.3291678917594254,
+        "trials": 3,
+        "sim_steps": 512000,
+        "sim_steps_per_s": 1545642.3090775264,
+        "sim_steps_per_s_best": 1555437.2489471077
+      }
+    ]
+  },
+  "cpu_orbit": {
+    "backend": "mujoco_orbit.rollout (orbit CPU)",
+    "nstep": 2000,
+    "runs": [
+      {
+        "nworld": 1,
+        "nthread": 1,
+        "wall_s": 0.02041762415319681,
+        "wall_min_s": 0.020395094994455576,
+        "trials": 3,
+        "sim_steps": 2000,
+        "sim_steps_per_s": 97954.58986773726,
+        "sim_steps_per_s_best": 98062.79404649508
+      },
+      {
+        "nworld": 2,
+        "nthread": 2,
+        "wall_s": 0.020858004689216614,
+        "wall_min_s": 0.020675073843449354,
+        "trials": 3,
+        "sim_steps": 4000,
+        "sim_steps_per_s": 191772.89772439073,
+        "sim_steps_per_s_best": 193469.68384673275
+      },
+      {
+        "nworld": 4,
+        "nthread": 4,
+        "wall_s": 0.02113907178863883,
+        "wall_min_s": 0.020903800148516893,
+        "trials": 3,
+        "sim_steps": 8000,
+        "sim_steps_per_s": 378446.13424793753,
+        "sim_steps_per_s_best": 382705.53407331504
+      },
+      {
+        "nworld": 8,
+        "nthread": 8,
+        "wall_s": 0.027509481646120548,
+        "wall_min_s": 0.023880043998360634,
+        "trials": 3,
+        "sim_steps": 16000,
+        "sim_steps_per_s": 581617.6475377666,
+        "sim_steps_per_s_best": 670015.5159303057
+      },
+      {
+        "nworld": 16,
+        "nthread": 16,
+        "wall_s": 0.04071479802951217,
+        "wall_min_s": 0.038729685824364424,
+        "trials": 3,
+        "sim_steps": 32000,
+        "sim_steps_per_s": 785955.0224663957,
+        "sim_steps_per_s_best": 826239.5968073965
+      },
+      {
+        "nworld": 32,
+        "nthread": 20,
+        "wall_s": 0.07517386926338077,
+        "wall_min_s": 0.07511444622650743,
+        "trials": 3,
+        "sim_steps": 64000,
+        "sim_steps_per_s": 851359.6629670376,
+        "sim_steps_per_s_best": 852033.1735789966
+      },
+      {
+        "nworld": 64,
+        "nthread": 20,
+        "wall_s": 0.133961608633399,
+        "wall_min_s": 0.13332099188119173,
+        "trials": 3,
+        "sim_steps": 128000,
+        "sim_steps_per_s": 955497.6332830279,
+        "sim_steps_per_s_best": 960088.8666809987
+      },
+      {
+        "nworld": 128,
+        "nthread": 20,
+        "wall_s": 0.26345786824822426,
+        "wall_min_s": 0.2523549138568342,
+        "trials": 3,
+        "sim_steps": 256000,
+        "sim_steps_per_s": 971692.3685072954,
+        "sim_steps_per_s_best": 1014444.2843908075
+      },
+      {
+        "nworld": 256,
+        "nthread": 20,
+        "wall_s": 0.5171393561176956,
+        "wall_min_s": 0.5016914568841457,
+        "trials": 3,
+        "sim_steps": 512000,
+        "sim_steps_per_s": 990061.951276967,
+        "sim_steps_per_s_best": 1020547.5755554569
+      }
+    ]
+  },
+  "gpu_pure": {
+    "available": true,
+    "backend": "mjw.step (pure GPU)",
+    "nstep": 2000,
+    "runs": [
+      {
+        "nworld": 64,
+        "wall_s": 0.9034014269709587,
+        "wall_min_s": 0.9009331059642136,
+        "trials": 3,
+        "sim_steps": 128000,
+        "sim_steps_per_s": 141686.7365697827,
+        "sim_steps_per_s_best": 142074.9211596675
+      },
+      {
+        "nworld": 128,
+        "wall_s": 0.9606467811390758,
+        "wall_min_s": 0.9569567809812725,
+        "trials": 3,
+        "sim_steps": 256000,
+        "sim_steps_per_s": 266487.126201007,
+        "sim_steps_per_s_best": 267514.69354498456
+      },
+      {
+        "nworld": 256,
+        "wall_s": 1.0698802219703794,
+        "wall_min_s": 1.0652711070142686,
+        "trials": 3,
+        "sim_steps": 512000,
+        "sim_steps_per_s": 478558.2437041959,
+        "sim_steps_per_s_best": 480628.8245581245
+      },
+      {
+        "nworld": 512,
+        "wall_s": 1.2484648092649877,
+        "wall_min_s": 1.2470460617914796,
+        "trials": 3,
+        "sim_steps": 1024000,
+        "sim_steps_per_s": 820207.3397670395,
+        "sim_steps_per_s_best": 821140.4785874097
+      },
+      {
+        "nworld": 1024,
+        "wall_s": 1.5932266302406788,
+        "wall_min_s": 1.5808315379545093,
+        "trials": 3,
+        "sim_steps": 2048000,
+        "sim_steps_per_s": 1285441.7325993488,
+        "sim_steps_per_s_best": 1295520.712251209
+      },
+      {
+        "nworld": 2048,
+        "wall_s": 2.2215211666189134,
+        "wall_min_s": 2.2212954820133746,
+        "trials": 3,
+        "sim_steps": 4096000,
+        "sim_steps_per_s": 1843781.6670610372,
+        "sim_steps_per_s_best": 1843968.9960956476
+      },
+      {
+        "nworld": 4096,
+        "wall_s": 3.4997627651318908,
+        "wall_min_s": 3.4160877927206457,
+        "trials": 3,
+        "sim_steps": 8192000,
+        "sim_steps_per_s": 2340730.086512387,
+        "sim_steps_per_s_best": 2398064.8323665345
+      }
+    ]
+  },
+  "gpu_orbit": {
+    "available": true,
+    "backend": "mjo_step (orbit GPU)",
+    "nstep": 2000,
+    "runs": [
+      {
+        "nworld": 64,
+        "wall_s": 1.1396249970421195,
+        "wall_min_s": 1.1367103420197964,
+        "trials": 3,
+        "sim_steps": 128000,
+        "sim_steps_per_s": 112317.64864075655,
+        "sim_steps_per_s_best": 112605.64390798057
+      },
+      {
+        "nworld": 128,
+        "wall_s": 1.3047885061241686,
+        "wall_min_s": 1.3000687267631292,
+        "trials": 3,
+        "sim_steps": 256000,
+        "sim_steps_per_s": 196200.37944727117,
+        "sim_steps_per_s_best": 196912.66679214788
+      },
+      {
+        "nworld": 256,
+        "wall_s": 1.651632806751877,
+        "wall_min_s": 1.6493482780642807,
+        "trials": 3,
+        "sim_steps": 512000,
+        "sim_steps_per_s": 309996.26424647373,
+        "sim_steps_per_s_best": 310425.6431521527
+      },
+      {
+        "nworld": 512,
+        "wall_s": 1.8722217730246484,
+        "wall_min_s": 1.865911414846778,
+        "trials": 3,
+        "sim_steps": 1024000,
+        "sim_steps_per_s": 546943.7514048816,
+        "sim_steps_per_s_best": 548793.4699644288
+      },
+      {
+        "nworld": 1024,
+        "wall_s": 2.1806147838942707,
+        "wall_min_s": 2.162072873674333,
+        "trials": 3,
+        "sim_steps": 2048000,
+        "sim_steps_per_s": 939184.6809102893,
+        "sim_steps_per_s_best": 947239.1171161256
+      },
+      {
+        "nworld": 2048,
+        "wall_s": 2.849079199600965,
+        "wall_min_s": 2.8389279707334936,
+        "trials": 3,
+        "sim_steps": 4096000,
+        "sim_steps_per_s": 1437657.4721312332,
+        "sim_steps_per_s_best": 1442798.1414906124
+      },
+      {
+        "nworld": 4096,
+        "wall_s": 4.094889939762652,
+        "wall_min_s": 4.085515015758574,
+        "trials": 3,
+        "sim_steps": 8192000,
+        "sim_steps_per_s": 2000542.1685337957,
+        "sim_steps_per_s_best": 2005132.7601053887
+      }
+    ]
+  }
+}
