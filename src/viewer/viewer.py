@@ -394,26 +394,28 @@ class MjOrbitViewer:
 
     def run(
         self,
-        duration: float = 600.0,
+        duration: Optional[float] = 600.0,
         action_fn: Optional[Callable[[object, float], Optional[np.ndarray]]] = None,
     ) -> None:
         """Run the simulation + viewer loop until *duration* sim-seconds elapse.
 
         Parameters
         ----------
-        duration : float
-            Maximum simulation time (seconds).
+        duration : float or None
+            Maximum simulation time (seconds). If None, the loop runs
+            indefinitely until interrupted (Ctrl+C / browser close).
         action_fn : callable, optional
             ``action_fn(target, sim_time) -> ctrl_array | None``
             Called every physics step to supply MuJoCo controls.
         """
         dt = self.model.opt.timestep
+        forever = duration is None
         self._last_wall = time.time()
 
         print(f"Viewer running at http://localhost:{self._port}")
 
         try:
-            while self._sim_t < duration:
+            while forever or self._sim_t < duration:
                 now = time.time()
                 wall_dt = min(now - self._last_wall, 0.1)  # cap to avoid spiral
                 self._last_wall = now
@@ -426,7 +428,7 @@ class MjOrbitViewer:
                     self._budget += wall_dt * self._speed
 
                     steps = 0
-                    while self._budget >= dt and self._sim_t < duration:
+                    while self._budget >= dt and (forever or self._sim_t < duration):
                         ctrl = action_fn(self.data, self._sim_t) if action_fn else None
                         if ctrl is not None:
                             np.copyto(self.data.ctrl, ctrl)

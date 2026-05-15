@@ -1,0 +1,112 @@
+<mujoco model="spacecraft_dual_arm_panels">
+  <!-- Spacecraft bus with two robotic arms and two deployable solar wings.
+
+       Layout:
+         +X face: arm A (shoulder, elbow, end-effector)
+         -X face: arm B (shoulder, elbow, end-effector)
+         +Y face: solar wing P (3 hinge-jointed panels, daisy-chained)
+         -Y face: solar wing N (3 hinge-jointed panels, daisy-chained)
+
+       Gravity is disabled at MuJoCo level; the orbit overlay applies ECI
+       gravity, environment torques, etc. via xfrc_applied. Units: m, kg. -->
+  <compiler angle="radian"/>
+  <option timestep="0.005" gravity="0 0 0">
+    <flag contact="enable"/>
+  </option>
+
+  <size njmax="200" nconmax="200"/>
+
+  <default>
+    <joint damping="0.5" armature="0.01"/>
+    <geom condim="3" friction="0.5 0.005 0.0001"
+          solref="0.005 1" solimp="0.9 0.95 0.001"
+          rgba="0.6 0.6 0.6 1"/>
+    <default class="panel_hinge">
+      <joint type="hinge" axis="1 0 0" range="-0.05 3.2"
+             stiffness="2.0" damping="0.3" springref="0"/>
+    </default>
+    <default class="panel_geom">
+      <geom type="box" size="0.25 0.4 0.005" mass="2"
+            contype="2" conaffinity="2" rgba="0.18 0.22 0.55 1"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <body name="bus" pos="0 0 0">
+      <freejoint name="base"/>
+      <geom name="bus" type="box" size="0.5 0.3 0.3" mass="300"
+            contype="1" conaffinity="1" rgba="0.3 0.5 0.9 1"/>
+
+      <!-- ============ Arm A (+X face) ============ -->
+      <body name="link1_a" pos="0.5 0 0">
+        <joint name="shoulder_a" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+        <geom name="upper_a" type="capsule" fromto="0 0 0 0.8 0 0" size="0.04"
+              mass="5" contype="1" conaffinity="1"/>
+        <body name="link2_a" pos="0.8 0 0">
+          <joint name="elbow_a" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+          <geom name="fore_a" type="capsule" fromto="0 0 0 0.6 0 0" size="0.03"
+                mass="3" contype="1" conaffinity="1"/>
+          <body name="ee_a" pos="0.6 0 0">
+            <geom name="ee_sphere_a" type="sphere" size="0.08" mass="1"
+                  rgba="0.95 0.65 0.1 1" contype="1" conaffinity="1"/>
+          </body>
+        </body>
+      </body>
+
+      <!-- ============ Arm B (-X face) ============ -->
+      <body name="link1_b" pos="-0.5 0 0">
+        <joint name="shoulder_b" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+        <geom name="upper_b" type="capsule" fromto="0 0 0 -0.8 0 0" size="0.04"
+              mass="5" contype="1" conaffinity="1"/>
+        <body name="link2_b" pos="-0.8 0 0">
+          <joint name="elbow_b" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+          <geom name="fore_b" type="capsule" fromto="0 0 0 -0.6 0 0" size="0.03"
+                mass="3" contype="1" conaffinity="1"/>
+          <body name="ee_b" pos="-0.6 0 0">
+            <geom name="ee_sphere_b" type="sphere" size="0.08" mass="1"
+                  rgba="0.95 0.35 0.5 1" contype="1" conaffinity="1"/>
+          </body>
+        </body>
+      </body>
+
+      <!-- ============ +Y solar wing: 3 panels ============ -->
+      <body name="wp_0" pos="0 0.3 0.16">
+        <joint name="hp_0" class="panel_hinge"/>
+        <geom name="panel_p_0" pos="0 0.4 0" class="panel_geom"/>
+        <body name="wp_1" pos="0 0.8 0">
+          <joint name="hp_1" class="panel_hinge"/>
+          <geom name="panel_p_1" pos="0 0.4 0" class="panel_geom"/>
+          <body name="wp_2" pos="0 0.8 0">
+            <joint name="hp_2" class="panel_hinge"/>
+            <geom name="panel_p_2" pos="0 0.4 0" class="panel_geom"/>
+          </body>
+        </body>
+      </body>
+
+      <!-- ============ -Y solar wing: 3 panels (mirrored) ============ -->
+      <body name="wn_0" pos="0 -0.3 0.16">
+        <joint name="hn_0" class="panel_hinge"/>
+        <geom name="panel_n_0" pos="0 -0.4 0" class="panel_geom"/>
+        <body name="wn_1" pos="0 -0.8 0">
+          <joint name="hn_1" class="panel_hinge"/>
+          <geom name="panel_n_1" pos="0 -0.4 0" class="panel_geom"/>
+          <body name="wn_2" pos="0 -0.8 0">
+            <joint name="hn_2" class="panel_hinge"/>
+            <geom name="panel_n_2" pos="0 -0.4 0" class="panel_geom"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <position name="shoulder_a_pos" joint="shoulder_a" kp="80" kv="6"
+              ctrlrange="-3.14 3.14"/>
+    <position name="elbow_a_pos" joint="elbow_a" kp="60" kv="4"
+              ctrlrange="-3.14 3.14"/>
+    <position name="shoulder_b_pos" joint="shoulder_b" kp="80" kv="6"
+              ctrlrange="-3.14 3.14"/>
+    <position name="elbow_b_pos" joint="elbow_b" kp="60" kv="4"
+              ctrlrange="-3.14 3.14"/>
+  </actuator>
+</mujoco>

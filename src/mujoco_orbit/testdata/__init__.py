@@ -10,6 +10,7 @@ FREE_BODY_XML = str(TESTDATA_DIR / "free_body.xml")
 FREE_BODY_SENSORS_XML = str(TESTDATA_DIR / "free_body_sensors.xml")
 HUMANOID_XML = str(TESTDATA_DIR / "humanoid.xml")
 SPACECRAFT_ARM_XML = str(TESTDATA_DIR / "spacecraft_arm.xml")
+SPACECRAFT_DUAL_ARM_PANELS_XML = str(TESTDATA_DIR / "spacecraft_dual_arm_panels.xml")
 TWO_BODIES_XML = str(TESTDATA_DIR / "two_bodies.xml")
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "FREE_BODY_XML",
     "HUMANOID_XML",
     "SPACECRAFT_ARM_XML",
+    "SPACECRAFT_DUAL_ARM_PANELS_XML",
     "TESTDATA_DIR",
     "TWO_BODIES_XML",
 ]
