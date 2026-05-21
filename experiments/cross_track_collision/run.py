@@ -26,10 +26,11 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+
 from mujoco_orbit import MjoData, MjoModel, MjoSpec, OrbitInit, mjo_forward, mjo_step
-from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
 from mujoco_orbit.testdata import TWO_BODIES_XML
+from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
 
 EXPERIMENT_DIR = Path(__file__).resolve().parent
 FIGURE_DIR = EXPERIMENT_DIR / "figures"

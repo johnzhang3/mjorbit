@@ -24,7 +24,38 @@ from mujoco_orbit.config import (
 from ._deps import require_mjwarp
 from .data import MjoData
 from .model import MjoModel
-from .step import mjo_forward, mjo_pull, mjo_step, mjo_upload
+
+
+def mjo_forward(model: MjoModel, data: MjoData, *args: Any, **kwargs: Any) -> Any:
+    """Run the orbit-aware MJWarp forward pass, importing Warp on first use."""
+    from .step import mjo_forward as _mjo_forward
+
+    _restore_public_aliases()
+    return _mjo_forward(model, data, *args, **kwargs)
+
+
+def mjo_pull(model: MjoModel, data: MjoData, *args: Any, **kwargs: Any) -> Any:
+    """Pull MJWarp/device state into public host buffers, importing Warp on first use."""
+    from .step import mjo_pull as _mjo_pull
+
+    _restore_public_aliases()
+    return _mjo_pull(model, data, *args, **kwargs)
+
+
+def mjo_step(model: MjoModel, data: MjoData, *args: Any, **kwargs: Any) -> Any:
+    """Advance one orbit-aware MJWarp step, importing Warp on first use."""
+    from .step import mjo_step as _mjo_step
+
+    _restore_public_aliases()
+    return _mjo_step(model, data, *args, **kwargs)
+
+
+def mjo_upload(model: MjoModel, data: MjoData, *args: Any, **kwargs: Any) -> Any:
+    """Upload public host buffers to MJWarp/device state, importing Warp on first use."""
+    from .step import mjo_upload as _mjo_upload
+
+    _restore_public_aliases()
+    return _mjo_upload(model, data, *args, **kwargs)
 
 _MJWARP_FACTORY_NAMES = {
     "create_render_context",
@@ -196,6 +227,17 @@ def step(model: Any, data: Any, *args: Any, **kwargs: Any) -> Any:
     if isinstance(model, MjoModel) and isinstance(data, MjoData):
         return mjo_step(model, data, *args, **kwargs)
     return _call_mjwarp("step", model, data, *args, **kwargs)
+
+
+_PUBLIC_FORWARD_ALIAS = forward
+_PUBLIC_STEP_ALIAS = step
+
+
+def _restore_public_aliases() -> None:
+    # Importing the internal ``.step`` package sets ``mujoco_orbit_warp.step``
+    # to that module. Restore the MJWarp-style callable facade afterward.
+    globals()["forward"] = _PUBLIC_FORWARD_ALIAS
+    globals()["step"] = _PUBLIC_STEP_ALIAS
 
 
 def put_model(model: Any) -> Any:

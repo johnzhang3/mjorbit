@@ -24,7 +24,6 @@ from mujoco_orbit.step import mjo_step
 from .bodies import MuJoCoScene
 from .earth import add_earth
 
-
 ActionFn = Callable[[int, MjoModel, MjoData, float], Optional[np.ndarray]]
 
 

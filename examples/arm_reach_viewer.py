@@ -25,7 +25,6 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-
 from _orbit_reference import circular_orbit_eci
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward

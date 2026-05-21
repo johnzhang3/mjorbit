@@ -1,0 +1,6 @@
+{
+  "include": ["src"],
+  "exclude": ["src/mujoco_orbit_warp"],
+  "extraPaths": ["src"],
+  "pythonVersion": "3.12"
+}

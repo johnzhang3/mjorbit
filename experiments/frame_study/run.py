@@ -680,7 +680,8 @@ def simulate(
     truth_body_m = scale_orbit_state(truth_body, orbit_unit_m)
     final_body_m = reconstruct_eci_state(y, mode, chief_m, length_unit_m=1.0)
     final_error = float(np.linalg.norm(final_body_m.r - truth_body_m.r))
-    final_relative_lvlh = frame_cache(chief_m, length_unit_m=1.0).c_li @ (final_body_m.r - chief_m.r)
+    final_relative_m = final_body_m.r - chief_m.r
+    final_relative_lvlh = frame_cache(chief_m, length_unit_m=1.0).c_li @ final_relative_m
     return Result(
         scenario=scenario,
         mode=mode,

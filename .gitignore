@@ -32,7 +32,10 @@ build/
 *.toc
 .DS_Store
 
+/ISS/
 /Testing/
 build-tsan/
+.claude/scheduled_tasks.lock
 comparisons/basilisk_mujoco/out/
+experiments/cross_track_collision/out/
 experiments/frame_study/out/

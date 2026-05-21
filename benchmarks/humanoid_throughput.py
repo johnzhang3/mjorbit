@@ -35,10 +35,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 import mujoco
 import mujoco.rollout
+import numpy as np
 
 import mujoco_orbit as mjo_cpu
 from mujoco_orbit import OrbitInit, SurfaceSpec
@@ -275,7 +274,9 @@ def _benchmark_gpu_pure(
         # Per-world per-step ctrls, generated as float32 contiguous so each
         # per-step slice can be uploaded without extra copies.
         ctrl_traj_f32 = _build_ctrl_traj(nworld, nstep, nu, seed=ctrl_seed).astype(np.float32)
-        ctrl_traj_f32 = np.ascontiguousarray(ctrl_traj_f32.transpose(1, 0, 2))  # (nstep, nworld, nu)
+        ctrl_traj_f32 = np.ascontiguousarray(
+            ctrl_traj_f32.transpose(1, 0, 2)
+        )
         warp_data.ctrl.assign(ctrl_traj_f32[0])
 
         # warm up + JIT
@@ -358,7 +359,9 @@ def _benchmark_gpu_orbit(
 
         # Per-world per-step ctrls.
         ctrl_traj_f32 = _build_ctrl_traj(nworld, nstep, nu, seed=ctrl_seed).astype(np.float32)
-        ctrl_traj_f32 = np.ascontiguousarray(ctrl_traj_f32.transpose(1, 0, 2))  # (nstep, nworld, nu)
+        ctrl_traj_f32 = np.ascontiguousarray(
+            ctrl_traj_f32.transpose(1, 0, 2)
+        )
 
         # Seed device-side ctrl buffer for the warmup steps.
         if nworld == 1:

@@ -24,7 +24,7 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from mujoco_orbit import MjoData, MjoModel, mjo_forward, mjo_step
+from mujoco_orbit import MjoData, mjo_forward, mjo_step
 from mujoco_orbit.testdata import TWO_BODIES_XML
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

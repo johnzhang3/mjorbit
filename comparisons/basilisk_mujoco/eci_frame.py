@@ -9,7 +9,7 @@ from typing import Any
 import mujoco
 import numpy as np
 
-from experiments.frame_study.run import gravity as frame_study_gravity
+from experiments.frame_study.run import gravity_in_units
 
 from .cases import (
     TWO_ARM_BODY_NAMES,
@@ -19,6 +19,11 @@ from .cases import (
     run_two_arm_free_drift_mujoco_orbit,
 )
 from .common import make_circular_orbit, sample_steps
+
+
+def frame_study_gravity(r: np.ndarray) -> np.ndarray:
+    """Point-mass gravity in SI units, matching the frame-study helper."""
+    return gravity_in_units(np.asarray(r), length_unit_m=1.0)
 
 
 @dataclass

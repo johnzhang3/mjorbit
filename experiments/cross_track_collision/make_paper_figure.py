@@ -98,9 +98,13 @@ def _axis_block(
     for name, legend_label, color_name, line_style in CURVES:
         x, y = curves[name]
         legend = f"\\addlegendentry{{{legend_label}}}" if add_legend else ""
+        plot_header = (
+            f"    \\addplot[mark=none, {color_name}, {line_style}, "
+            "line width=1.0pt] coordinates {"
+        )
         lines.extend(
             [
-                f"    \\addplot[mark=none, {color_name}, {line_style}, line width=1.0pt] coordinates {{",
+                plot_header,
                 _coordinates_block(x, y),
                 "    };",
                 f"    {legend}",
@@ -122,6 +126,15 @@ def _tikz_document(
     half_orbit: float,
     label_y_offset: float,
 ) -> str:
+    half_orbit_marker = (
+        "    \\draw[gray!70, dashed, line width=0.5pt] "
+        f"(axis cs:{half_orbit:.6g},{-long_yband:.6g}) -- "
+        f"(axis cs:{half_orbit:.6g},{long_yband:.6g});"
+    )
+    half_orbit_label = (
+        "    \\node[gray!85, font=\\scriptsize, anchor=south west] "
+        f"at (axis cs:{half_orbit:.6g},{label_y_offset:.6g}) {{$T/2$}};"
+    )
     return "\n".join(
         [
             "\\begin{tikzpicture}",
@@ -175,12 +188,7 @@ def _tikz_document(
                 ymax=long_yband,
                 xlabel="time [s]",
                 add_legend=False,
-                extras="\n".join(
-                    [
-                        f"    \\draw[gray!70, dashed, line width=0.5pt] (axis cs:{half_orbit:.6g},{-long_yband:.6g}) -- (axis cs:{half_orbit:.6g},{long_yband:.6g});",
-                        f"    \\node[gray!85, font=\\scriptsize, anchor=south west] at (axis cs:{half_orbit:.6g},{label_y_offset:.6g}) {{$T/2$}};",
-                    ]
-                ),
+                extras="\n".join([half_orbit_marker, half_orbit_label]),
             ),
             "\\end{groupplot}",
             "\\node[anchor=north, yshift=-1.05cm] at (group c1r2.south)",
