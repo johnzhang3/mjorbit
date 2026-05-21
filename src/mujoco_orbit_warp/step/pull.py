@@ -1,3 +1,5 @@
+# pyright: reportAttributeAccessIssue=false, reportIndexIssue=false
+
 """``mjo_pull`` and the device→host plumbing it relies on."""
 
 from __future__ import annotations

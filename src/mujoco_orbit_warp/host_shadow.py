@@ -1,3 +1,5 @@
+# pyright: reportAttributeAccessIssue=false
+
 """Per-world CPU mirror that bridges the orbit-aware MJWarp data with raw MuJoCo.
 
 ``_HostRun`` keeps a CPU ``MjoData`` and ``mujoco.MjData`` in sync so the

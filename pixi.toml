@@ -55,6 +55,7 @@ test-warp = { cmd = "pytest tests/mujoco_orbit_warp -q", depends-on = ["sync-pac
 bench-capture-arm = { cmd = "python benchmarks/capture_arm.py", depends-on = ["sync-package"] }
 lint = "ruff check ."
 typecheck = "pyright --pythonpath $(python -c 'import sys; print(sys.executable)')"
+typecheck-warp = "pyright -p pyrightconfig-warp.json --pythonpath $(python -c 'import sys; print(sys.executable)')"
 check = { depends-on = ["lint", "typecheck", "test"] }
 example-free-drift = { cmd = "python examples/free_drift.py", depends-on = ["sync-package"] }
 compare-basilisk-single = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_orbit", depends-on = ["sync-package"] }

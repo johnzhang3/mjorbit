@@ -23,6 +23,7 @@ Optional Warp environment:
 
 ```bash
 pixi install -e warp
+pixi run -e warp typecheck-warp
 pixi run -e warp test-warp
 ```
 

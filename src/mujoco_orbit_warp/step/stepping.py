@@ -1,3 +1,5 @@
+# pyright: reportAttributeAccessIssue=false
+
 """``mjo_step`` — advance one fully coupled MJWarp simulation step in-place."""
 
 from __future__ import annotations

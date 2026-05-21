@@ -1,3 +1,5 @@
+# pyright: reportAttributeAccessIssue=false
+
 """``MjoModel`` — orbit-aware MJWarp model wrapper.
 
 Holds three views of the same physics:

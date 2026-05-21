@@ -1,3 +1,5 @@
+# pyright: reportAttributeAccessIssue=false, reportIndexIssue=false
+
 """``MjoData`` — orbit-aware MJWarp runtime state for one or more worlds.
 
 Owns:
