@@ -1,0 +1,70 @@
+<mujoco model="spacecraft_capture">
+  <compiler angle="radian"/>
+  <!-- Free-floating bus with a long, slow 2-link arm and a free-floating
+       payload for the capture-and-stabilize MPPI demo. The grasp is a weld
+       equality (a compliant capture mechanism): inactive while approaching,
+       activated by the demo at latch by recompiling with active="true" and
+       transferring the packed mjo state. Contact is disabled; the weld is the
+       only coupling between arm and payload.
+       The arm hinges about +z, so with an equatorial orbit (world X radial,
+       Y along-track at t=0) all motion stays in the orbit plane and the
+       gravity-gradient pitch dynamics are exercised directly.
+       Units: meters, kg (MuJoCo SI). -->
+  <option timestep="0.5" gravity="0 0 0" integrator="implicitfast">
+    <flag contact="disable"/>
+  </option>
+
+  <default>
+    <joint damping="50" armature="0.5"/>
+  </default>
+
+  <worldbody>
+    <body name="bus" pos="0 0 0">
+      <freejoint name="base"/>
+      <geom type="box" size="0.5 0.3 0.3" mass="800" rgba="0.3 0.5 0.9 1"/>
+      <body name="link1" pos="0.5 0 0">
+        <joint name="shoulder" type="hinge" axis="0 0 1" range="-2.8 2.8"/>
+        <geom type="capsule" fromto="0 0 0 3 0 0" size="0.05" mass="30"/>
+        <body name="link2" pos="3 0 0">
+          <joint name="elbow" type="hinge" axis="0 0 1" range="-2.8 2.8"/>
+          <geom type="capsule" fromto="0 0 0 3 0 0" size="0.04" mass="25"/>
+          <body name="ee" pos="3 0 0">
+            <geom type="sphere" size="0.1" mass="5" rgba="0.9 0.7 0.2 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+    <body name="payload" pos="7.1 0 0">
+      <freejoint name="payload_free"/>
+      <geom type="box" size="0.35 0.35 0.35" mass="400" rgba="0.8 0.3 0.3 1"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <!-- Weak, heavily damped servos: joint response times of minutes once the
+         400 kg payload is attached, matching real space manipulators. -->
+    <position name="shoulder" joint="shoulder" kp="40" kv="400" ctrlrange="-2.8 2.8"
+              forcerange="-60 60"/>
+    <position name="elbow" joint="elbow" kp="40" kv="400" ctrlrange="-2.8 2.8"
+              forcerange="-60 60"/>
+  </actuator>
+
+  <equality>
+    <!-- Compliant grasp: relpose puts the payload centre 0.6 m beyond the end
+         effector along its x-axis; soft solref pulls in gently over ~4 s. -->
+    <weld name="grasp" body1="ee" body2="payload" relpose="0.6 0 0 1 0 0 0"
+          active="false" solref="4 1"/>
+  </equality>
+
+  <sensor>
+    <framepos name="ee_pos" objtype="body" objname="ee"/>
+    <framequat name="ee_quat" objtype="body" objname="ee"/>
+    <framelinvel name="ee_linvel" objtype="body" objname="ee"/>
+    <framepos name="payload_pos" objtype="body" objname="payload"/>
+    <framelinvel name="payload_linvel" objtype="body" objname="payload"/>
+  </sensor>
+
+  <mjorbit use_j2="true" use_drag="false" use_srp="false" use_magnetic="false"
+           use_gravity_gradient="true">
+  </mjorbit>
+</mujoco>

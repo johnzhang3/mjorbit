@@ -58,6 +58,8 @@ typecheck = "pyright --pythonpath $(python -c 'import sys; print(sys.executable)
 typecheck-warp = "pyright -p pyrightconfig-warp.json --pythonpath $(python -c 'import sys; print(sys.executable)')"
 check = { depends-on = ["lint", "typecheck", "test"] }
 example-free-drift = { cmd = "python examples/free_drift.py", depends-on = ["sync-package"] }
+example-mppi-arm-reach = { cmd = "python examples/mppi/arm_reach.py", depends-on = ["sync-package"] }
+example-mppi-capture = { cmd = "python examples/mppi/capture_stabilize.py", depends-on = ["sync-package"] }
 compare-basilisk-single = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_orbit", depends-on = ["sync-package"] }
 compare-basilisk-hinges = { cmd = "python -m comparisons.basilisk_mujoco.run_articulated_hinges", depends-on = ["sync-package"] }
 compare-basilisk = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_orbit && python -m comparisons.basilisk_mujoco.run_articulated_hinges", depends-on = ["sync-package"] }

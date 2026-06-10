@@ -82,6 +82,8 @@ Useful entrypoints:
 
 ```bash
 pixi run example-free-drift
+pixi run example-mppi-arm-reach
+pixi run example-mppi-capture
 pixi run python examples/arm_reach.py
 pixi run iss-hw2
 ```

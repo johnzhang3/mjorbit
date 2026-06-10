@@ -1,0 +1,63 @@
+<mujoco model="spacecraft_arm_reach">
+  <compiler angle="radian"/>
+  <!-- Free-floating spacecraft with a 2-link arm reaching for a target object.
+       Based on testdata/spacecraft_arm.xml, plus:
+       - a fixed target marker in the chief-centered world frame
+       - framepos sensors for the end effector and the target, so MPPI cost
+         functions can read both straight out of rollout sensordata
+       - retuned position actuators (kp + kv velocity feedback) so the servos
+         are well damped enough to track the planned knots.
+       Units: meters, kg (MuJoCo SI). -->
+  <option timestep="0.01" gravity="0 0 0"/>
+
+  <default>
+    <joint damping="0.5" armature="0.01"/>
+    <geom rgba="0.6 0.6 0.6 1"/>
+  </default>
+
+  <worldbody>
+    <!-- Target object: fixed in the chief-centered world frame, i.e. an
+         object co-moving on the chief orbit. Offset in the arm's X-Z work
+         plane so it is reachable from the initial straight-arm pose. -->
+    <site name="target" pos="1.1 0.0 0.9" size="0.05" rgba="0.9 0.2 0.2 1"/>
+
+    <!-- Spacecraft bus — free-floating base -->
+    <body name="spacecraft" pos="0 0 0">
+      <freejoint name="base"/>
+      <geom type="box" size="0.5 0.3 0.3" mass="200" rgba="0.3 0.5 0.9 1"/>
+
+      <!-- Shoulder joint -->
+      <body name="link1" pos="0.5 0 0">
+        <joint name="shoulder" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+        <geom type="capsule" fromto="0 0 0 0.8 0 0" size="0.04" mass="5"/>
+
+        <!-- Elbow joint -->
+        <body name="link2" pos="0.8 0 0">
+          <joint name="elbow" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+          <geom type="capsule" fromto="0 0 0 0.6 0 0" size="0.03" mass="3"/>
+
+          <!-- End effector -->
+          <body name="ee" pos="0.6 0 0">
+            <geom type="sphere" size="0.05" mass="1" rgba="0.9 0.7 0.2 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <!-- kv adds joint-rate feedback: with joint damping alone these position
+         servos are heavily underdamped (zeta ~ 0.03 at the shoulder) and the
+         arm rings. -->
+    <position name="shoulder" joint="shoulder" kp="20" kv="10" ctrlrange="-3.14 3.14"/>
+    <position name="elbow" joint="elbow" kp="20" kv="4" ctrlrange="-3.14 3.14"/>
+  </actuator>
+
+  <sensor>
+    <framepos name="ee_pos" objtype="body" objname="ee"/>
+    <framepos name="target_pos" objtype="site" objname="target"/>
+  </sensor>
+
+  <mjorbit use_j2="false" use_drag="false" use_srp="false" use_magnetic="false">
+  </mjorbit>
+</mujoco>
