@@ -61,3 +61,18 @@ print(data.time, data.qpos[:3])
 
 For a runnable script with a Clohessy-Wiltshire reference check, see
 `examples/free_drift.py`.
+
+## Interactive Viewer
+
+```bash
+pixi run viewer
+# or, with options:
+pixi run viewer --task arm_reach_mppi --frame lvlh
+mjo-viewer --list-tasks
+```
+
+Opens a browser viewer (judo-style) with a task dropdown, play/pause/reset,
+speed control, and per-task parameter sliders. The camera auto-frames and
+tracks the spacecraft with a photoreal, rotating Earth in the background.
+Built-in tasks: `free_drift`, `arm_reach_mppi`, `capture_stabilize_mppi`.
+Register your own with `viewer.tasks.register_task`.

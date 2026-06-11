@@ -140,6 +140,16 @@ class MuJoCoScene:
         self._geom_handles.clear()
         self._build_geom_meshes()
 
+    def remove(self) -> None:
+        """Remove every scene node owned by this scene."""
+        for handle in self._geom_handles:
+            handle.remove()
+        self._geom_handles.clear()
+        for frame in self._body_frames:
+            frame.remove()
+        self._body_frames.clear()
+        self._root_frame.remove()
+
     def update(
         self,
         mjd,

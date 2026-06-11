@@ -10,9 +10,14 @@ dependencies = [
     "cvxpy>=1.7.5",
     "mujoco>=3.7,<3.8",
     "numpy>=1.26,<2",
+    "pillow>=10.0",
+    "scipy>=1.11",
     "trimesh>=4.0",
     "viser>=0.2.0",
 ]
+
+[project.scripts]
+mjo-viewer = "viewer.app:main"
 
 [project.optional-dependencies]
 report = [
@@ -37,6 +42,7 @@ wheel.exclude = []
 sdist.include = [
     "src/mujoco_orbit/testdata/*.xml",
     "src/mujoco_orbit_warp/**/*.py",
+    "src/viewer/assets/*",
     "src/cpp/**",
 ]
 
