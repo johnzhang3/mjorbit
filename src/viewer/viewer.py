@@ -25,9 +25,9 @@ from .bodies import MuJoCoScene
 from .contacts import ContactForceOverlay
 from .earth import BodyTrail, EarthVisual
 from .framing import (
-    DEFAULT_DISTANCE_RATIO,
     CameraTracker,
     default_camera_pose,
+    distance_for_fill,
     lvlh_basis_eci,
     spacecraft_bounding_radius,
 )
@@ -277,7 +277,10 @@ class MjOrbitViewer:
             distance = self._camera_distance
         else:
             radius = spacecraft_bounding_radius(self.model, self.data, self._camera_body_id)
-            distance = DEFAULT_DISTANCE_RATIO * radius * self._local_scene_scale
+            distance = distance_for_fill(
+                radius * self._local_scene_scale,
+                fov=float(self.server.initial_camera.fov),
+            )
         basis = None
         if self._render_frame == "eci":
             basis = lvlh_basis_eci(self.data.orbit.R_eci, self.data.orbit.V_eci)

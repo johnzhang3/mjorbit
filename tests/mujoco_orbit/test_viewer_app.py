@@ -14,7 +14,10 @@ from mujoco_orbit.testdata import SPACECRAFT_DUAL_ARM_PANELS_XML
 from tests.mujoco_orbit._helpers import make_model_data
 from viewer.earth import EARTH_TEXTURE_PATH, create_earth_mesh, create_fallback_earth_mesh
 from viewer.framing import (
+    DEFAULT_CAMERA_FOV,
+    DEFAULT_VIEW_FILL,
     default_camera_pose,
+    distance_for_fill,
     lvlh_basis_eci,
     spacecraft_bounding_radius,
 )
@@ -95,6 +98,43 @@ def test_default_camera_pose_keeps_earth_in_background() -> None:
     )
     np.testing.assert_allclose(look_at, target)
 
+    view = look_at - position
+    view = view / np.linalg.norm(view)
+    earth_dir = -position / np.linalg.norm(position)
+    angle_to_center = np.arccos(np.clip(view @ earth_dir, -1.0, 1.0))
+    earth_angular_radius = np.arcsin(R_EARTH / np.linalg.norm(R))
+    assert angle_to_center < earth_angular_radius
+
+
+def test_default_framing_centers_and_fills_view() -> None:
+    """The default pose must center the spacecraft, make it fill a
+    significant fraction of the view, and keep Earth in the background —
+    all simultaneously, using the real camera intrinsics."""
+    model, data = make_model_data(xml_path=SPACECRAFT_DUAL_ARM_PANELS_XML, mj_timestep=0.005)
+    mjo_forward(model, data)
+
+    R = np.array([R_EARTH + 500.0, 0.0, 0.0])
+    V = np.array([0.0, 7.6, 0.0])
+    target = 1000.0 * R
+    radius = spacecraft_bounding_radius(model, data)
+    distance = distance_for_fill(radius)
+    position, look_at = default_camera_pose(
+        target, distance=distance, basis=lvlh_basis_eci(R, V)
+    )
+
+    # Centered: the camera looks directly at the spacecraft.
+    np.testing.assert_allclose(look_at, target)
+
+    # Prominent: the bounding sphere subtends a significant fraction of the
+    # vertical field of view, but the camera stays outside the geometry.
+    angular_diameter = 2.0 * np.arctan(radius / distance)
+    fill = angular_diameter / DEFAULT_CAMERA_FOV
+    assert 0.5 <= fill <= 0.95
+    assert fill == pytest.approx(DEFAULT_VIEW_FILL, rel=0.15)
+    assert np.linalg.norm(position - target) > 1.2 * radius
+
+    # Earth still fills the background: the view axis points inside
+    # Earth's disk as seen from the camera.
     view = look_at - position
     view = view / np.linalg.norm(view)
     earth_dir = -position / np.linalg.norm(position)

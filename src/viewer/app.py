@@ -28,9 +28,9 @@ from mujoco_orbit.step import mjo_step
 from .bodies import MuJoCoScene
 from .earth import BodyTrail, EarthVisual, add_star_field
 from .framing import (
-    DEFAULT_DISTANCE_RATIO,
     CameraTracker,
     default_camera_pose,
+    distance_for_fill,
     lvlh_basis_eci,
     spacecraft_bounding_radius,
 )
@@ -231,7 +231,9 @@ class MjOrbitApp:
         radius = spacecraft_bounding_radius(
             self.task.model, self.task.data, self.task.track_body_id
         )
-        distance = DEFAULT_DISTANCE_RATIO * radius * self._scale
+        distance = distance_for_fill(
+            radius * self._scale, fov=float(self.server.initial_camera.fov)
+        )
         position, look_at = default_camera_pose(
             target, distance=distance, basis=self._camera_basis()
         )

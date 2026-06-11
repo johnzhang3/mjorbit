@@ -26,8 +26,31 @@ import viser
 _VIEW_OFFSET_RSW = np.array([0.45, -0.78, 0.42])
 _VIEW_OFFSET_RSW /= np.linalg.norm(_VIEW_OFFSET_RSW)
 
-#: Default ratio of camera distance to (scaled) spacecraft bounding radius.
-DEFAULT_DISTANCE_RATIO = 4.0
+#: Vertical field of view (radians) assumed when the live camera value is
+#: unavailable; matches viser's default client camera.
+DEFAULT_CAMERA_FOV = np.radians(75.0)
+
+#: Fraction of the vertical field of view the spacecraft's bounding sphere
+#: should fill in the default framing.
+DEFAULT_VIEW_FILL = 0.75
+
+
+def distance_for_fill(
+    radius: float,
+    *,
+    fov: float = DEFAULT_CAMERA_FOV,
+    fill: float = DEFAULT_VIEW_FILL,
+) -> float:
+    """Camera distance at which a bounding sphere fills *fill* of the view.
+
+    Derived from the camera intrinsics: a sphere of *radius* at distance d
+    subtends ``2 * atan(radius / d)``, so filling ``fill * fov`` of the
+    vertical field of view gives ``d = radius / tan(fill * fov / 2)``. The
+    distance is clamped to stay outside the bounding sphere itself.
+    """
+    radius = float(radius)
+    distance = radius / np.tan(0.5 * float(fill) * float(fov))
+    return max(distance, 1.3 * radius)
 
 
 def geom_bounding_radius(geom_type: int, size: np.ndarray) -> float:
