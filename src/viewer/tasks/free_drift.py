@@ -36,7 +36,6 @@ class FreeDriftTask(ViewerTask):
         "inclination, and tumble rate apply on Reset."
     )
     track_body = "bus"
-    trail_bodies = ("bus",)
 
     params: FreeDriftParams
 

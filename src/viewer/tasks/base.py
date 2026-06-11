@@ -9,6 +9,11 @@ notices model identity changes and rebuilds the rendered scene.
 
 Numeric fields of the task's params dataclass become GUI sliders. Use
 :func:`ui_field` to set explicit bounds; bool fields become checkboxes.
+
+Planner-driven tasks publish *predicted* trajectories (judo-style rollout
+traces) by filling ``self.traces`` with :class:`PredictedTrace` objects and
+bumping ``self.traces_version``; the app renders them as line traces in the
+scene (best rollout orange, alternatives purple).
 """
 
 from __future__ import annotations
@@ -23,6 +28,10 @@ import numpy as np
 from mujoco_orbit import MjoData, MjoModel
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
 
+#: Trace colors, judo-style: best rollout orange, the rest purple.
+TRACE_BEST_COLOR: tuple[int, int, int] = (255, 165, 60)
+TRACE_OTHER_COLOR: tuple[int, int, int] = (150, 110, 210)
+
 
 def circular_orbit_eci(
     altitude_km: float, inclination_deg: float
@@ -34,6 +43,46 @@ def circular_orbit_eci(
     R_eci = np.array([radius_km, 0.0, 0.0])
     V_eci = speed * np.array([0.0, np.cos(inc), np.sin(inc)])
     return R_eci, V_eci
+
+
+@dataclass
+class PredictedTrace:
+    """One predicted trajectory in chief-centered world coordinates (m)."""
+
+    points: np.ndarray  # (T, 3)
+    color: tuple[int, int, int] = TRACE_OTHER_COLOR
+    line_width: float = 2.0
+
+
+def build_rollout_traces(
+    positions: np.ndarray,
+    costs: np.ndarray,
+    *,
+    max_others: int = 15,
+    max_points: int = 80,
+) -> list[PredictedTrace]:
+    """Judo-style traces from rollout position histories.
+
+    *positions* is ``(num_rollouts, num_timesteps, 3)`` (e.g. a framepos
+    sensor channel from the rollout sensordata). The lowest-cost rollout is
+    drawn in orange on top of up to *max_others* of the next-best rollouts
+    in purple; each trace is subsampled to at most *max_points* points.
+    """
+    positions = np.asarray(positions, dtype=float)
+    costs = np.asarray(costs, dtype=float)
+    num_rollouts, num_timesteps = positions.shape[0], positions.shape[1]
+    keep = np.unique(np.linspace(0, num_timesteps - 1, max_points).astype(int))
+
+    order = np.argsort(costs)
+    traces = [
+        PredictedTrace(positions[r, keep], color=TRACE_OTHER_COLOR, line_width=2.0)
+        for r in order[1 : 1 + max(0, min(max_others, num_rollouts - 1))]
+    ]
+    # Best last so it draws on top.
+    traces.append(
+        PredictedTrace(positions[order[0], keep], color=TRACE_BEST_COLOR, line_width=4.0)
+    )
+    return traces
 
 
 @dataclass(frozen=True)
@@ -63,13 +112,18 @@ class ViewerTask(abc.ABC):
     description: ClassVar[str] = ""
     #: Body framed by the camera and used for auto-scaling; None = body 1.
     track_body: ClassVar[str | None] = None
-    #: Bodies whose trajectories are drawn as trails.
-    trail_bodies: ClassVar[tuple[str, ...]] = ()
 
     model: MjoModel
     data: MjoData
 
+    #: Predicted trajectories (chief-centered world metres) published by the
+    #: task, e.g. planner rollouts. Bump ``traces_version`` when replaced.
+    traces: list[PredictedTrace]
+    traces_version: int
+
     def __init__(self) -> None:
+        self.traces = []
+        self.traces_version = 0
         self.params = self.make_params()
         self.initialize()
 
@@ -89,6 +143,7 @@ class ViewerTask(abc.ABC):
     def reset(self) -> None:
         """Restore the initial state; params take effect here by default."""
         self.initialize()
+        self.set_traces([])
 
     # -- per-step hooks ---------------------------------------------------
 
@@ -99,6 +154,11 @@ class ViewerTask(abc.ABC):
         """Inspect state after the step; may swap ``self.model``/``self.data``."""
 
     # -- GUI ---------------------------------------------------------------
+
+    def set_traces(self, traces: list[PredictedTrace]) -> None:
+        """Publish new predicted trajectories for the app to render."""
+        self.traces = traces
+        self.traces_version += 1
 
     def status(self) -> str:
         """Markdown status line(s) shown in the task panel."""

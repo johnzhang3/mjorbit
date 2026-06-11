@@ -25,7 +25,7 @@ from mujoco_orbit.planning import MppiConfig, MppiPlanner
 from mujoco_orbit.rollout import mjo_get_state, mjo_set_state
 from mujoco_orbit.testdata import SPACECRAFT_CAPTURE_XML
 
-from .base import ViewerTask, ui_field
+from .base import ViewerTask, build_rollout_traces, ui_field
 from .registry import register_task
 
 # Packed rollout state layout for this model (see examples/mppi/capture_stabilize.py)
@@ -110,7 +110,6 @@ class CaptureStabilizeTask(ViewerTask):
         "recompiled model. Phase-B replans are heavy — expect pauses."
     )
     track_body = "bus"
-    trail_bodies = ("bus", "payload")
 
     params: CaptureParams
 
@@ -158,12 +157,14 @@ class CaptureStabilizeTask(ViewerTask):
             del controls
             dist, relspeed = _grasp_error(sensors)
             arm_rate_sq = np.sum(states[:, :, _ARM_QVEL] ** 2, axis=-1)
-            return (
+            costs = (
                 0.3 * np.mean(dist**2, axis=1)
                 + 3.0 * np.mean(dist[:, term] ** 2, axis=1)
                 + 100.0 * np.mean(relspeed[:, term] ** 2, axis=1)
                 + 20.0 * np.mean(arm_rate_sq, axis=1)
             )
+            self._publish_traces(sensors, costs)
+            return costs
 
         return cost_fn
 
@@ -172,19 +173,28 @@ class CaptureStabilizeTask(ViewerTask):
         omega_orbit = self._omega
 
         def cost_fn(states: np.ndarray, sensors: np.ndarray, controls: np.ndarray) -> np.ndarray:
-            del sensors, controls
+            del controls
             pitch = _stack_pitch(states)
             align = np.sin(pitch) ** 2  # 0 at either vertical, 1 at horizontal
             libr = ((states[:, :, _BUS_WZ] - omega_orbit) / omega_orbit) ** 2
             arm_rate_sq = np.sum((states[:, :, _ARM_QVEL] / 0.01) ** 2, axis=-1)
-            return (
+            costs = (
                 2.0 * np.mean(align[:, term], axis=1)
                 + 0.5 * np.mean(libr[:, term], axis=1)
                 + 0.3 * np.mean(align, axis=1)
                 + 0.005 * np.mean(arm_rate_sq, axis=1)
             )
+            self._publish_traces(sensors, costs)
+            return costs
 
         return cost_fn
+
+    def _publish_traces(self, sensors: np.ndarray, costs: np.ndarray) -> None:
+        """Predicted end-effector and payload trajectories for the viewer."""
+        self.set_traces(
+            build_rollout_traces(sensors[:, :, _EE_POS], costs, max_others=8)
+            + build_rollout_traces(sensors[:, :, _SENS_PAYLOAD_POS], costs, max_others=8)
+        )
 
     def _rebuild_planner(self) -> None:
         dt = float(self.model.opt.timestep)

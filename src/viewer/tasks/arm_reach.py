@@ -20,7 +20,7 @@ from mujoco_orbit.planning import MppiConfig, MppiPlanner
 from mujoco_orbit.rollout import mjo_control_size
 from mujoco_orbit.testdata import SPACECRAFT_ARM_REACH_XML
 
-from .base import ViewerTask, circular_orbit_eci, ui_field
+from .base import ViewerTask, build_rollout_traces, circular_orbit_eci, ui_field
 from .registry import register_task
 
 
@@ -43,7 +43,6 @@ class ArmReachTask(ViewerTask):
         "changes apply at the next replan."
     )
     track_body = "spacecraft"
-    trail_bodies = ("ee",)
 
     params: ArmReachParams
 
@@ -81,12 +80,15 @@ class ArmReachTask(ViewerTask):
             dist_sq = np.sum((sensors[:, :, ee_sl] - sensors[:, :, target_sl]) ** 2, axis=-1)
             arm_rate_sq = np.sum(states[:, :, arm_qvel_sl] ** 2, axis=-1)
             base_rate_sq = np.sum(states[:, :, base_rate_sl] ** 2, axis=-1)
-            return (
+            costs = (
                 w_running * np.mean(dist_sq, axis=1)
                 + w_terminal * dist_sq[:, -1]
                 + w_qvel * np.mean(arm_rate_sq, axis=1)
                 + w_base * np.mean(base_rate_sq, axis=1)
             )
+            # Publish predicted end-effector trajectories (judo-style traces).
+            self.set_traces(build_rollout_traces(sensors[:, :, ee_sl], costs))
+            return costs
 
         return cost_fn
 

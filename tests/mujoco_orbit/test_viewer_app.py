@@ -185,6 +185,44 @@ def test_arm_reach_task_replans_and_steps() -> None:
     assert "distance" in task.status()
 
 
+def test_build_rollout_traces_orders_and_subsamples() -> None:
+    from viewer.tasks.base import TRACE_BEST_COLOR, TRACE_OTHER_COLOR, build_rollout_traces
+
+    rng = np.random.default_rng(0)
+    positions = rng.normal(size=(6, 500, 3))
+    costs = np.array([3.0, 0.5, 4.0, 2.0, 1.0, 5.0])
+
+    traces = build_rollout_traces(positions, costs, max_others=3, max_points=50)
+
+    assert len(traces) == 4  # 3 others + best
+    # Best rollout (lowest cost, index 1) is drawn last, in orange.
+    best = traces[-1]
+    assert best.color == TRACE_BEST_COLOR
+    np.testing.assert_allclose(best.points[0], positions[1, 0])
+    assert all(t.color == TRACE_OTHER_COLOR for t in traces[:-1])
+    assert all(len(t.points) <= 50 for t in traces)
+    assert all(np.all(np.isfinite(t.points)) for t in traces)
+
+
+def test_arm_reach_replan_publishes_predicted_traces() -> None:
+    task = get_task_class("arm_reach_mppi")()
+    task.params.num_rollouts = 8
+    task.on_param_changed("num_rollouts")
+    assert task.traces == []
+    version_before = task.traces_version
+
+    task.pre_step()  # triggers one MPPI replan, which publishes traces
+
+    assert task.traces_version > version_before
+    assert task.traces
+    # Traces start near the end effector's current position (world frame, m).
+    sensordata = np.asarray(task.data.sensordata)
+    ee_now = sensordata[0:3]
+    for trace in task.traces:
+        assert trace.points.shape[1] == 3
+        assert np.linalg.norm(trace.points[0] - ee_now) < 0.5
+
+
 def test_capture_task_latch_swaps_model() -> None:
     task = get_task_class("capture_stabilize_mppi")()
     model_before = task.model
@@ -238,6 +276,14 @@ def test_app_constructs_switches_tasks_and_tracks() -> None:
         app._load_task("arm_reach_mppi")
         assert app.task is not None and type(app.task).name == "arm_reach_mppi"
         assert app.mj_scene is not scene_before
+
+        # A replan publishes predicted traces, which the app renders.
+        assert app._trace_scene._handle is None
+        app.task.params.num_rollouts = 8
+        app.task.on_param_changed("num_rollouts")
+        app.task.pre_step()
+        app._render()
+        assert app._trace_scene._handle is not None
     finally:
         app.server.stop()
 

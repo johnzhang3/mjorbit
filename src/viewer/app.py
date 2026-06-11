@@ -6,7 +6,9 @@ Launch with ``mjo-viewer`` (or ``python -m viewer``) and open the printed
 URL. A dropdown switches between registered tasks; each task's numeric
 parameters become sliders. The camera auto-frames and tracks the
 spacecraft with Earth in the background, and a photoreal textured Earth
-spins at the sidereal rate underneath the orbit.
+spins at the sidereal rate underneath the orbit. Planner tasks draw their
+predicted rollout trajectories judo-style (best rollout orange,
+alternatives purple).
 
 Tasks register via ``viewer.tasks.register_task``; see
 ``viewer/tasks/free_drift.py`` for a minimal example.
@@ -26,7 +28,7 @@ import viser
 from mujoco_orbit.step import mjo_step
 
 from .bodies import MuJoCoScene
-from .earth import BodyTrail, EarthVisual, add_star_field
+from .earth import EarthVisual, add_star_field
 from .framing import (
     CameraTracker,
     default_camera_pose,
@@ -36,14 +38,7 @@ from .framing import (
 )
 from .tasks import available_tasks, get_task_class
 from .tasks.base import UiSlider, ViewerTask
-
-_TRAIL_COLORS: list[tuple[int, int, int]] = [
-    (255, 200, 50),   # gold
-    (50, 200, 255),   # cyan
-    (255, 100, 100),  # salmon
-    (100, 255, 100),  # lime
-    (200, 150, 255),  # lavender
-]
+from .traces import RolloutTraceScene
 
 _SPEED_OPTIONS = [0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0]
 _SCALE_OPTIONS = [0.5, 1.0, 2.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0]
@@ -123,9 +118,7 @@ class MjOrbitApp:
         self.task: ViewerTask | None = None
         self.mj_scene: MuJoCoScene | None = None
         self._scene_model = None
-        self._trails: list[BodyTrail] = []
-        self._trail_body_ids: list[int] = []
-        self._trail_countdown = 0
+        self._trace_scene = RolloutTraceScene(self.server)
 
         self._task_folder: viser.GuiFolderHandle | None = None
         self._status_md: viser.GuiMarkdownHandle | None = None
@@ -140,9 +133,7 @@ class MjOrbitApp:
         if self.mj_scene is not None:
             self.mj_scene.remove()
             self.mj_scene = None
-        for trail in self._trails:
-            trail.clear()
-        self._trails.clear()
+        self._trace_scene.clear()
         if self._task_folder is not None:
             self._task_folder.remove()
             self._task_folder = None
@@ -166,22 +157,6 @@ class MjOrbitApp:
         )
         self.mj_scene.set_scale(self._scale)
         self._scene_model = self.task.model
-
-        for trail in self._trails:
-            trail.clear()
-        self._trails = []
-        self._trail_body_ids = []
-        for i, body_name in enumerate(self.task.trail_bodies):
-            self._trail_body_ids.append(self.task.model.body_id(body_name))
-            self._trails.append(
-                BodyTrail(
-                    self.server,
-                    body_name,
-                    max_points=4000,
-                    color=_TRAIL_COLORS[i % len(_TRAIL_COLORS)],
-                    path_prefix="/task/trail",
-                )
-            )
 
         # Far plane must reach past Earth from orbit altitude, and past the
         # star shell.
@@ -307,8 +282,6 @@ class MjOrbitApp:
             if self._frame_dropdown.value != self._render_frame:
                 self._render_frame = self._frame_dropdown.value
                 self._pending_reframe = True
-                for trail in self._trails:
-                    trail.clear()
 
         @self._scale_dropdown.on_update
         def _(_) -> None:
@@ -317,8 +290,7 @@ class MjOrbitApp:
                 self._scale = scale
                 if self.mj_scene is not None:
                     self.mj_scene.set_scale(scale)
-                for trail in self._trails:
-                    trail.clear()
+                self._trace_scene.set_scale(scale)
                 self._pending_reframe = True
 
     def _build_task_gui(self) -> None:
@@ -393,22 +365,12 @@ class MjOrbitApp:
             rotation=earth_rotation,
         )
 
-        for trail in self._trails:
-            trail.render()
+        # Predicted rollout traces (judo-style): geometry re-uploads only
+        # when the task publishes a new set; the frame transform is cheap.
+        self._trace_scene.sync(self.task.traces, self.task.traces_version)
+        self._trace_scene.update_transform(rotation, translation)
 
         self.tracker.update(self._body_render_position(self.task.track_body_id))
-
-    def _record_trails(self) -> None:
-        if not self._trails or self.task is None:
-            return
-        if self._trail_countdown > 0:
-            self._trail_countdown -= 1
-            return
-        # Sample roughly every 0.2 s of sim time.
-        dt = float(self.task.model.opt.timestep)
-        self._trail_countdown = max(1, int(round(0.2 / dt))) - 1
-        for body_id, trail in zip(self._trail_body_ids, self._trails):
-            trail.append(self._body_render_position(body_id))
 
     # ------------------------------------------------------------------
     # Main loop
@@ -458,7 +420,6 @@ class MjOrbitApp:
                         if task.model is not self._scene_model:
                             # The task swapped models mid-run (e.g. weld latch).
                             self._attach_scene()
-                        self._record_trails()
                         if steps >= 200:
                             self._budget = 0.0
                             break

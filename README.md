@@ -73,6 +73,8 @@ mjo-viewer --list-tasks
 
 Opens a browser viewer (judo-style) with a task dropdown, play/pause/reset,
 speed control, and per-task parameter sliders. The camera auto-frames and
-tracks the spacecraft with a photoreal, rotating Earth in the background.
-Built-in tasks: `free_drift`, `arm_reach_mppi`, `capture_stabilize_mppi`.
-Register your own with `viewer.tasks.register_task`.
+tracks the spacecraft with a photoreal, rotating Earth in the background,
+and MPPI tasks draw their predicted rollout trajectories (best rollout in
+orange, sampled alternatives in purple). Built-in tasks: `free_drift`,
+`arm_reach_mppi`, `capture_stabilize_mppi`. Register your own with
+`viewer.tasks.register_task`.
