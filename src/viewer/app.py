@@ -168,17 +168,24 @@ class MjOrbitApp:
     # ------------------------------------------------------------------
     # Render-frame transforms
     # ------------------------------------------------------------------
+    #
+    # Both render frames keep the chief at the origin (floating origin):
+    # browsers render in float32, whose quantization at ECI magnitudes
+    # (~0.5 m at 6.8e6 m) is the size of the spacecraft itself, so placing
+    # metre-scale geometry at absolute ECI coordinates makes it jitter and
+    # the tracked camera drift off target. Instead, "eci" renders the
+    # chief-centered inertial world as-is (axes parallel to ECI) and
+    # translates the *Earth* by -R_eci — half a metre of float32 error on
+    # a 6378 km globe is invisible (~0.3 arcsec from LEO), and the on-screen
+    # orbital motion is identical.
 
     def _world_transform(self) -> tuple[np.ndarray | None, np.ndarray | None]:
         assert self.task is not None
         if self._render_frame == "lvlh":
             return self.task.data.frame.C_LI, None
-        return None, 1000.0 * self.task.data.orbit.R_eci
+        return None, None
 
     def _scale_origin(self) -> np.ndarray:
-        assert self.task is not None
-        if self._render_frame == "eci":
-            return 1000.0 * self.task.data.orbit.R_eci
         return np.zeros(3)
 
     def _body_render_position(self, body_id: int) -> np.ndarray:
@@ -354,7 +361,8 @@ class MjOrbitApp:
         )
 
         if self._render_frame == "eci":
-            earth_position = np.zeros(3)
+            # Chief-centered floating origin: Earth moves, the scene doesn't.
+            earth_position = -1000.0 * np.asarray(data.orbit.R_eci, dtype=float)
             earth_rotation = None
         else:
             earth_position = data.frame.C_LI @ (-1000.0 * data.orbit.R_eci)

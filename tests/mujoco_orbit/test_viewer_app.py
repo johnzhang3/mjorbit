@@ -249,27 +249,36 @@ def test_app_constructs_switches_tasks_and_tracks() -> None:
         assert app.task is not None and app.mj_scene is not None
         target_before = app._body_render_position(app.task.track_body_id)
 
-        # ECI render frame: the spacecraft is at the chief ECI position.
+        # ECI render frame is chief-centered (floating origin): the scene
+        # stays at float32-safe magnitudes and Earth is translated instead.
+        np.testing.assert_allclose(target_before, app.task.data.xpos[1], atol=1.0e-6)
         np.testing.assert_allclose(
-            target_before,
-            1000.0 * app.task.data.orbit.R_eci + app.task.data.xpos[1],
-            atol=1.0e-6,
+            np.asarray(app.earth.handle.position),
+            -1000.0 * app.task.data.orbit.R_eci,
+            atol=2.0,  # handle positions round-trip through float32
         )
 
-        # Default framing looks at the spacecraft from the configured ratio.
+        # Default framing looks at the spacecraft, from outside it, with
+        # every render-frame coordinate small enough for float32 rendering.
         camera = np.asarray(app.server.initial_camera.position)
         look_at = np.asarray(app.server.initial_camera.look_at)
         np.testing.assert_allclose(look_at, target_before, atol=1.0e-6)
         assert np.linalg.norm(camera - target_before) > 1.0
+        assert np.linalg.norm(camera) < 1.0e4
+        assert np.linalg.norm(target_before) < 1.0e4
 
-        # Step and confirm the default pose follows the spacecraft.
+        # Step and confirm the default pose stays locked on the spacecraft.
         for _ in range(10):
             app.task.pre_step()
             mjo_step(app.task.model, app.task.data)
             app.task.post_step()
         app._render()
         look_at_after = np.asarray(app.server.initial_camera.look_at)
-        assert np.linalg.norm(look_at_after - look_at) > 0.0
+        np.testing.assert_allclose(
+            look_at_after,
+            app._body_render_position(app.task.track_body_id),
+            atol=1.0e-9,
+        )
 
         # Task switch rebuilds the scene and task GUI.
         scene_before = app.mj_scene
