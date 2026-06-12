@@ -732,6 +732,8 @@ dependencies = [
     { name = "cvxpy" },
     { name = "mujoco" },
     { name = "numpy" },
+    { name = "pillow" },
+    { name = "scipy" },
     { name = "trimesh" },
     { name = "viser" },
 ]
@@ -752,6 +754,8 @@ requires-dist = [
     { name = "mujoco", specifier = ">=3.7,<3.8" },
     { name = "mujoco-warp", marker = "extra == 'warp'", specifier = ">=3.6.0" },
     { name = "numpy", specifier = ">=1.26,<2" },
+    { name = "pillow", specifier = ">=10.0" },
+    { name = "scipy", specifier = ">=1.11" },
     { name = "scipy", marker = "extra == 'report'", specifier = ">=1.17.1" },
     { name = "trimesh", specifier = ">=4.0" },
     { name = "viser", specifier = ">=0.2.0" },

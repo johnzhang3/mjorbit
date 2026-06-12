@@ -23,7 +23,14 @@ from mujoco_orbit.step import mjo_forward, mjo_step
 
 from .bodies import MuJoCoScene
 from .contacts import ContactForceOverlay
-from .earth import BodyTrail, add_earth
+from .earth import BodyTrail, EarthVisual
+from .framing import (
+    CameraTracker,
+    default_camera_pose,
+    distance_for_fill,
+    lvlh_basis_eci,
+    spacecraft_bounding_radius,
+)
 
 # Default trail colour cycle (RGBA)
 _TRAIL_COLORS: list[tuple[int, int, int]] = [
@@ -88,7 +95,10 @@ class MjOrbitViewer:
     host, port : str, int
         Viser server bind address.
     show_earth : bool
-        Render an Earth icosphere in the active visualization frame.
+        Render Earth in the active visualization frame.
+    textured_earth : bool
+        Use the photoreal NASA Blue Marble texture (falls back to a flat
+        blue sphere when the asset is unavailable).
     show_axes : bool
         Draw LVLH reference axes at the origin.
     track_body : str or None
@@ -99,8 +109,12 @@ class MjOrbitViewer:
     trail_max_points : int
         Maximum trail history length per body.
     camera_distance : float or None
-        Initial camera distance from the origin (metres).  If *None*,
-        defaults to 10 m for detail view.
+        Initial camera distance from the tracked body (metres). If *None*,
+        it is derived from the spacecraft's bounding radius so the model
+        fills the frame with Earth visible in the background.
+    track_camera : bool
+        Keep the camera locked onto the spacecraft as it moves (toggleable
+        from the GUI).
     render_frame : {"lvlh", "eci"}
         World frame used for visualization. ``"lvlh"`` rotates chief-inertial
         MuJoCo positions into the chief-centered LVLH frame. ``"eci"``
@@ -114,11 +128,13 @@ class MjOrbitViewer:
         host: str = "0.0.0.0",
         port: int = 8080,
         show_earth: bool = True,
+        textured_earth: bool = True,
         show_axes: bool = True,
         track_body: Optional[str] = None,
         track_bodies: Optional[Sequence[str]] = None,
         trail_max_points: int = 2000,
         camera_distance: Optional[float] = None,
+        track_camera: bool = True,
         render_frame: Literal["lvlh", "eci"] = "lvlh",
     ) -> None:
         self.model = model
@@ -128,42 +144,13 @@ class MjOrbitViewer:
         self._show_earth = show_earth
         self._show_axes = show_axes
         self._render_frame = render_frame
+        self._camera_distance = camera_distance
 
         # ---- viser server ---------------------------------------------------
         _assert_socket_bindable(host, port)
         self.server = viser.ViserServer(host=host, port=port)
         self.server.scene.set_up_direction("+z")
         self._local_scene = self.server.scene.add_frame("/local_scene", show_axes=False)
-
-        # ---- Camera ----------------------------------------------------------
-        R_orbit_m = float(np.linalg.norm(self.data.orbit.R_eci)) * 1000.0
-        cam_dist = camera_distance if camera_distance is not None else 10.0
-        cam_look_at = np.zeros(3)
-        cam_position = np.array([0.0, -cam_dist, cam_dist * 0.5])
-        if self._render_frame == "eci":
-            cam_look_at = 1000.0 * self.data.orbit.R_eci
-            cam_position = cam_look_at + cam_position
-        self.server.initial_camera.position = tuple(cam_position)
-        self.server.initial_camera.look_at = tuple(cam_look_at)
-        if show_earth:
-            # Far plane must reach Earth surface: orbit radius + Earth radius
-            self.server.initial_camera.far = R_orbit_m * 2.5
-
-        # ---- MuJoCo body geometry -------------------------------------------
-        self.mj_scene = MuJoCoScene(
-            self.server,
-            self.model,
-            root_path="/local_scene/spacecraft",
-        )
-
-        # ---- Earth -----------------------------------------------------------
-        if show_earth:
-            earth_position = (
-                (0.0, 0.0, 0.0)
-                if self._render_frame == "eci"
-                else (-R_orbit_m, 0.0, 0.0)
-            )
-            add_earth(self.server, position=earth_position)
 
         # ---- Body trails -----------------------------------------------------
         # Unify track_body (legacy) and track_bodies into a single list
@@ -191,6 +178,28 @@ class MjOrbitViewer:
         # Backward-compat alias
         self.trail: Optional[BodyTrail] = self.trails[0] if self.trails else None
 
+        # ---- Camera ----------------------------------------------------------
+        self._camera_body_id = self._track_ids[0] if self._track_ids else 1
+        R_orbit_m = float(np.linalg.norm(self.data.orbit.R_eci)) * 1000.0
+        self.tracker = CameraTracker(self.server)
+        self.tracker.enabled = track_camera
+        if show_earth:
+            # Far plane must reach Earth's far limb from orbit altitude.
+            self.server.initial_camera.far = R_orbit_m * 2.5
+
+        # ---- MuJoCo body geometry -------------------------------------------
+        self.mj_scene = MuJoCoScene(
+            self.server,
+            self.model,
+            root_path="/local_scene/spacecraft",
+        )
+
+        # ---- Earth -----------------------------------------------------------
+        self.earth: EarthVisual | None = None
+        if show_earth:
+            self.earth = EarthVisual(self.server, textured=textured_earth)
+            self._update_earth()
+
         # ---- GUI controls ----------------------------------------------------
         self._speed_index = _SPEED_OPTIONS.index(1.0)
         self._speed = _SPEED_OPTIONS[self._speed_index]
@@ -209,6 +218,7 @@ class MjOrbitViewer:
         )
         self._apply_local_scene_scale()
         self._setup_gui()
+        self._reframe_camera()
 
         # Initial render
         rotation, translation = self._world_transform()
@@ -233,6 +243,51 @@ class MjOrbitViewer:
         if self._render_frame == "eci":
             return 1000.0 * self.data.orbit.R_eci
         return np.zeros(3)
+
+    def _body_render_position(self, body_id: int) -> np.ndarray:
+        """A body's position in the render frame, in metres, after scaling."""
+        pos = np.asarray(self.data.xpos[body_id], dtype=float).copy()
+        rotation, translation = self._world_transform()
+        if rotation is not None:
+            pos = rotation @ pos
+        if translation is not None:
+            pos = pos + translation
+        origin = self._scale_origin()
+        return origin + self._local_scene_scale * (pos - origin)
+
+    def _update_earth(self) -> None:
+        if self.earth is None:
+            return
+        if self._render_frame == "eci":
+            position = np.zeros(3)
+            rotation = None
+        else:
+            position = self.data.frame.C_LI @ (-1000.0 * self.data.orbit.R_eci)
+            rotation = self.data.frame.C_LI
+        self.earth.update(
+            position=position,
+            sim_time=float(self.data.orbit.t),
+            rotation=rotation,
+        )
+
+    def _reframe_camera(self) -> None:
+        """Frame the tracked body with Earth in the background."""
+        target = self._body_render_position(self._camera_body_id)
+        if self._camera_distance is not None:
+            distance = self._camera_distance
+        else:
+            radius = spacecraft_bounding_radius(self.model, self.data, self._camera_body_id)
+            distance = distance_for_fill(
+                radius * self._local_scene_scale,
+                fov=float(self.server.initial_camera.fov),
+            )
+        basis = None
+        if self._render_frame == "eci":
+            basis = lvlh_basis_eci(self.data.orbit.R_eci, self.data.orbit.V_eci)
+        position, look_at = default_camera_pose(target, distance=distance, basis=basis)
+        self.tracker.set_default_pose(position, look_at)
+        self.tracker.retarget(target)
+        self.tracker.reframe()
 
     def _render_lvlh_axes(self) -> None:
         """Draw R (red), S (green), W (blue) axes at the origin."""
@@ -305,6 +360,8 @@ class MjOrbitViewer:
         )
         if hasattr(self, "_scale_md"):
             self._scale_md.content = self._scale_markdown()
+        if self._camera_distance is None and hasattr(self, "tracker"):
+            self._reframe_camera()
 
     def reset_simulation(self) -> None:
         """Restore the viewer-managed simulation to its initial state."""
@@ -320,6 +377,7 @@ class MjOrbitViewer:
             translation=translation,
             scale_origin=self._scale_origin(),
         )
+        self.tracker.retarget(self._body_render_position(self._camera_body_id))
         self._time_md.content = f"**t** = {self._sim_t:.2f} s"
 
     # ------------------------------------------------------------------
@@ -340,6 +398,13 @@ class MjOrbitViewer:
                 "Local Scale", options=["Smaller", "1x", "Larger"],
             )
             self._scale_md = self.server.gui.add_markdown(self._scale_markdown())
+
+        with self.server.gui.add_folder("Camera"):
+            self._track_checkbox = self.server.gui.add_checkbox(
+                "Track spacecraft",
+                initial_value=self.tracker.enabled,
+            )
+            self._reframe_btn = self.server.gui.add_button("Reframe view")
 
         with self.server.gui.add_folder("Visualization"):
             self._contact_force_checkbox = self.server.gui.add_checkbox(
@@ -381,6 +446,14 @@ class MjOrbitViewer:
 
             self.set_local_scene_scale(_LOCAL_SCALE_OPTIONS[self._scale_index])
             self._scale_md.content = self._scale_markdown()
+
+        @self._track_checkbox.on_update
+        def _(_) -> None:
+            self.tracker.enabled = self._track_checkbox.value
+
+        @self._reframe_btn.on_click
+        def _(_) -> None:
+            self._reframe_camera()
 
     def _speed_markdown(self) -> str:
         return f"**speed** = {self._speed:g}x"
@@ -454,6 +527,7 @@ class MjOrbitViewer:
                     translation=translation,
                     scale_origin=self._scale_origin(),
                 )
+                self._update_earth()
                 if self._show_axes and self._render_frame == "eci":
                     self._render_lvlh_axes()
                 for tid, trail in zip(self._track_ids, self.trails):
@@ -469,6 +543,7 @@ class MjOrbitViewer:
                     rotation=rotation,
                     translation=translation,
                 )
+                self.tracker.update(self._body_render_position(self._camera_body_id))
                 self._time_md.content = f"**t** = {self._sim_t:.2f} s"
 
                 time.sleep(1.0 / 60.0)

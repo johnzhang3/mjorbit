@@ -53,13 +53,15 @@ not as absolute ECI state and not as LVLH state.
 - `src/mujoco_orbit/` — CPU reference backend
 - `src/mujoco_orbit/config.py` — public specs
 - `src/mujoco_orbit/model.py`, `data.py`, `step.py`, `rollout.py` — public runtime API
+- `src/mujoco_orbit/planning/` — spline-knot MPPI planner on the batched rollout
 - `src/cpp/` — native MuJoCo plugin and C++ orbit implementation
 - `tests/mujoco_orbit/reference/orbit/` — Python reference/analysis orbit helpers
 - `tests/mujoco_orbit/reference/coupling/` — Python reference/analysis coupling helpers
 - `tests/mujoco_orbit/reference/sensors.py` — Python reference sensor helpers
 - `src/mujoco_orbit/testdata/` — bundled XML assets
 - `src/mujoco_orbit_warp/` — optional MJWarp backend, host/device sync, and batched runtime API
-- `src/viewer/` — browser viewer integration
+- `src/viewer/` — browser viewer integration (`mjo-viewer` task app, framing, textured Earth)
+- `src/viewer/tasks/` — viewer task registry and built-in tasks
 - `examples/` — lightweight demos of the public API
 - `ISS/` — separate homework/report analysis workspace and artifacts
 - `tests/mujoco_orbit/` — unit and integration tests
@@ -81,6 +83,7 @@ pixi run cpp-test
 Useful entrypoints:
 
 ```bash
+pixi run viewer            # interactive task viewer (judo-style), or: mjo-viewer
 pixi run example-free-drift
 pixi run example-mppi-arm-reach
 pixi run example-mppi-capture

@@ -10,6 +10,7 @@ backend by import path.
 - `src/mujoco_orbit/data.py` defines the Python `MjoData` wrapper.
 - `src/mujoco_orbit/step.py` defines `mjo_forward` and `mjo_step`.
 - `src/mujoco_orbit/rollout.py` defines state and rollout helpers.
+- `src/mujoco_orbit/planning/` defines the spline-knot MPPI planner on the batched rollout.
 - `src/cpp/` contains the language-neutral C++ core and MuJoCo plugin.
 - `src/cpp/src/runtime_model.cc` compiles XML and resolves model metadata.
 - `src/cpp/src/runtime.cc` owns per-`MjoData` allocation, reset, and frame conversions.
@@ -21,7 +22,8 @@ backend by import path.
 - `tests/mujoco_orbit/reference/sensors.py` contains Python reference sensor helpers.
 - `src/mujoco_orbit/testdata/` contains XML fixtures used by tests and examples.
 - `src/mujoco_orbit_warp/` contains the optional MJWarp runtime, sync wrappers, and step API.
-- `src/viewer/` contains the browser viewer integration.
+- `src/viewer/` contains the browser viewer integration and the `mjo-viewer` task app
+  (`pixi run viewer`); built-in tasks live in `src/viewer/tasks/`.
 - `examples/` contains small runnable demos of the public API.
 - `ISS/` is a separate top-level workspace for homework analysis, plots, and report material.
 - `tests/mujoco_orbit/` mirrors the production package; shared setup lives in `_helpers.py`.

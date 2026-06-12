@@ -57,6 +57,7 @@ lint = "ruff check ."
 typecheck = "pyright --pythonpath $(python -c 'import sys; print(sys.executable)')"
 typecheck-warp = "pyright -p pyrightconfig-warp.json --pythonpath $(python -c 'import sys; print(sys.executable)')"
 check = { depends-on = ["lint", "typecheck", "test"] }
+viewer = { cmd = "python -m viewer", depends-on = ["sync-package"] }
 example-free-drift = { cmd = "python examples/free_drift.py", depends-on = ["sync-package"] }
 example-mppi-arm-reach = { cmd = "python examples/mppi/arm_reach.py", depends-on = ["sync-package"] }
 example-mppi-capture = { cmd = "python examples/mppi/capture_stabilize.py", depends-on = ["sync-package"] }
