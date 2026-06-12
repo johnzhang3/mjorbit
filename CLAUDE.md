@@ -147,6 +147,12 @@ energy/momentum non-conservation.
 - `data.sensordata` is the canonical forward/step-updated sensor buffer. Stochastic sampling
   lives behind `data.sensors`.
 - Keep warp-specific implementation under `src/mujoco_orbit_warp/`. Preserve MuJoCo frame
-  conventions exactly across both backends.
+  conventions exactly across both backends. The warp device core is float32, including the
+  orbit clock (`orbit_t`): per-step rounding grows past ~1 h of sim time, so time-keyed
+  environment models (sun vector, eclipse, magnetic field) lose timing accuracy on very long
+  device-resident runs (~tens of seconds per sim-hour, worst case).
 - Keep lightweight demos in `examples/`. Keep ISS homework/report analysis and generated
-  artifacts in `ISS/`. Viewer integration and the `ISS/` workspace remain CPU-only for now.
+  artifacts in `ISS/`. The `src/viewer/` module itself stays backend-agnostic (no warp
+  imports); warp-driven visualization lives in examples (e.g.
+  `examples/banner_viewer_gpu.py` feeds the instanced fleet renderer from
+  `mujoco_orbit_warp`). The `ISS/` workspace remains CPU-only.

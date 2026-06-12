@@ -26,6 +26,8 @@ import viser.transforms as vtf
 from mujoco_orbit.constants import OMEGA_EARTH, R_EARTH
 
 EARTH_TEXTURE_PATH = Path(__file__).parent / "assets" / "earth_day_2k.jpg"
+# Higher-resolution NASA Blue Marble (5400x2700) for banner-quality renders.
+EARTH_TEXTURE_HQ_PATH = Path(__file__).parent / "assets" / "earth_day_5400.jpg"
 
 _FALLBACK_RGBA = np.array([30, 80, 200, 255], dtype=np.uint8)
 
@@ -158,13 +160,20 @@ class EarthVisual:
         atmosphere: bool = True,
         texture_path: str | Path | None = None,
         spin_epoch_angle: float = 0.0,
+        lat_segments: int = 64,
+        lon_segments: int = 128,
     ) -> None:
         self._server = server
         self._spin_epoch_angle = float(spin_epoch_angle)
         radius_m = R_EARTH * 1000.0  # km -> m
 
         mesh = (
-            create_earth_mesh(radius_m, texture_path=texture_path)
+            create_earth_mesh(
+                radius_m,
+                texture_path=texture_path,
+                lat_segments=lat_segments,
+                lon_segments=lon_segments,
+            )
             if textured
             else create_fallback_earth_mesh(radius_m)
         )

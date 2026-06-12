@@ -11,6 +11,7 @@ FREE_BODY_SENSORS_XML = str(TESTDATA_DIR / "free_body_sensors.xml")
 HUMANOID_XML = str(TESTDATA_DIR / "humanoid.xml")
 SPACECRAFT_ARM_XML = str(TESTDATA_DIR / "spacecraft_arm.xml")
 SPACECRAFT_ARM_REACH_XML = str(TESTDATA_DIR / "spacecraft_arm_reach.xml")
+SPACECRAFT_BIMANUAL_PANELS_XML = str(TESTDATA_DIR / "spacecraft_bimanual_panels.xml")
 SPACECRAFT_CAPTURE_XML = str(TESTDATA_DIR / "spacecraft_capture.xml")
 SPACECRAFT_DUAL_ARM_PANELS_XML = str(TESTDATA_DIR / "spacecraft_dual_arm_panels.xml")
 TWO_BODIES_XML = str(TESTDATA_DIR / "two_bodies.xml")
@@ -21,6 +22,7 @@ __all__ = [
     "HUMANOID_XML",
     "SPACECRAFT_ARM_REACH_XML",
     "SPACECRAFT_ARM_XML",
+    "SPACECRAFT_BIMANUAL_PANELS_XML",
     "SPACECRAFT_CAPTURE_XML",
     "SPACECRAFT_DUAL_ARM_PANELS_XML",
     "TESTDATA_DIR",

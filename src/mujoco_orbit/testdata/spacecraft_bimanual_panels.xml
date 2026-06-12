@@ -1,0 +1,188 @@
+<mujoco model="spacecraft_bimanual_panels">
+  <!-- Spacecraft bus with two robotic arms on OPPOSITE (+X / -X) faces that
+       both reach toward +Z, framing a shared bimanual workspace above the
+       bus. Tuned for banner-figure rendering: gold MLI bus, white radiators,
+       nadir antenna dish, thruster nozzles, framed solar-cell panels. Detail
+       geoms are non-colliding (contype/conaffinity 0) with near-zero mass so
+       the dynamics stay close to the plain dual-arm bus.
+
+       Layout:
+         +X face: arm A (shoulder, elbow, end-effector)
+         -X face: arm B (shoulder, elbow, end-effector), mirrored
+         +Y face: solar wing P (3 hinge-jointed panels, daisy-chained)
+         -Y face: solar wing N (3 hinge-jointed panels, daisy-chained)
+         -Z face: nadir antenna dish; -X face: thruster nozzles
+
+       Gravity is disabled at MuJoCo level; the orbit overlay applies ECI
+       gravity and environment torques via xfrc_applied. Units: m, kg. -->
+  <compiler angle="radian"/>
+  <option timestep="0.01" gravity="0 0 0" integrator="implicitfast">
+    <flag contact="disable"/>
+  </option>
+
+  <default>
+    <joint damping="0.5" armature="0.01"/>
+    <geom rgba="0.6 0.6 0.6 1"/>
+    <default class="detail">
+      <geom contype="0" conaffinity="0" mass="0.01"/>
+    </default>
+    <default class="panel_hinge">
+      <joint type="hinge" axis="1 0 0" range="-0.05 3.2"
+             stiffness="2.0" damping="0.3" springref="0"/>
+    </default>
+    <default class="panel_cell">
+      <geom type="box" size="0.25 0.4 0.005" mass="2"
+            contype="0" conaffinity="0" rgba="0.10 0.14 0.38 1"/>
+    </default>
+    <default class="panel_frame">
+      <geom type="box" size="0.27 0.42 0.002" mass="0.01"
+            contype="0" conaffinity="0" rgba="0.74 0.76 0.80 1"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <body name="bus" pos="0 0 0">
+      <freejoint name="base"/>
+      <!-- Gold MLI-wrapped bus -->
+      <geom name="bus" type="box" size="0.5 0.3 0.3" mass="300"
+            rgba="0.82 0.64 0.22 1"/>
+      <!-- White radiator panels on the +/-Z faces -->
+      <geom name="radiator_top" class="detail" type="box" size="0.40 0.24 0.012"
+            pos="0 0 0.312" rgba="0.93 0.94 0.96 1"/>
+      <geom name="radiator_bot" class="detail" type="box" size="0.40 0.24 0.012"
+            pos="0 0 -0.312" rgba="0.93 0.94 0.96 1"/>
+      <!-- Star tracker -->
+      <geom name="star_tracker" class="detail" type="cylinder" size="0.05 0.07"
+            pos="0.30 0 0.36" zaxis="0.3 0 1" rgba="0.15 0.15 0.18 1"/>
+      <!-- Nadir-pointing high-gain antenna dish on the -Z face -->
+      <geom name="antenna_boom" class="detail" type="cylinder" size="0.02 0.09"
+            pos="0.15 0 -0.40" zaxis="0 0 1" rgba="0.65 0.67 0.70 1"/>
+      <geom name="antenna_dish" class="detail" type="cylinder" size="0.20 0.015"
+            pos="0.15 0 -0.50" zaxis="0 0 1" rgba="0.88 0.89 0.92 1"/>
+      <geom name="antenna_feed" class="detail" type="sphere" size="0.035"
+            pos="0.15 0 -0.56" rgba="0.95 0.62 0.15 1"/>
+      <!-- Main engine + RCS thruster nozzles on the -X face, clear of arm B -->
+      <geom name="nozzle_main" class="detail" type="cylinder" size="0.08 0.06"
+            pos="-0.55 0 -0.20" zaxis="1 0 0" rgba="0.25 0.25 0.28 1"/>
+      <geom name="nozzle_rcs_p" class="detail" type="cylinder" size="0.035 0.04"
+            pos="-0.53 0.22 -0.22" zaxis="1 0 0" rgba="0.30 0.30 0.33 1"/>
+      <geom name="nozzle_rcs_n" class="detail" type="cylinder" size="0.035 0.04"
+            pos="-0.53 -0.22 -0.22" zaxis="1 0 0" rgba="0.30 0.30 0.33 1"/>
+
+      <!-- ============ Arm A (+X face) ============ -->
+      <body name="link1_a" pos="0.5 0 0">
+        <joint name="shoulder_a" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+        <geom name="shoulder_housing_a" class="detail" type="cylinder"
+              size="0.06 0.05" zaxis="0 1 0" rgba="0.30 0.31 0.34 1"/>
+        <geom name="upper_a" type="capsule" fromto="0 0 0 0.8 0 0" size="0.04"
+              mass="5" rgba="0.85 0.86 0.88 1"/>
+        <body name="link2_a" pos="0.8 0 0">
+          <joint name="elbow_a" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+          <geom name="elbow_housing_a" class="detail" type="cylinder"
+                size="0.05 0.045" zaxis="0 1 0" rgba="0.30 0.31 0.34 1"/>
+          <geom name="fore_a" type="capsule" fromto="0 0 0 0.6 0 0" size="0.03"
+                mass="3" rgba="0.85 0.86 0.88 1"/>
+          <body name="ee_a" pos="0.6 0 0">
+            <geom name="wrist_a" type="sphere" size="0.05" mass="1"
+                  rgba="0.95 0.65 0.10 1"/>
+            <geom name="finger_a_a" class="detail" type="box"
+                  size="0.045 0.008 0.015" pos="0.06 0 0.025"
+                  rgba="0.20 0.20 0.23 1"/>
+            <geom name="finger_a_b" class="detail" type="box"
+                  size="0.045 0.008 0.015" pos="0.06 0 -0.025"
+                  rgba="0.20 0.20 0.23 1"/>
+          </body>
+        </body>
+      </body>
+
+      <!-- ============ Arm B (-X face, mirrored) ============ -->
+      <body name="link1_b" pos="-0.5 0 0">
+        <joint name="shoulder_b" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+        <geom name="shoulder_housing_b" class="detail" type="cylinder"
+              size="0.06 0.05" zaxis="0 1 0" rgba="0.30 0.31 0.34 1"/>
+        <geom name="upper_b" type="capsule" fromto="0 0 0 -0.8 0 0" size="0.04"
+              mass="5" rgba="0.85 0.86 0.88 1"/>
+        <body name="link2_b" pos="-0.8 0 0">
+          <joint name="elbow_b" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+          <geom name="elbow_housing_b" class="detail" type="cylinder"
+                size="0.05 0.045" zaxis="0 1 0" rgba="0.30 0.31 0.34 1"/>
+          <geom name="fore_b" type="capsule" fromto="0 0 0 -0.6 0 0" size="0.03"
+                mass="3" rgba="0.85 0.86 0.88 1"/>
+          <body name="ee_b" pos="-0.6 0 0">
+            <geom name="wrist_b" type="sphere" size="0.05" mass="1"
+                  rgba="0.95 0.35 0.50 1"/>
+            <geom name="finger_b_a" class="detail" type="box"
+                  size="0.045 0.008 0.015" pos="-0.06 0 0.025"
+                  rgba="0.20 0.20 0.23 1"/>
+            <geom name="finger_b_b" class="detail" type="box"
+                  size="0.045 0.008 0.015" pos="-0.06 0 -0.025"
+                  rgba="0.20 0.20 0.23 1"/>
+          </body>
+        </body>
+      </body>
+
+      <!-- ============ +Y solar wing: 3 framed panels ============ -->
+      <body name="wp_0" pos="0 0.3 0.16">
+        <joint name="hp_0" class="panel_hinge"/>
+        <geom name="hinge_p_0" class="detail" type="cylinder" size="0.015 0.06"
+              zaxis="1 0 0" rgba="0.80 0.66 0.30 1"/>
+        <geom name="panel_p_0" pos="0 0.4 0" class="panel_cell"/>
+        <geom name="frame_p_0" pos="0 0.4 -0.006" class="panel_frame"/>
+        <body name="wp_1" pos="0 0.8 0">
+          <joint name="hp_1" class="panel_hinge"/>
+          <geom name="hinge_p_1" class="detail" type="cylinder" size="0.015 0.06"
+                zaxis="1 0 0" rgba="0.80 0.66 0.30 1"/>
+          <geom name="panel_p_1" pos="0 0.4 0" class="panel_cell"/>
+          <geom name="frame_p_1" pos="0 0.4 -0.006" class="panel_frame"/>
+          <body name="wp_2" pos="0 0.8 0">
+            <joint name="hp_2" class="panel_hinge"/>
+            <geom name="hinge_p_2" class="detail" type="cylinder" size="0.015 0.06"
+                  zaxis="1 0 0" rgba="0.80 0.66 0.30 1"/>
+            <geom name="panel_p_2" pos="0 0.4 0" class="panel_cell"/>
+            <geom name="frame_p_2" pos="0 0.4 -0.006" class="panel_frame"/>
+          </body>
+        </body>
+      </body>
+
+      <!-- ============ -Y solar wing: 3 framed panels (mirrored) ============ -->
+      <body name="wn_0" pos="0 -0.3 0.16">
+        <joint name="hn_0" class="panel_hinge"/>
+        <geom name="hinge_n_0" class="detail" type="cylinder" size="0.015 0.06"
+              zaxis="1 0 0" rgba="0.80 0.66 0.30 1"/>
+        <geom name="panel_n_0" pos="0 -0.4 0" class="panel_cell"/>
+        <geom name="frame_n_0" pos="0 -0.4 -0.006" class="panel_frame"/>
+        <body name="wn_1" pos="0 -0.8 0">
+          <joint name="hn_1" class="panel_hinge"/>
+          <geom name="hinge_n_1" class="detail" type="cylinder" size="0.015 0.06"
+                zaxis="1 0 0" rgba="0.80 0.66 0.30 1"/>
+          <geom name="panel_n_1" pos="0 -0.4 0" class="panel_cell"/>
+          <geom name="frame_n_1" pos="0 -0.4 -0.006" class="panel_frame"/>
+          <body name="wn_2" pos="0 -0.8 0">
+            <joint name="hn_2" class="panel_hinge"/>
+            <geom name="hinge_n_2" class="detail" type="cylinder" size="0.015 0.06"
+                  zaxis="1 0 0" rgba="0.80 0.66 0.30 1"/>
+            <geom name="panel_n_2" pos="0 -0.4 0" class="panel_cell"/>
+            <geom name="frame_n_2" pos="0 -0.4 -0.006" class="panel_frame"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <!-- kv near critical damping (zeta ~ 0.4-0.6 at the loaded arm inertia)
+         so slews track smoothly without ringing. -->
+    <position name="shoulder_a_pos" joint="shoulder_a" kp="80" kv="14"
+              ctrlrange="-3.14 3.14"/>
+    <position name="elbow_a_pos" joint="elbow_a" kp="60" kv="10"
+              ctrlrange="-3.14 3.14"/>
+    <position name="shoulder_b_pos" joint="shoulder_b" kp="80" kv="14"
+              ctrlrange="-3.14 3.14"/>
+    <position name="elbow_b_pos" joint="elbow_b" kp="60" kv="10"
+              ctrlrange="-3.14 3.14"/>
+  </actuator>
+
+  <mjorbit use_j2="false" use_drag="false" use_srp="false" use_magnetic="false"
+           use_gravity_gradient="true">
+  </mjorbit>
+</mujoco>

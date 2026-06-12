@@ -82,20 +82,31 @@ class MjoModel:
         thrusters: Iterable[ThrusterSpec] = (),
         mj_timestep: float | None = 0.01,
         orbit_dt: float | None = None,
-        use_j2: bool = True,
-        use_drag: bool = True,
-        use_srp: bool = True,
-        use_magnetic: bool = True,
-        use_gravity_gradient: bool = True,
+        use_j2: bool | None = None,
+        use_drag: bool | None = None,
+        use_srp: bool | None = None,
+        use_magnetic: bool | None = None,
+        use_gravity_gradient: bool | None = None,
     ) -> "MjoModel":
-        """Compile the host model and upload an MJWarp device model."""
+        """Compile the host model and upload an MJWarp device model.
+
+        The ``use_*`` flags and ``orbit_dt`` default to ``None``, meaning the
+        values parsed from the XML ``<mjorbit>`` element are kept (matching
+        the CPU backend); passing an explicit value overrides the XML.
+        """
         spec = MjoSpec.from_xml_path(xml_path)
-        spec.mjorbit.use_j2 = use_j2
-        spec.mjorbit.use_drag = use_drag
-        spec.mjorbit.use_srp = use_srp
-        spec.mjorbit.use_magnetic = use_magnetic
-        spec.mjorbit.use_gravity_gradient = use_gravity_gradient
-        spec.mjorbit.orbit_dt = orbit_dt
+        if use_j2 is not None:
+            spec.mjorbit.use_j2 = use_j2
+        if use_drag is not None:
+            spec.mjorbit.use_drag = use_drag
+        if use_srp is not None:
+            spec.mjorbit.use_srp = use_srp
+        if use_magnetic is not None:
+            spec.mjorbit.use_magnetic = use_magnetic
+        if use_gravity_gradient is not None:
+            spec.mjorbit.use_gravity_gradient = use_gravity_gradient
+        if orbit_dt is not None:
+            spec.mjorbit.orbit_dt = orbit_dt
         for surface in surfaces:
             spec.mjorbit.add_surface(surface)
         for magnetic_body in magnetic_bodies:
