@@ -21,7 +21,10 @@ The cost callback receives the raw rollout outputs:
 where ``states`` is ``(num_rollouts, num_timesteps, nstate)`` with the packed
 mjo state layout ``[time, qpos, qvel, act, R_eci, V_eci, t, ...]`` and
 ``sensors`` is ``(num_rollouts, num_timesteps, nsensordata)``. Lower cost is
-better.
+better. Note that MuJoCo evaluates sensors before integrating, so ``sensors``
+row ``k`` corresponds to the state at the *start* of step ``k`` (one step
+behind ``states`` row ``k``); at typical timesteps this is negligible, but
+costs mixing the two arrays should be aware of it.
 """
 
 from __future__ import annotations

@@ -23,7 +23,6 @@ Phases:
 
 Usage:
     pixi run python examples/mppi/capture_stabilize.py
-    pixi run python examples/mppi/capture_stabilize.py --quick
     # show that a short horizon cannot see the passive stabilization:
     pixi run python examples/mppi/capture_stabilize.py --horizon-b 300
 """
@@ -40,7 +39,7 @@ from planner import MppiConfig, MppiPlanner
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.rollout import mjo_get_state, mjo_set_state
+from mujoco_orbit.rollout import mjo_control_size, mjo_get_state, mjo_set_state
 
 CAPTURE_XML = Path(__file__).parent / "spacecraft_capture.xml"
 
@@ -50,14 +49,16 @@ CAPTURE_XML = Path(__file__).parent / "spacecraft_capture.xml"
 #  elbow vel 24, payload linvel 25:28, payload angvel 28:31,
 #  R_eci 31:34, V_eci 34:37, orbit t 37]
 BUS_POS = slice(1, 4)
-ARM_Q = slice(8, 10)
 PAYLOAD_POS = slice(10, 13)
 BUS_WZ = 22
 ARM_QVEL = slice(23, 25)
 R_ECI = slice(31, 34)
 
 # Sensor layout: ee_pos 0:3, ee_quat 3:7, ee_linvel 7:10, payload_pos 10:13,
-# payload_linvel 13:16
+# payload_linvel 13:16. Note MuJoCo evaluates sensors before integrating, so
+# sensordata (in rollouts and on the plant after mjo_step) lags the state by
+# one step — at dt=0.5 s and cm/s closing speeds that is millimetres, well
+# inside the latch tolerance and the weld's solref compliance.
 EE_POS = slice(0, 3)
 EE_QUAT = slice(3, 7)
 EE_LINVEL = slice(7, 10)
@@ -76,7 +77,7 @@ def quat_to_xaxis(q: np.ndarray) -> np.ndarray:
     )
 
 
-def compile_models(dt_override: float | None = None) -> tuple[MjoModel, MjoModel]:
+def compile_models() -> tuple[MjoModel, MjoModel]:
     """Compile the capture (weld off) and stack (weld on) variants of one XML."""
     import tempfile
 
@@ -88,7 +89,7 @@ def compile_models(dt_override: float | None = None) -> tuple[MjoModel, MjoModel
             f.write(text)
             path = Path(f.name)
         try:
-            models.append(MjoModel.from_xml_path(str(path), mj_timestep=dt_override))
+            models.append(MjoModel.from_xml_path(str(path)))
         finally:
             path.unlink(missing_ok=True)
     return models[0], models[1]
@@ -169,7 +170,6 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--quick", action="store_true", help="half-length phase B")
     parser.add_argument("--horizon-a", type=float, default=300.0, help="capture horizon (s)")
     parser.add_argument(
         "--horizon-b", type=float, default=2400.0,
@@ -183,8 +183,6 @@ def main() -> None:
     parser.add_argument("--duration-b", type=float, default=7000.0)
     parser.add_argument("--nthread", type=int, default=max(1, os.cpu_count() or 1))
     args = parser.parse_args()
-    if args.quick:
-        args.duration_b = 3500.0
 
     alt_km = 400.0
     r_orbit = R_EARTH + alt_km
@@ -194,7 +192,10 @@ def main() -> None:
     V0 = np.array([0.0, v_orbit, 0.0])  # equatorial: orbit plane = world XY
 
     model_cap, model_stk = compile_models()
+    if mjo_control_size(model_cap) != int(model_cap.nu):
+        raise RuntimeError("this demo expects a model without orbital actuators")
     dt = float(model_cap.opt.timestep)
+    # Small-angle in-plane value; the measured large-amplitude period is ~3400 s.
     libration_period = 2.0 * np.pi / (omega * np.sqrt(3.0))
 
     data = model_cap.make_data(orbit=OrbitInit(R_eci=R0, V_eci=V0))
@@ -227,7 +228,7 @@ def main() -> None:
     print("=" * 64)
     print(
         f"orbit: {alt_km:.0f} km equatorial, rate {omega:.3e} rad/s, "
-        f"libration period ~{libration_period:.0f} s"
+        f"libration period {libration_period:.0f} s small-angle (~3400 s at this amplitude)"
     )
     print(
         f"phase A horizon {args.horizon_a:g} s | phase B horizon {args.horizon_b:g} s "

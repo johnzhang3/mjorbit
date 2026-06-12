@@ -24,9 +24,9 @@ Sampling-based MPC on top of the `mujoco_orbit` CPU backend.
   planner only succeeds by predicting the passive dynamics. Horizon scaling
   measured across seeds: 300 s horizons fail outright (~50 deg residual
   libration), 600–1200 s are hit-or-miss, and the default 2400 s
-  (~0.75 libration periods) passes all tested seeds, typically settling to
-  within a few degrees of either gravity-gradient equilibrium. Runs at
-  ~300x realtime on 20 CPU threads.
+  (~0.7 libration periods) passes all tested seeds — final pitch within ~4 deg
+  of either gravity-gradient equilibrium, with 1–14 deg mean residual
+  libration over the last window. Runs at ~300x realtime on 20 CPU threads.
 
 Run:
 
@@ -35,7 +35,6 @@ pixi run example-mppi-arm-reach
 pixi run example-mppi-capture
 # or with knobs:
 pixi run python examples/mppi/arm_reach.py --num-rollouts 128 --horizon 2.0
-pixi run python examples/mppi/capture_stabilize.py --quick
 # show that a short horizon cannot see the passive stabilization:
 pixi run python examples/mppi/capture_stabilize.py --horizon-b 300
 ```
