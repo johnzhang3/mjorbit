@@ -2,21 +2,21 @@
 
 Sampling-based MPC on top of the `mujoco_orbit` CPU backend.
 
-- `planner.py` — generic spline-knot MPPI planner (judo-style: control knots
-  interpolated over the horizon, Gaussian sampling with an optional variance
-  ramp across the horizon, exponentially-weighted nominal update). Rollouts go
-  through `mujoco_orbit.rollout`, so the optimized control vector is
-  `[data.ctrl | rw_torque | mtq_dipole | thr_force | cmg_rate]` and works for
-  models with orbital actuators too.
+- `mujoco_orbit.planning` — generic spline-knot MPPI planner (judo-style:
+  control knots interpolated over the horizon, Gaussian sampling with an
+  optional variance ramp across the horizon, exponentially-weighted nominal
+  update). Rollouts go through `mujoco_orbit.rollout`, so the optimized
+  control vector is `[data.ctrl | rw_torque | mtq_dipole | thr_force |
+  cmg_rate]` and works for models with orbital actuators too.
 - `arm_reach.py` — simplest demo: a 2-link arm on a free-floating bus reaches
   for a target object co-moving on the chief orbit. Costs read end-effector
   and target world positions from `framepos` sensors in
-  `spacecraft_arm_reach.xml`.
+  `testdata/spacecraft_arm_reach.xml`.
 - `capture_stabilize.py` — long-horizon demo: a bus with a slow 6.5 m arm
   captures a 400 kg free-flyer drifting ~6 m away, then stabilizes the stack
   about the local vertical using only gravity-gradient torques and slow arm
   motion (the base has no attitude actuators). The grasp is a weld equality
-  activated at latch by recompiling `spacecraft_capture.xml` with
+  activated at latch by recompiling `testdata/spacecraft_capture.xml` with
   `active="true"` and transferring the packed mjo state across models. Each
   phase-B replan rolls out ~40 min of coupled orbital + multibody dynamics
   (J2 + per-body differential gravity + per-body gravity-gradient torque),
@@ -43,3 +43,7 @@ Tuning lives in `MppiConfig`: `horizon`, `num_rollouts`, `num_nodes`,
 `spline_order` (`zero`/`linear`/`cubic`), `sigma` (scalar or per-control),
 `temperature`, `use_noise_ramp`/`noise_ramp`, `seed`, and `nthread` for the
 threaded CPU rollout.
+
+Both demos are also available as interactive browser-viewer tasks:
+`pixi run viewer` then pick `arm_reach_mppi` or `capture_stabilize_mppi`
+from the task dropdown.

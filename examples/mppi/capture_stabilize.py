@@ -35,13 +35,14 @@ import time as wall_time
 from pathlib import Path
 
 import numpy as np
-from planner import MppiConfig, MppiPlanner
 
 from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
+from mujoco_orbit.planning import MppiConfig, MppiPlanner
 from mujoco_orbit.rollout import mjo_control_size, mjo_get_state, mjo_set_state
+from mujoco_orbit.testdata import SPACECRAFT_CAPTURE_XML
 
-CAPTURE_XML = Path(__file__).parent / "spacecraft_capture.xml"
+CAPTURE_XML = Path(SPACECRAFT_CAPTURE_XML)
 
 # Packed rollout state layout for this model (nstate = 1 + nq + nv + 7):
 # [time, bus pos 1:4, bus quat 4:8, shoulder 8, elbow 9, payload pos 10:13,

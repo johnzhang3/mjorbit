@@ -5,8 +5,8 @@ effector to a target object co-moving on the chief orbit. Arm motion torques
 the unactuated base, so the planner has to account for the coupled
 base-arm dynamics — a fixed-base IK pose would miss.
 
-The planner is the spline-knot MPPI in planner.py (judo-style sampling,
-variance ramp across the horizon), with rollouts evaluated by
+The planner is the spline-knot MPPI in mujoco_orbit.planning (judo-style
+sampling, variance ramp across the horizon), with rollouts evaluated by
 mujoco_orbit.rollout. The cost reads end-effector and target world positions
 from framepos sensors, so no Python-side kinematics is needed.
 
@@ -20,16 +20,14 @@ from __future__ import annotations
 import argparse
 import os
 import time as wall_time
-from pathlib import Path
 
 import numpy as np
-from planner import MppiConfig, MppiPlanner
 
 from mujoco_orbit import MjoModel, OrbitInit, mjo_forward, mjo_step
 from mujoco_orbit.constants import GM_EARTH, R_EARTH
+from mujoco_orbit.planning import MppiConfig, MppiPlanner
 from mujoco_orbit.rollout import mjo_control_size
-
-ARM_REACH_XML = Path(__file__).parent / "spacecraft_arm_reach.xml"
+from mujoco_orbit.testdata import SPACECRAFT_ARM_REACH_XML as ARM_REACH_XML
 
 
 def circular_orbit_eci(radius_km: float, inclination_rad: float) -> tuple[np.ndarray, np.ndarray]:
