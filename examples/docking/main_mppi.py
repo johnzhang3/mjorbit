@@ -1,6 +1,6 @@
 """MPPI docking demo: the Soyuz flies its port onto the ISS docking port.
 
-The fully-actuated Soyuz from ``examples/docking/iss.xml`` (3 body-frame
+The fully-actuated Soyuz from ``examples/docking/iss_explicit.xml`` (3 body-frame
 thrusters + 3 body-frame "reaction wheels") is steered from its initial standoff
 pose so that its docking port converges with the ISS docking port — both in
 position and in orientation — using the spline-knot MPPI planner in
@@ -79,7 +79,7 @@ from mjorbit.constants import GM_EARTH, R_EARTH
 from mjorbit.planning import MppiConfig, MppiPlanner
 from mjorbit.rollout import mjo_control_size
 
-# Actuator saturations, matching the ctrlrange in examples/docking/iss.xml.
+# Actuator saturations, matching the ctrlrange in examples/docking/iss_explicit.xml.
 THRUST_FORCE_MAX = 400.0  # body-frame translation thrusters, N
 WHEEL_TORQUE_MAX = 150.0  # body-frame reaction wheels, N*m
 
@@ -111,7 +111,7 @@ def _compile_xml_text(xml: str, *, near_dir: Path, mj_timestep: float) -> MjoMod
 
 
 def _with_mjorbit(xml: str) -> str:
-    """Inject a perturbation-free <mjorbit> overlay (iss.xml has no <mjorbit> block)."""
+    """Inject a perturbation-free <mjorbit> overlay (the docking XML has no <mjorbit> block)."""
     mjorbit = (
         '<mjorbit use_j2="false" use_drag="false" use_srp="false" '
         'use_magnetic="false">\n  </mjorbit>\n'
@@ -120,7 +120,7 @@ def _with_mjorbit(xml: str) -> str:
 
 
 def _compile_model(xml_path: str, *, mj_timestep: float) -> MjoModel:
-    """Compile iss.xml with the <mjorbit> overlay (environment perturbations off)."""
+    """Compile the docking XML with the <mjorbit> overlay (environment perturbations off)."""
     xml = _with_mjorbit(Path(xml_path).read_text())
     return _compile_xml_text(xml, near_dir=Path(xml_path).parent, mj_timestep=mj_timestep)
 
@@ -215,8 +215,9 @@ def main() -> None:
     ps.add_argument("--w-collision", type=float, default=1e5, help="structure-collision weight")
     ps.add_argument(
         "--collision-margin", type=float, default=+0.05,
-        help="allowed structure overlap (m); interpenetration deeper than this is "
-        "penalised. A small negative tolerance for grazing convex-hull contact.",
+        help="keep-out buffer (m): a Soyuz-ISS gap smaller than this counts as a "
+        "collision; pass a negative value to instead tolerate that much grazing "
+        "convex-hull overlap.",
     )
 
     # Capture/latch: once the ports are close, aligned, and slow, activate the

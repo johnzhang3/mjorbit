@@ -10,8 +10,8 @@
   </option>
 
   <asset>
-    <mesh name="iss_mesh" file="assets/ISS_lowpoly.obj"/>
-    <mesh name="soyuz_mesh" file="assets/Soyuz_lowpoly.obj"/>
+    <mesh name="iss_mesh" file="assets/ISS/ISS_lowpoly.obj"/>
+    <mesh name="soyuz_mesh" file="assets/Soyuz/Soyuz_lowpoly.obj"/>
   </asset>
 
   <worldbody>
@@ -21,7 +21,7 @@
       <inertial pos="0 0 0" mass="420000" diaginertia="1.4e8 1.0e8 2.0e8"/>
       <geom name="iss_geom" type="mesh" mesh="iss_mesh" rgba="0.85 0.85 0.85 1"/>
 
-      <!-- Docking port (ISS body frame): (-35.278, -4.1379, 0) m -->
+      <!-- Docking port (ISS body frame): (-35.278, 0.0, -4.1379) m -->
       <!-- Lowpoly: (-44.931, 0, 0)m-->
       <body name="iss_dock_port" pos="-44.931 0.0 0.0">
         <geom name="iss_dock_geom" type="sphere" size="0.25" rgba="1 0 0 1"
@@ -31,7 +31,7 @@
     </body>
 
     <!-- ===================== Soyuz (chaser) ===================== -->
-    <!-- Placed so its docking port sits ~5 m from the ISS port along the
+    <!-- Placed so its docking port sits ~4.5 m from the ISS port along the
          approach (-x) axis, +x face pointing toward the ISS. -->
          
     <body name="soyuz" pos="0.0 50.033833 -4.37365" quat="0.7071 0 0 -0.7071">

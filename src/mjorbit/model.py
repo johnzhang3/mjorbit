@@ -39,15 +39,12 @@ class MjoModel:
                 "MjoModel.from_xml_path is XML-first; move orbit config into "
                 f"<mjorbit> instead of passing keyword(s): {names}"
             )
-        from pathlib import Path
-
         from mjorbit.spec import MjoSpec
 
-        model = MjoSpec.from_xml_path(xml_path).compile(mj_timestep=mj_timestep)
-        # Record the source directory so viewers can resolve mesh asset files
-        # (e.g. <mesh file="ISS.obj">) that are referenced relatively in the XML.
-        model._asset_dir = str(Path(xml_path).resolve().parent)
-        return model
+        # MjoSpec.from_xml_path records the source dir; compile() carries it onto
+        # the model as _asset_dir so viewers can resolve relatively-referenced
+        # mesh/attach/include files.
+        return MjoSpec.from_xml_path(xml_path).compile(mj_timestep=mj_timestep)
 
     def __getattr__(self, name: str) -> Any:
         if name in {"mj_model", "mj_data"}:

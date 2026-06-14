@@ -34,7 +34,7 @@
       <!-- Colored ISS shell (massless display geometry, see note above). -->
       <attach model="iss_model" body="ISS_lowpoly" prefix="iss_"/>
 
-      <!-- Docking port (ISS body frame): (-35.278, -4.1379, 0) m -->
+      <!-- Docking port (ISS body frame): (-35.278, 0.0, -4.1379) m -->
       <!-- Lowpoly: (-44.931, 0, 0)m-->
       <body name="iss_dock_port" pos="-45.931 0.0 0.0"> <!-- added 1 m offset -->
         <geom name="iss_dock_geom" type="sphere" size="0.25" rgba="1 0 0 1"
@@ -44,7 +44,7 @@
     </body>
 
     <!-- ===================== Soyuz (chaser) ===================== -->
-    <!-- Placed so its docking port sits ~5 m from the ISS port along the
+    <!-- Placed so its docking port sits ~2.4 m from the ISS port along the
          approach (-x) axis, +x face pointing toward the ISS. -->
 
     <body name="soyuz" pos="0.0 53.033833 -1.37365" quat="0.7071 0 0 -0.7071">
