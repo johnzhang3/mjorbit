@@ -2,24 +2,24 @@
 
 #include <mujoco/mujoco.h>
 
-#include "mujoco_orbit/orbit_cache.h"
-#include "mujoco_orbit/orbit_schedule.h"
+#include "mjorbit/orbit_cache.h"
+#include "mjorbit/orbit_schedule.h"
 #include "orbit_instance.h"
 
 namespace {
 
-mujoco_orbit::OrbitInstance* GetInstance(const mjModel* m, mjData* d, int instance) {
+mjorbit::OrbitInstance* GetInstance(const mjModel* m, mjData* d, int instance) {
   if (!m || !d || instance < 0 || instance >= m->nplugin) {
     return nullptr;
   }
-  return reinterpret_cast<mujoco_orbit::OrbitInstance*>(d->plugin_data[instance]);
+  return reinterpret_cast<mjorbit::OrbitInstance*>(d->plugin_data[instance]);
 }
 
-int MjoStateTailSize(const mujoco_orbit::OrbitInstance* inst) {
+int MjoStateTailSize(const mjorbit::OrbitInstance* inst) {
   return 7 + inst->num_reaction_wheels + 2 * inst->num_cmgs;
 }
 
-int MjoControlTailSize(const mujoco_orbit::OrbitInstance* inst) {
+int MjoControlTailSize(const mjorbit::OrbitInstance* inst) {
   return inst->num_reaction_wheels + inst->num_magnetorquers + inst->num_thrusters +
          inst->num_cmgs;
 }
@@ -36,7 +36,7 @@ void CopyDoubleToMjt3(const double* src, mjtNum* dst) {
   dst[2] = static_cast<mjtNum>(src[2]);
 }
 
-void UpdateReactionWheelMomentum(mujoco_orbit::OrbitInstance* inst) {
+void UpdateReactionWheelMomentum(mjorbit::OrbitInstance* inst) {
   if (!inst->rw_speed || !inst->rw_momentum || !inst->reaction_wheels) {
     return;
   }
@@ -48,7 +48,7 @@ void UpdateReactionWheelMomentum(mujoco_orbit::OrbitInstance* inst) {
 void SetMjoState(
     const mjModel* m,
     mjData* d,
-    mujoco_orbit::OrbitInstance* inst,
+    mjorbit::OrbitInstance* inst,
     const mjtNum* state,
     int full_state_size) {
   mj_setState(m, d, state, mjSTATE_FULLPHYSICS);
@@ -86,16 +86,16 @@ void SetMjoState(
   UpdateReactionWheelMomentum(inst);
   if (inst->orbit_dt > 0.0 && inst->orbit_dt > m->opt.timestep + 1.0e-12) {
     inst->orbit_schedule_initialized = 0;
-    mujoco_orbit::initialize_orbit_schedule(m, inst);
+    mjorbit::initialize_orbit_schedule(m, inst);
   } else {
-    mujoco_orbit::refresh_orbit_caches(inst);
+    mjorbit::refresh_orbit_caches(inst);
   }
 }
 
 void GetMjoState(
     const mjModel* m,
     mjData* d,
-    const mujoco_orbit::OrbitInstance* inst,
+    const mjorbit::OrbitInstance* inst,
     mjtNum* state,
     int full_state_size) {
   mj_getState(m, d, state, mjSTATE_FULLPHYSICS);
@@ -120,7 +120,7 @@ void GetMjoState(
   }
 }
 
-void ZeroMjoControls(mujoco_orbit::OrbitInstance* inst) {
+void ZeroMjoControls(mjorbit::OrbitInstance* inst) {
   if (inst->rw_torque_cmd) {
     std::fill(inst->rw_torque_cmd, inst->rw_torque_cmd + inst->num_reaction_wheels, 0.0);
   }
@@ -135,7 +135,7 @@ void ZeroMjoControls(mujoco_orbit::OrbitInstance* inst) {
   }
 }
 
-void SetMjoControls(mujoco_orbit::OrbitInstance* inst, const mjtNum* control_tail) {
+void SetMjoControls(mjorbit::OrbitInstance* inst, const mjtNum* control_tail) {
   if (!control_tail) {
     ZeroMjoControls(inst);
     return;
@@ -215,7 +215,7 @@ void ResetAllUserInputs(const mjModel* m, mjData* d) {
 void ClearWrenchSnapshot(
     const mjModel* m,
     mjData* d,
-    mujoco_orbit::OrbitInstance* inst,
+    mjorbit::OrbitInstance* inst,
     bool clear_xfrc_applied) {
   if (inst->wrench_buffer) {
     const int nbody = std::min(static_cast<int>(m->nbody), inst->wrench_body_count);
@@ -226,7 +226,7 @@ void ClearWrenchSnapshot(
   }
 }
 
-void CopyWrenchSnapshot(const mjModel* m, mjData* d, const mujoco_orbit::OrbitInstance* inst) {
+void CopyWrenchSnapshot(const mjModel* m, mjData* d, const mjorbit::OrbitInstance* inst) {
   if (!inst->wrench_buffer) {
     return;
   }

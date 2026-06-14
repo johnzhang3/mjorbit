@@ -1,2 +1,2 @@
-"""Basilisk-MuJoCo comparison harness for mujoco_orbit."""
+"""Basilisk-MuJoCo comparison harness for mjorbit."""
 

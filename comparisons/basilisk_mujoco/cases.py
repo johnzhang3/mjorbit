@@ -1,4 +1,4 @@
-"""Runnable comparison cases for mujoco_orbit and Basilisk-MuJoCo style setups."""
+"""Runnable comparison cases for mjorbit and Basilisk-MuJoCo style setups."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from mujoco_orbit import MjoData, OrbitInit, mjo_forward, mjo_step
+from mjorbit import MjoData, OrbitInit, mjo_forward, mjo_step
 
 from .common import (
     ASSET_DIR,
@@ -88,7 +88,7 @@ class TwoArmFreeDriftRun:
     basilisk_system_com_eci_km: np.ndarray | None = None
 
 
-def run_single_body_mujoco_orbit(
+def run_single_body_mjorbit(
     *,
     alt_km: float = 400.0,
     inc_deg: float = 51.6,
@@ -102,7 +102,7 @@ def run_single_body_mujoco_orbit(
     initial_omega_body_rad_s: np.ndarray | None = None,
     xml_path: Path = SINGLE_BODY_XML,
 ) -> SingleBodyRun:
-    """Run a one-period single-body orbit in mujoco_orbit and compare to exact circular motion."""
+    """Run a one-period single-body orbit in mjorbit and compare to exact circular motion."""
     orbit = make_circular_orbit(alt_km=alt_km, inc_rad=np.deg2rad(inc_deg))
     if dt_s is None:
         dt = orbit.period_s / float(n_steps)
@@ -201,7 +201,7 @@ def run_single_body_mujoco_orbit(
 
     summary = {
         "case": "single_body_orbit",
-        "backend": "mujoco_orbit",
+        "backend": "mjorbit",
         "alt_km": alt_km,
         "inc_deg": inc_deg,
         "period_s": orbit.period_s,
@@ -234,7 +234,7 @@ def run_single_body_mujoco_orbit(
     )
 
 
-def run_articulated_hinges_mujoco_orbit(
+def run_articulated_hinges_mjorbit(
     *,
     alt_km: float = 400.0,
     inc_deg: float = 51.6,
@@ -349,7 +349,7 @@ def run_articulated_hinges_mujoco_orbit(
 
     summary = {
         "case": "articulated_hinges",
-        "backend": "mujoco_orbit",
+        "backend": "mjorbit",
         "alt_km": alt_km,
         "inc_deg": inc_deg,
         "duration_s": duration_s,
@@ -396,7 +396,7 @@ def run_articulated_hinges_mujoco_orbit(
     )
 
 
-def run_two_arm_free_drift_mujoco_orbit(
+def run_two_arm_free_drift_mjorbit(
     *,
     alt_km: float = 400.0,
     inc_deg: float = 51.6,
@@ -599,7 +599,7 @@ def run_two_arm_free_drift_mujoco_orbit(
 
     summary = {
         "case": "two_arm_free_drift",
-        "backend": "mujoco_orbit",
+        "backend": "mjorbit",
         "alt_km": alt_km,
         "inc_deg": inc_deg,
         "period_s": orbit.period_s,

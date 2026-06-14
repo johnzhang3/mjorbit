@@ -1,7 +1,7 @@
-# mujoco_orbit
+# mjorbit
 
 MuJoCo-style simulator for coupled orbital dynamics and MuJoCo multibody dynamics.
-`mujoco_orbit` is the stable CPU reference backend, and `mujoco_orbit_warp` is the
+`mjorbit` is the stable CPU reference backend, and `mjorbit_warp` is the
 GPU-targeting MJWarp backend.
 
 ## Public API
@@ -11,7 +11,7 @@ explicit by import path, and `model.make_data(...)` is the preferred way to cons
 state.
 
 ```python
-from mujoco_orbit import MjoModel, OrbitInit, mjo_forward, mjo_step
+from mjorbit import MjoModel, OrbitInit, mjo_forward, mjo_step
 
 model = MjoModel.from_xml_path("model.xml")
 data = model.make_data(
@@ -26,7 +26,7 @@ The warp backend uses the same API names, plus `nworld` on `make_data(...)` for 
 simulation:
 
 ```python
-from mujoco_orbit_warp import MjoModel, OrbitInit, mjo_step
+from mjorbit_warp import MjoModel, OrbitInit, mjo_step
 
 model = MjoModel.from_xml_path("model.xml")
 data = model.make_data(
@@ -50,22 +50,22 @@ not as absolute ECI state and not as LVLH state.
 
 ## Project Layout
 
-- `src/mujoco_orbit/` — CPU reference backend
-- `src/mujoco_orbit/config.py` — public specs
-- `src/mujoco_orbit/model.py`, `data.py`, `step.py`, `rollout.py` — public runtime API
-- `src/mujoco_orbit/planning/` — spline-knot MPPI planner on the batched rollout
+- `src/mjorbit/` — CPU reference backend
+- `src/mjorbit/config.py` — public specs
+- `src/mjorbit/model.py`, `data.py`, `step.py`, `rollout.py` — public runtime API
+- `src/mjorbit/planning/` — spline-knot MPPI planner on the batched rollout
 - `src/cpp/` — native MuJoCo plugin and C++ orbit implementation
-- `tests/mujoco_orbit/reference/orbit/` — Python reference/analysis orbit helpers
-- `tests/mujoco_orbit/reference/coupling/` — Python reference/analysis coupling helpers
-- `tests/mujoco_orbit/reference/sensors.py` — Python reference sensor helpers
-- `src/mujoco_orbit/testdata/` — bundled XML assets
-- `src/mujoco_orbit_warp/` — optional MJWarp backend, host/device sync, and batched runtime API
+- `tests/mjorbit/reference/orbit/` — Python reference/analysis orbit helpers
+- `tests/mjorbit/reference/coupling/` — Python reference/analysis coupling helpers
+- `tests/mjorbit/reference/sensors.py` — Python reference sensor helpers
+- `src/mjorbit/testdata/` — bundled XML assets
+- `src/mjorbit_warp/` — optional MJWarp backend, host/device sync, and batched runtime API
 - `src/viewer/` — browser viewer integration (`mjo-viewer` task app, framing, textured Earth)
 - `src/viewer/tasks/` — viewer task registry and built-in tasks
 - `examples/` — lightweight demos of the public API
 - `ISS/` — separate homework/report analysis workspace and artifacts
-- `tests/mujoco_orbit/` — unit and integration tests
-- `tests/mujoco_orbit_warp/` — guarded MJWarp tests
+- `tests/mjorbit/` — unit and integration tests
+- `tests/mjorbit_warp/` — guarded MJWarp tests
 
 ## Development
 
@@ -135,8 +135,8 @@ energy/momentum non-conservation.
 
 - The public interface is `MjoModel` / `MjoData`; do not rebuild the old scenario wrapper.
 - Choose the backend explicitly by import path:
-  - CPU: `mujoco_orbit`
-  - MJWarp: `mujoco_orbit_warp`
+  - CPU: `mjorbit`
+  - MJWarp: `mjorbit_warp`
 - Static metadata belongs on `MjoModel`; per-run state belongs on `MjoData`.
 - Prefer `model.make_data(...)` for runtime construction. Warp users specify batched parallel
   simulation count with `nworld`.
@@ -146,7 +146,7 @@ energy/momentum non-conservation.
   and orbital actuators come from `data.actuators.*_cmd`.
 - `data.sensordata` is the canonical forward/step-updated sensor buffer. Stochastic sampling
   lives behind `data.sensors`.
-- Keep warp-specific implementation under `src/mujoco_orbit_warp/`. Preserve MuJoCo frame
+- Keep warp-specific implementation under `src/mjorbit_warp/`. Preserve MuJoCo frame
   conventions exactly across both backends. The warp device core is float32, including the
   orbit clock (`orbit_t`): per-step rounding grows past ~1 h of sim time, so time-keyed
   environment models (sun vector, eclipse, magnetic field) lose timing accuracy on very long
@@ -155,4 +155,4 @@ energy/momentum non-conservation.
   artifacts in `ISS/`. The `src/viewer/` module itself stays backend-agnostic (no warp
   imports); warp-driven visualization lives in examples (e.g.
   `examples/banner_viewer_gpu.py` feeds the instanced fleet renderer from
-  `mujoco_orbit_warp`). The `ISS/` workspace remains CPU-only.
+  `mjorbit_warp`). The `ISS/` workspace remains CPU-only.

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from .cases import run_single_body_mujoco_orbit
+from .cases import run_single_body_mjorbit
 from .common import ensure_out_dir, write_json
 
 
@@ -28,7 +28,7 @@ def main() -> None:
     print("Basilisk-MuJoCo comparison: single-body integrator sweep")
     print("=" * 72)
     for integrator in args.integrators:
-        result = run_single_body_mujoco_orbit(
+        result = run_single_body_mjorbit(
             alt_km=args.alt_km,
             inc_deg=args.inc_deg,
             n_steps=args.n_steps,
@@ -41,7 +41,7 @@ def main() -> None:
         print()
         print(f"Basilisk integrator: {integrator}")
         print(
-            "mujoco_orbit final position error: "
+            "mjorbit final position error: "
             f"{result.summary['final_position_error_m']:.6e} m"
         )
         if isinstance(basilisk, dict):

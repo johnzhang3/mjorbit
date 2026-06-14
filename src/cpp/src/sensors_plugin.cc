@@ -1,4 +1,4 @@
-#include "mujoco_orbit/sensors_plugin.h"
+#include "mjorbit/sensors_plugin.h"
 
 #include <atomic>
 #include <cmath>
@@ -10,13 +10,13 @@
 #include <mujoco/mjplugin.h>
 #include <mujoco/mujoco.h>
 
-#include "mujoco_orbit/orbit_cache.h"
+#include "mjorbit/orbit_cache.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 
 namespace {
 
-constexpr char kPluginName[] = "mujoco_orbit.orbit";
+constexpr char kPluginName[] = "mjorbit.orbit";
 constexpr int kPosStage = static_cast<int>(mjSTAGE_POS);
 
 void normalize3(const double in[3], double out[3]) {
@@ -53,11 +53,15 @@ int locate_orbit_plugin_instance(const mjModel* m) {
 
 std::mutex g_install_mutex;
 std::atomic<bool> g_installed{false};
-mjfSensor g_previous_callback = nullptr;
+// Read in the hot callback path on every stepping thread and written once under
+// g_install_mutex; must be atomic so a concurrent install cannot be observed as
+// a torn function pointer.
+std::atomic<mjfSensor> g_previous_callback{nullptr};
 
 void orbit_sensor_callback(const mjModel* m, mjData* d, int stage) {
-  if (g_previous_callback) {
-    g_previous_callback(m, d, stage);
+  const mjfSensor previous = g_previous_callback.load(std::memory_order_acquire);
+  if (previous) {
+    previous(m, d, stage);
   }
   const int instance = locate_orbit_plugin_instance(m);
   if (instance < 0) {
@@ -149,10 +153,10 @@ void ensure_sensor_callback_installed() {
   if (g_installed.load(std::memory_order_relaxed)) return;
 
   if (mjcb_sensor != orbit_sensor_callback) {
-    g_previous_callback = mjcb_sensor;
+    g_previous_callback.store(mjcb_sensor, std::memory_order_relaxed);
     mjcb_sensor = orbit_sensor_callback;
   }
   g_installed.store(true, std::memory_order_release);
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

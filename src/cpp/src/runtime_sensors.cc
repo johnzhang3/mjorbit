@@ -1,4 +1,4 @@
-#include "mujoco_orbit/runtime.h"
+#include "mjorbit/runtime.h"
 
 #include <algorithm>
 #include <cmath>
@@ -8,9 +8,9 @@
 #include <string>
 #include <vector>
 
-#include "mujoco_orbit/math_utils.h"
+#include "mjorbit/math_utils.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 namespace {
 
 void normalized3(const double in[3], double out[3], const std::string& label) {
@@ -211,4 +211,4 @@ std::vector<double> MjoData::measure_sensor(const std::string& name, bool noisy)
   return measurement;
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

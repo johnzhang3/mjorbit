@@ -6,7 +6,7 @@
 viser's batched-mesh API: one instanced draw call per geom, with per-instance
 transforms supplied each frame. This keeps the scene-node count at
 O(ngeom) instead of O(nworld * ngeom), which is what makes thousands of
-simultaneously simulated robots (e.g. a ``mujoco_orbit_warp`` ``nworld``
+simultaneously simulated robots (e.g. a ``mjorbit_warp`` ``nworld``
 batch) renderable in a browser.
 
 The class is backend-agnostic: it takes a CPU-side model for the static geom
@@ -74,7 +74,7 @@ class BatchedMuJoCoScene:
     mjm:
         CPU-side model exposing ``ngeom``, ``geom_bodyid``, ``geom_type``,
         ``geom_size``, ``geom_rgba``, ``geom_pos``, ``geom_quat``
-        (``mujoco_orbit.MjoModel`` works).
+        (``mjorbit.MjoModel`` works).
     nworld:
         Number of instances.
     scale:

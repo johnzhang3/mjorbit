@@ -36,11 +36,11 @@ from pathlib import Path
 
 import numpy as np
 
-from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
-from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.planning import MppiConfig, MppiPlanner
-from mujoco_orbit.rollout import mjo_control_size, mjo_get_state, mjo_set_state
-from mujoco_orbit.testdata import SPACECRAFT_CAPTURE_XML
+from mjorbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
+from mjorbit.constants import GM_EARTH, R_EARTH
+from mjorbit.planning import MppiConfig, MppiPlanner
+from mjorbit.rollout import mjo_control_size, mjo_get_state, mjo_set_state
+from mjorbit.testdata import SPACECRAFT_CAPTURE_XML
 
 CAPTURE_XML = Path(SPACECRAFT_CAPTURE_XML)
 

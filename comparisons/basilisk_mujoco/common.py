@@ -12,8 +12,8 @@ from typing import Any
 
 import numpy as np
 
-from mujoco_orbit import MjoModel
-from mujoco_orbit.constants import GM_EARTH, R_EARTH
+from mjorbit import MjoModel
+from mjorbit.constants import GM_EARTH, R_EARTH
 
 HARNESS_DIR = Path(__file__).resolve().parent
 ASSET_DIR = HARNESS_DIR / "assets"

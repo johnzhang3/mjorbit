@@ -130,7 +130,7 @@
     ]
   },
   "cpu_orbit": {
-    "backend": "mujoco_orbit.rollout (orbit CPU)",
+    "backend": "mjorbit.rollout (orbit CPU)",
     "nstep": 2000,
     "runs": [
       {

@@ -1,0 +1,78 @@
+#ifndef MJORBIT_PROPAGATOR_H_
+#define MJORBIT_PROPAGATOR_H_
+
+#include "mjorbit/orbit_state.h"
+#include "mjorbit/spec.h"
+
+namespace mjorbit {
+
+void propagate_rk4(
+    const double R_eci[3],
+    const double V_eci[3],
+    double t,
+    double dt,
+    double out_R_eci[3],
+    double out_V_eci[3],
+    double* out_t,
+    bool use_j2 = true,
+    const double* a_external = nullptr);
+
+void propagate_rk4(
+    const double R_eci[3],
+    const double V_eci[3],
+    double t,
+    double dt,
+    double out_R_eci[3],
+    double out_V_eci[3],
+    double* out_t,
+    bool use_j2,
+    const double* a_external,
+    const CentralBodySpecNative& central_body);
+
+inline void propagate_rk4(
+    const OrbitState& state,
+    double dt,
+    OrbitState* out_state,
+    bool use_j2 = true,
+    const double* a_external = nullptr) {
+  if (!out_state) {
+    return;
+  }
+  propagate_rk4(
+      state.R_eci,
+      state.V_eci,
+      state.t,
+      dt,
+      out_state->R_eci,
+      out_state->V_eci,
+      &out_state->t,
+      use_j2,
+      a_external);
+}
+
+inline void propagate_rk4(
+    const OrbitState& state,
+    double dt,
+    OrbitState* out_state,
+    bool use_j2,
+    const double* a_external,
+    const CentralBodySpecNative& central_body) {
+  if (!out_state) {
+    return;
+  }
+  propagate_rk4(
+      state.R_eci,
+      state.V_eci,
+      state.t,
+      dt,
+      out_state->R_eci,
+      out_state->V_eci,
+      &out_state->t,
+      use_j2,
+      a_external,
+      central_body);
+}
+
+}  // namespace mjorbit
+
+#endif  // MJORBIT_PROPAGATOR_H_

@@ -1,6 +1,6 @@
 # pyright: reportAttributeAccessIssue=false, reportMissingImports=false
 
-"""mjo-viewer — judo-style interactive task viewer for mujoco_orbit.
+"""mjo-viewer — judo-style interactive task viewer for mjorbit.
 
 Launch with ``mjo-viewer`` (or ``python -m viewer``) and open the printed
 URL. A dropdown switches between registered tasks; each task's numeric
@@ -25,7 +25,7 @@ from typing import Literal, Optional, Sequence
 import numpy as np
 import viser
 
-from mujoco_orbit.step import mjo_step
+from mjorbit.step import mjo_step
 
 from .bodies import MuJoCoScene
 from .earth import EarthVisual, add_star_field
@@ -228,7 +228,7 @@ class MjOrbitApp:
     # ------------------------------------------------------------------
 
     def _setup_gui(self) -> None:
-        self.server.gui.add_markdown("### mujoco_orbit tasks")
+        self.server.gui.add_markdown("### mjorbit tasks")
         self._task_dropdown = self.server.gui.add_dropdown(
             "Task", options=available_tasks(), initial_value=self._task_name
         )
@@ -442,11 +442,19 @@ class MjOrbitApp:
                 time.sleep(1.0 / 60.0)
         except KeyboardInterrupt:
             print("\nViewer stopped.")
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        """Stop the viser server, releasing its background threads and the port."""
+        stop = getattr(self.server, "stop", None)
+        if callable(stop):
+            stop()
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        prog="mjo-viewer", description="Interactive task viewer for mujoco_orbit."
+        prog="mjo-viewer", description="Interactive task viewer for mjorbit."
     )
     parser.add_argument("--task", default=None, help="initial task name")
     parser.add_argument("--list-tasks", action="store_true", help="list tasks and exit")

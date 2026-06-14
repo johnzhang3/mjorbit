@@ -1,9 +1,9 @@
-#include "mujoco_orbit/propagator.h"
+#include "mjorbit/propagator.h"
 
-#include "mujoco_orbit/gravity.h"
-#include "mujoco_orbit/math_utils.h"
+#include "mjorbit/gravity.h"
+#include "mjorbit/math_utils.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 namespace {
 
 void derivatives(
@@ -92,4 +92,4 @@ void propagate_rk4(
   }
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

@@ -2,7 +2,7 @@
     <!-- Stripped MuJoCo humanoid for the rollout benchmark.
          Floor and ground contact removed so the model can be used as both:
            - the pure-MuJoCo baseline (free body, no contacts), and
-           - the multibody half of the mujoco_orbit humanoid_orbit.xml model. -->
+           - the multibody half of the mjorbit humanoid_orbit.xml model. -->
     <compiler angle="degree" inertiafromgeom="true"/>
     <default>
         <joint armature="1" damping="1" limited="true"/>

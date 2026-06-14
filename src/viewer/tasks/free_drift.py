@@ -8,9 +8,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward
-from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.testdata import SPACECRAFT_DUAL_ARM_PANELS_XML
+from mjorbit import MjoData, MjoModel, OrbitInit, mjo_forward
+from mjorbit.constants import R_EARTH
+from mjorbit.testdata import SPACECRAFT_DUAL_ARM_PANELS_XML
 
 from .base import ViewerTask, circular_orbit_eci, ui_field
 from .registry import register_task

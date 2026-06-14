@@ -1,13 +1,13 @@
-#include "mujoco_orbit/runtime.h"
+#include "mjorbit/runtime.h"
 
 #include <algorithm>
 #include <cstddef>
 #include <stdexcept>
 
-#include "mujoco_orbit/math_utils.h"
-#include "mujoco_orbit/orbit_schedule.h"
+#include "mjorbit/math_utils.h"
+#include "mjorbit/orbit_schedule.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 
 MjoData::MjoData(
     MjoModel& model,
@@ -23,7 +23,7 @@ MjoData::MjoData(
   orbit_instance_ = reinterpret_cast<OrbitInstance*>(
       data_->plugin_data[model_->orbit_plugin_instance()]);
   if (!orbit_instance_) {
-    throw std::runtime_error("mujoco_orbit plugin instance is not initialized");
+    throw std::runtime_error("mjorbit plugin instance is not initialized");
   }
 
   rw_speed_.assign(model_->reaction_wheels().size(), 0.0);
@@ -203,4 +203,4 @@ std::array<double, 3> MjoData::lvlh_velocity_from_world(
   return {1000.0 * lvlh_km_s[0], 1000.0 * lvlh_km_s[1], 1000.0 * lvlh_km_s[2]};
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

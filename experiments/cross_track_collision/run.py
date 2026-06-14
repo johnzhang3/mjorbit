@@ -1,4 +1,4 @@
-"""Offset cross-track collision experiment using the mujoco_orbit simulator API.
+"""Offset cross-track collision experiment using the mjorbit simulator API.
 
 Two equal boxes start with a cross-track closing velocity and a small lateral
 offset.  The lateral offset is still inside the box contact footprint, so the
@@ -27,10 +27,10 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from mujoco_orbit import MjoData, MjoModel, MjoSpec, OrbitInit, mjo_forward, mjo_step
-from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.testdata import TWO_BODIES_XML
-from tests.mujoco_orbit.reference.orbit.elements import keplerian_to_cartesian
+from mjorbit import MjoData, MjoModel, MjoSpec, OrbitInit, mjo_forward, mjo_step
+from mjorbit.constants import GM_EARTH, R_EARTH
+from mjorbit.testdata import TWO_BODIES_XML
+from tests.mjorbit.reference.orbit.elements import keplerian_to_cartesian
 
 EXPERIMENT_DIR = Path(__file__).resolve().parent
 FIGURE_DIR = EXPERIMENT_DIR / "figures"
@@ -243,7 +243,7 @@ def save_cross_track_plot(
 ) -> Path:
     """Save relative cross-track position vs time."""
     fig, ax = plt.subplots(figsize=(8.0, 4.8), constrained_layout=True)
-    ax.plot(trajectory.time, trajectory.rel_pos[:, 2], label="mujoco_orbit")
+    ax.plot(trajectory.time, trajectory.rel_pos[:, 2], label="mjorbit")
     ax.plot(trajectory.time, zero_g[:, 2], "--", label="zero-g reference")
     ax.plot(trajectory.time, cw[:, 2], ":", linewidth=2.2, label="CW reference")
     ax.axhline(CONTACT_FOOTPRINT_M, color="0.55", linestyle="-.", linewidth=1.0)
@@ -272,7 +272,7 @@ def save_phase_plot(trajectory: Trajectory, post_idx: int) -> Path:
     ax.plot(
         trajectory.rel_pos[post_idx:, 2],
         trajectory.rel_vel[post_idx:, 2] / trajectory.mean_motion,
-        label="mujoco_orbit",
+        label="mjorbit",
     )
     ax.plot(
         phase_radius * np.cos(theta),
@@ -322,7 +322,7 @@ def save_relative_trajectory_plot(trajectory: Trajectory, post_idx: int, cw: np.
         trajectory.rel_pos[post_idx:, 0],
         trajectory.rel_pos[post_idx:, 1],
         trajectory.rel_pos[post_idx:, 2],
-        label="mujoco_orbit",
+        label="mjorbit",
     )
     ax.plot(cw[post_idx:, 0], cw[post_idx:, 1], cw[post_idx:, 2], "--", label="CW reference")
     ax.scatter(

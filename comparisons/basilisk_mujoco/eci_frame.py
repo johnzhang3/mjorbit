@@ -16,7 +16,7 @@ from .cases import (
     TWO_ARM_FREE_DRIFT_XML,
     _normalized_quat,
     _quat_angle_errors,
-    run_two_arm_free_drift_mujoco_orbit,
+    run_two_arm_free_drift_mjorbit,
 )
 from .common import make_circular_orbit, sample_steps
 
@@ -59,7 +59,7 @@ def run_two_arm_eci_frame_check(
     gravity_application: str = "callback",
     xml_path: Path = TWO_ARM_FREE_DRIFT_XML,
 ) -> TwoArmEciFrameCheck:
-    """Compare chief-centered ``mujoco_orbit`` against raw absolute-ECI MuJoCo."""
+    """Compare chief-centered ``mjorbit`` against raw absolute-ECI MuJoCo."""
     orbit = make_circular_orbit(alt_km=alt_km, inc_rad=np.deg2rad(inc_deg))
     if duration_s is None:
         duration_s = orbit.period_s
@@ -77,7 +77,7 @@ def run_two_arm_eci_frame_check(
     hinge_angles0 = np.asarray(initial_hinge_angles_rad, dtype=np.float64).reshape(2)
     hinge_rates0 = np.asarray(initial_hinge_rates_rad_s, dtype=np.float64).reshape(2)
 
-    local = run_two_arm_free_drift_mujoco_orbit(
+    local = run_two_arm_free_drift_mjorbit(
         alt_km=alt_km,
         inc_deg=inc_deg,
         duration_s=duration,

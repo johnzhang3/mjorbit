@@ -1,4 +1,4 @@
-"""Compare two-arm free drift in raw absolute-ECI MuJoCo versus mujoco_orbit."""
+"""Compare two-arm free drift in raw absolute-ECI MuJoCo versus mjorbit."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def main() -> None:
         "--mj-integrator",
         choices=("Euler", "RK4", "implicit", "implicitfast"),
         default="RK4",
-        help="MuJoCo integrator for both raw ECI and mujoco_orbit legs.",
+        help="MuJoCo integrator for both raw ECI and mjorbit legs.",
     )
     parser.add_argument(
         "--gravity-application",
@@ -78,7 +78,7 @@ def main() -> None:
 
 def _print_summary(summary: dict[str, object]) -> None:
     print("=" * 72)
-    print("Two-arm ECI-frame check: raw MuJoCo vs mujoco_orbit")
+    print("Two-arm ECI-frame check: raw MuJoCo vs mjorbit")
     print("=" * 72)
     print(f"Duration: {summary['duration_s']:.6f} s")
     print(f"dt: {summary['dt_s']:.6g} s, integrator={summary['mj_integrator']}")
@@ -96,7 +96,7 @@ def _print_summary(summary: dict[str, object]) -> None:
     )
     print(f"Max system COM error: {summary['max_system_com_position_error_m']:.6e} m")
     print()
-    print(f"mujoco_orbit final hinges: {summary['local_final_hinges_rad']}")
+    print(f"mjorbit final hinges: {summary['local_final_hinges_rad']}")
     print(f"raw ECI final hinges:     {summary['eci_final_hinges_rad']}")
 
 

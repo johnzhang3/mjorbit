@@ -1,11 +1,11 @@
 # MPPI examples
 
-Sampling-based MPC on top of the `mujoco_orbit` CPU backend.
+Sampling-based MPC on top of the `mjorbit` CPU backend.
 
-- `mujoco_orbit.planning` — generic spline-knot MPPI planner (judo-style:
+- `mjorbit.planning` — generic spline-knot MPPI planner (judo-style:
   control knots interpolated over the horizon, Gaussian sampling with an
   optional variance ramp across the horizon, exponentially-weighted nominal
-  update). Rollouts go through `mujoco_orbit.rollout`, so the optimized
+  update). Rollouts go through `mjorbit.rollout`, so the optimized
   control vector is `[data.ctrl | rw_torque | mtq_dipole | thr_force |
   cmg_rate]` and works for models with orbital actuators too.
 - `arm_reach.py` — simplest demo: a 2-link arm on a free-floating bus reaches

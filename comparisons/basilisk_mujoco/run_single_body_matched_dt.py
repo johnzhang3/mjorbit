@@ -6,7 +6,7 @@ import argparse
 
 import numpy as np
 
-from .cases import run_single_body_mujoco_orbit
+from .cases import run_single_body_mjorbit
 from .common import ensure_out_dir, write_json
 
 
@@ -38,12 +38,12 @@ def main() -> None:
     print("=" * 72)
     print("Basilisk-MuJoCo comparison: matched 0.1 s single rigid body")
     print("=" * 72)
-    print(f"mujoco_orbit: mj_timestep={args.dt:.6g} s, orbit_dt={args.orbit_dt:.6g} s")
+    print(f"mjorbit: mj_timestep={args.dt:.6g} s, orbit_dt={args.orbit_dt:.6g} s")
     print(f"Basilisk: task dt={args.dt:.6g} s")
     print(f"Initial omega_BN_B={omega_body.tolist()} rad/s")
 
     for integrator in args.integrators:
-        result = run_single_body_mujoco_orbit(
+        result = run_single_body_mjorbit(
             alt_km=args.alt_km,
             inc_deg=args.inc_deg,
             dt_s=args.dt,
@@ -58,7 +58,7 @@ def main() -> None:
         print(f"Basilisk integrator: {integrator}")
         print(f"Duration: {result.summary['duration_s']:.6f} s")
         print(
-            "mujoco_orbit final position error: "
+            "mjorbit final position error: "
             f"{result.summary['final_position_error_m']:.6e} m"
         )
         if isinstance(basilisk, dict):

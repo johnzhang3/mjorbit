@@ -1,7 +1,7 @@
 """GPU fleet banner: bimanual spacecraft simulated on the GPU, framed for a figure.
 
 Steps an ``nworld`` batch of the bimanual dual-arm spacecraft with the
-``mujoco_orbit_warp`` backend (one model, all worlds stepped together on the
+``mjorbit_warp`` backend (one model, all worlds stepped together on the
 GPU) and renders every world in the browser with instanced meshes — one draw
 call per geom, not per spacecraft. The default composition is banner-friendly:
 ~sixty spacecraft in a staggered grid with uniformly random attitudes
@@ -34,7 +34,7 @@ import numpy as np
 try:
     import warp as wp
 
-    import mujoco_orbit_warp as mjo_warp
+    import mjorbit_warp as mjo_warp
 except ImportError as exc:  # pragma: no cover - guidance for the common mistake
     raise SystemExit(
         "This example needs the warp environment: "
@@ -43,9 +43,9 @@ except ImportError as exc:  # pragma: no cover - guidance for the common mistake
 
 import viser
 
-from mujoco_orbit import MjoModel as CpuMjoModel
-from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.testdata import SPACECRAFT_BIMANUAL_PANELS_XML
+from mjorbit import MjoModel as CpuMjoModel
+from mjorbit.constants import GM_EARTH, R_EARTH
+from mjorbit.testdata import SPACECRAFT_BIMANUAL_PANELS_XML
 from viewer.batched import BatchedMuJoCoScene
 from viewer.earth import EARTH_TEXTURE_HQ_PATH, EarthVisual, add_star_field
 

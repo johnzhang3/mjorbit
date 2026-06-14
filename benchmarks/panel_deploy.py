@@ -13,9 +13,9 @@ Single control mode (``passive``); ``nu = 0`` so the control trajectory is a
 ``(1, nstep, 0)`` array. Backends mirror ``capture_arm.py``:
 
   - ``mujoco.rollout``         — pure MuJoCo CPU baseline (no orbit overlay)
-  - ``mujoco_orbit.rollout``   — orbit overlay on CPU
+  - ``mjorbit.rollout``   — orbit overlay on CPU
   - ``mujoco_warp.step``       — pure MJWarp GPU baseline (no orbit overlay)
-  - ``mujoco_orbit_warp.mjo_step`` — orbit overlay on GPU, batched
+  - ``mjorbit_warp.mjo_step`` — orbit overlay on GPU, batched
 
 The eventual figure plots steps/s for these four paths across three difficulty
 tiers (capture-arm easy / panel-deploy moderate / 7-DOF-arm-plus-arrays hard,
@@ -43,10 +43,10 @@ import mujoco
 import mujoco.rollout
 import numpy as np
 
-import mujoco_orbit as mjo_cpu
-from mujoco_orbit import OrbitInit
-from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.rollout import mjo_get_state, rollout
+import mjorbit as mjo_cpu
+from mjorbit import OrbitInit
+from mjorbit.constants import R_EARTH
+from mjorbit.rollout import mjo_get_state, rollout
 
 XML_PATH = Path(__file__).parent / "panel_deploy.xml"
 
@@ -75,7 +75,7 @@ def _set_initial_state(qpos: np.ndarray, qvel: np.ndarray) -> None:
 def _orbit_init() -> OrbitInit:
     a = R_EARTH + 400.0
     R_eci = np.array([a, 0.0, 0.0])
-    from mujoco_orbit.constants import GM_EARTH
+    from mjorbit.constants import GM_EARTH
 
     v = float(np.sqrt(GM_EARTH / a))
     V_eci = np.array([0.0, v, 0.0])
@@ -154,7 +154,7 @@ def _benchmark_pure_mujoco(
 
 
 # ----------------------------------------------------------------------
-# CPU benchmark (mujoco_orbit.rollout)
+# CPU benchmark (mjorbit.rollout)
 # ----------------------------------------------------------------------
 
 
@@ -207,7 +207,7 @@ def _benchmark_cpu(
         runs.append(CpuRun(threads=nthread_eff, wall_s=wall, sim_steps=nbatch * nstep))
 
     return {
-        "backend": "mujoco_orbit.rollout",
+        "backend": "mjorbit.rollout",
         "nbatch": nbatch,
         "nstep": nstep,
         "runs": [
@@ -288,7 +288,7 @@ def _benchmark_pure_mjwarp(
 
 
 # ----------------------------------------------------------------------
-# GPU benchmark (mujoco_orbit_warp batched mjo_step)
+# GPU benchmark (mjorbit_warp batched mjo_step)
 # ----------------------------------------------------------------------
 
 
@@ -309,9 +309,9 @@ def _benchmark_gpu(
     try:
         import warp as wp
 
-        import mujoco_orbit_warp as mjo_warp
+        import mjorbit_warp as mjo_warp
     except ImportError as exc:
-        return {"available": False, "message": f"mujoco_orbit_warp unavailable: {exc}"}
+        return {"available": False, "message": f"mjorbit_warp unavailable: {exc}"}
 
     runs: list[GpuRun] = []
     for nworld in nworlds:
@@ -361,7 +361,7 @@ def _benchmark_gpu(
 
     return {
         "available": True,
-        "backend": "mujoco_orbit_warp.mjo_step (batched)",
+        "backend": "mjorbit_warp.mjo_step (batched)",
         "nstep": nstep,
         "runs": [
             {
@@ -414,7 +414,7 @@ def _smallsatsim_status() -> dict[str, Any]:
 
     Plan for the figure: take smallsatsim's flexible-array deploy benchmark
     (https://smallsatsim.github.io) and report steps/s on the same hardware
-    so the GPU sub-figure has a third bar (pure MJWarp / mujoco_orbit_warp /
+    so the GPU sub-figure has a third bar (pure MJWarp / mjorbit_warp /
     smallsatsim). Their solver and frame conventions differ from MJWarp's so
     apples-to-apples requires care — the right comparison is total wall-clock
     per simulated second of spacecraft time, not raw kernel throughput.

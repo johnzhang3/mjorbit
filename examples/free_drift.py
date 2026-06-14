@@ -16,9 +16,9 @@ from pathlib import Path
 import numpy as np
 from _orbit_reference import circular_orbit_eci
 
-from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
-from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.testdata import FREE_BODY_XML
+from mjorbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
+from mjorbit.constants import GM_EARTH, R_EARTH
+from mjorbit.testdata import FREE_BODY_XML
 
 
 def _compile_model(xml_path: str, *, mj_timestep: float) -> MjoModel:
