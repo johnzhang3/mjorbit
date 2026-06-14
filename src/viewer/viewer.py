@@ -1,6 +1,6 @@
 # pyright: reportAttributeAccessIssue=false, reportMissingImports=false
 
-"""MjOrbitViewer — interactive 3D viewer for mujoco_orbit simulations.
+"""MjOrbitViewer — interactive 3D viewer for mjorbit simulations.
 
 MuJoCo simulates in chief-centered inertial coordinates, while the viewer can
 render either a local LVLH view or the chief-relative state translated into ECI
@@ -17,9 +17,9 @@ from typing import Callable, Literal, Optional, Sequence
 import numpy as np
 import viser
 
-from mujoco_orbit.rollout import mjo_get_state, mjo_set_state
-from mujoco_orbit.runtime import MjoData, MjoModel
-from mujoco_orbit.step import mjo_forward, mjo_step
+from mjorbit.rollout import mjo_get_state, mjo_set_state
+from mjorbit.runtime import MjoData, MjoModel
+from mjorbit.step import mjo_forward, mjo_step
 
 from .bodies import MuJoCoScene
 from .contacts import ContactForceOverlay
@@ -234,14 +234,17 @@ class MjOrbitViewer:
     # ------------------------------------------------------------------
 
     def _world_transform(self) -> tuple[np.ndarray | None, np.ndarray | None]:
+        # "eci" renders the chief-centered inertial world as-is (axes parallel
+        # to ECI) with a floating origin: the spacecraft stays near the scene
+        # origin and the *Earth* is translated by -R_eci instead. Placing
+        # metre-scale geometry at absolute ECI coordinates (~6.8e6 m) makes it
+        # jitter under browser float32 and the tracked camera drift off target.
         if self._render_frame == "lvlh":
             rotation = self.data.frame.C_LI
             return rotation, None
-        return None, 1000.0 * self.data.orbit.R_eci
+        return None, None
 
     def _scale_origin(self) -> np.ndarray:
-        if self._render_frame == "eci":
-            return 1000.0 * self.data.orbit.R_eci
         return np.zeros(3)
 
     def _body_render_position(self, body_id: int) -> np.ndarray:
@@ -259,7 +262,8 @@ class MjOrbitViewer:
         if self.earth is None:
             return
         if self._render_frame == "eci":
-            position = np.zeros(3)
+            # Chief-centered floating origin: the Earth moves, the scene doesn't.
+            position = -1000.0 * np.asarray(self.data.orbit.R_eci, dtype=float)
             rotation = None
         else:
             position = self.data.frame.C_LI @ (-1000.0 * self.data.orbit.R_eci)
@@ -296,8 +300,9 @@ class MjOrbitViewer:
         ends = self._local_scene_scale * np.diag([length, length, length])
         segments = np.stack([origins, ends], axis=1)  # (3, 2, 3)
         if self._render_frame == "eci":
+            # Chief-centered floating origin: rotate the LVLH axes into ECI
+            # orientation at the scene origin (the chief), no absolute offset.
             segments = segments @ self.data.frame.C_IL.T
-            segments = segments + 1000.0 * self.data.orbit.R_eci
         colors = np.array(
             [
                 [[255, 50, 50], [255, 50, 50]],
@@ -550,3 +555,11 @@ class MjOrbitViewer:
 
         except KeyboardInterrupt:
             print("\nViewer stopped.")
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        """Stop the viser server, releasing its background threads and the port."""
+        stop = getattr(self.server, "stop", None)
+        if callable(stop):
+            stop()

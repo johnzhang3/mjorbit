@@ -1,8 +1,8 @@
-#include "mujoco_orbit/gravity.h"
+#include "mjorbit/gravity.h"
 
-#include "mujoco_orbit/math_utils.h"
+#include "mjorbit/math_utils.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 
 void point_mass_accel(const double r_eci[3], double out_a[3], double gm) {
   const double r = detail::norm3(r_eci);
@@ -109,4 +109,4 @@ void relative_accel(
   }
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

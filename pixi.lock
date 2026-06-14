@@ -4905,6 +4905,23 @@ packages:
   version: 0.1.2
   sha256: 84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8
   requires_python: '>=3.7'
+- pypi: ./
+  name: mjorbit
+  version: 0.1.0
+  sha256: 7df7a77eaa67b7f2b33a391c9c7e802a12ebd84ee756792e3470942e52758a83
+  requires_dist:
+  - cvxpy>=1.7.5
+  - mujoco>=3.7,<3.8
+  - numpy>=1.26,<2
+  - pillow>=10.0
+  - scipy>=1.11
+  - trimesh>=4.0
+  - viser>=0.2.0
+  - matplotlib>=3.10.8 ; extra == 'report'
+  - scipy>=1.17.1 ; extra == 'report'
+  - mujoco-warp>=3.6.0 ; extra == 'warp'
+  requires_python: '>=3.11,<3.13'
+  editable: true
 - pypi: https://files.pythonhosted.org/packages/6d/81/074612945c0666078f7366f40000013de9f6ba687491d450df699bceebc9/msgspec-0.21.1-cp312-cp312-macosx_11_0_arm64.whl
   name: msgspec
   version: 0.21.1
@@ -5097,23 +5114,6 @@ packages:
   - usd-core ; extra == 'usd'
   - pillow ; extra == 'usd'
   requires_python: '>=3.10'
-- pypi: ./
-  name: mujoco-orbit
-  version: 0.1.0
-  sha256: 745e1609028d7b8d9b1d0f789feb8d10b3c4b4fdb7e21d370db197183c5bd7bb
-  requires_dist:
-  - cvxpy>=1.7.5
-  - mujoco>=3.7,<3.8
-  - numpy>=1.26,<2
-  - pillow>=10.0
-  - scipy>=1.11
-  - trimesh>=4.0
-  - viser>=0.2.0
-  - matplotlib>=3.10.8 ; extra == 'report'
-  - scipy>=1.17.1 ; extra == 'report'
-  - mujoco-warp>=3.6.0 ; extra == 'warp'
-  requires_python: '>=3.11,<3.13'
-  editable: true
 - pypi: https://files.pythonhosted.org/packages/90/a6/23d2c61ebfd34c8279bce9222b09a4d1bf7a872b9d673fc81713c3583d57/mujoco_warp-3.7.0.1-py3-none-any.whl
   name: mujoco-warp
   version: 3.7.0.1

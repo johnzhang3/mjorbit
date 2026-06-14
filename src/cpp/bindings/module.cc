@@ -14,12 +14,12 @@
 #include <nanobind/stl/unique_ptr.h>
 #include <nanobind/stl/vector.h>
 
-#include "mujoco_orbit/runtime.h"
+#include "mjorbit/runtime.h"
 
 namespace nb = nanobind;
 using namespace nb::literals;
 
-namespace mujoco_orbit {
+namespace mjorbit {
 namespace {
 
 template <typename T>
@@ -189,10 +189,10 @@ std::vector<std::array<double, 6>> contact_force_segments(MjoData& data, double 
 }
 
 }  // namespace
-}  // namespace mujoco_orbit
+}  // namespace mjorbit
 
 NB_MODULE(_bindings, m) {
-  using namespace mujoco_orbit;
+  using namespace mjorbit;
 
   nb::class_<SensorDescriptor>(m, "SensorDescriptor")
       .def_ro("sensor_id", &SensorDescriptor::sensor_id)

@@ -1,4 +1,4 @@
-// mujoco_orbit.orbit plugin.
+// mjorbit.orbit plugin.
 //
 // The Python shim attaches this plugin instance to a body in every compiled
 // model and marshals per-model passive-coupling metadata into the native
@@ -16,22 +16,22 @@
 #include <mujoco/mjplugin.h>
 #include <mujoco/mujoco.h>
 
-#include "mujoco_orbit/coupling.h"
-#include "mujoco_orbit/orbit_cache.h"
-#include "mujoco_orbit/orbit_schedule.h"
-#include "mujoco_orbit/propagator.h"
-#include "mujoco_orbit/sensors_plugin.h"
+#include "mjorbit/coupling.h"
+#include "mjorbit/orbit_cache.h"
+#include "mjorbit/orbit_schedule.h"
+#include "mjorbit/propagator.h"
+#include "mjorbit/sensors_plugin.h"
 #include "orbit_instance.h"
 
 namespace {
 
-constexpr char kPluginName[] = "mujoco_orbit.orbit";
+constexpr char kPluginName[] = "mjorbit.orbit";
 
 constexpr const char* kAttributeNames[] = {"use_j2"};
 constexpr int kNumAttributes = sizeof(kAttributeNames) / sizeof(kAttributeNames[0]);
 
-mujoco_orbit::OrbitInstance* GetInstance(mjData* d, int instance) {
-  return reinterpret_cast<mujoco_orbit::OrbitInstance*>(d->plugin_data[instance]);
+mjorbit::OrbitInstance* GetInstance(mjData* d, int instance) {
+  return reinterpret_cast<mjorbit::OrbitInstance*>(d->plugin_data[instance]);
 }
 
 int NState(const mjModel* /*m*/, int /*instance*/) {
@@ -46,7 +46,7 @@ int NState(const mjModel* /*m*/, int /*instance*/) {
 int Init(const mjModel* m, mjData* d, int instance) {
   // value-initialize so std::string members (e.g. central_body.name) are
   // properly constructed; calloc + assignment is UB on a non-trivial type.
-  auto* inst = new (std::nothrow) mujoco_orbit::OrbitInstance{};
+  auto* inst = new (std::nothrow) mjorbit::OrbitInstance{};
   if (!inst) return -1;
 
   // Override the member-initializer defaults that aren't picked up by
@@ -69,7 +69,7 @@ int Init(const mjModel* m, mjData* d, int instance) {
   // least one instance on this mjData. Doing this here (not at .so load time)
   // avoids Python's MjoModel.from_xml_path stomping our callback via the
   // mjcb_sensor save/restore dance.
-  mujoco_orbit::ensure_sensor_callback_installed();
+  mjorbit::ensure_sensor_callback_installed();
   return 0;
 }
 
@@ -81,24 +81,24 @@ void Destroy(mjData* d, int instance) {
 }
 
 void Copy(mjData* dest, const mjModel* /*m*/, const mjData* src, int instance) {
-  auto* src_inst = reinterpret_cast<mujoco_orbit::OrbitInstance*>(src->plugin_data[instance]);
+  auto* src_inst = reinterpret_cast<mjorbit::OrbitInstance*>(src->plugin_data[instance]);
   if (!src_inst) return;
   // Copy-construct so std::string members are properly cloned; raw memcpy of a
   // type containing std::string aliases the SSO buffer and is UB.
-  auto* dest_inst = new (std::nothrow) mujoco_orbit::OrbitInstance(*src_inst);
+  auto* dest_inst = new (std::nothrow) mjorbit::OrbitInstance(*src_inst);
   if (!dest_inst) return;
   dest->plugin_data[instance] = reinterpret_cast<uintptr_t>(dest_inst);
 }
 
 void Reset(const mjModel* /*m*/, mjtNum* /*plugin_state*/, void* plugin_data, int /*instance*/) {
-  auto* inst = reinterpret_cast<mujoco_orbit::OrbitInstance*>(plugin_data);
+  auto* inst = reinterpret_cast<mjorbit::OrbitInstance*>(plugin_data);
   if (!inst) return;
   // Preserve shim-populated config/metadata across mj_resetData. Only the
   // runtime chief orbit + derived caches should be reset to zero. Use move +
   // destructor + placement-new so the std::string in central_body stays valid.
-  mujoco_orbit::OrbitInstance preserved = std::move(*inst);
+  mjorbit::OrbitInstance preserved = std::move(*inst);
   inst->~OrbitInstance();
-  new (inst) mujoco_orbit::OrbitInstance{};
+  new (inst) mjorbit::OrbitInstance{};
   inst->central_body = std::move(preserved.central_body);
   inst->use_j2 = preserved.use_j2;
   inst->use_drag = preserved.use_drag;
@@ -140,15 +140,15 @@ void Compute(const mjModel* m, mjData* d, int instance, int capability_bit) {
   // Caches are kept current by Advance() at the end of the previous step (and
   // by initialize_orbit_schedule on construction / set_orbit / mjo_set_state),
   // so we don't refresh again here on the hot step path.
-  mujoco_orbit::apply_passive_wrenches(m, d, inst);
+  mjorbit::apply_passive_wrenches(m, d, inst);
 }
 
 void Advance(const mjModel* m, mjData* d, int instance) {
   auto* inst = GetInstance(d, instance);
   if (!inst) return;
 
-  mujoco_orbit::advance_actuators(m, inst);
-  mujoco_orbit::advance_orbit_schedule(m, inst);
+  mjorbit::advance_actuators(m, inst);
+  mjorbit::advance_orbit_schedule(m, inst);
 }
 
 void RegisterPlugin() {
@@ -174,7 +174,7 @@ void RegisterPlugin() {
 // Register at .so load time.
 #if defined(__GNUC__) || defined(__clang__)
 __attribute__((constructor))
-static void _mujoco_orbit_plugin_init() { RegisterPlugin(); }
+static void _mjorbit_plugin_init() { RegisterPlugin(); }
 #elif defined(_MSC_VER)
 extern "C" int __stdcall DllMain(void*, unsigned long reason, void*) {
   if (reason == 1) RegisterPlugin();

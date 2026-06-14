@@ -13,9 +13,9 @@
 
 #include <mujoco/mujoco.h>
 
-#include "mujoco_orbit/constants.h"
-#include "mujoco_orbit/orbit_cache.h"
-#include "mujoco_orbit/sensors_plugin.h"
+#include "mjorbit/constants.h"
+#include "mjorbit/orbit_cache.h"
+#include "mjorbit/sensors_plugin.h"
 #include "orbit_instance.h"
 
 extern "C" int mjo_rollout(
@@ -44,14 +44,14 @@ const char kThreadedXml[] = R"xml(
   <size nuser_sensor="4"/>
   <option timestep="0.005" gravity="0 0 0"/>
   <extension>
-    <plugin plugin="mujoco_orbit.orbit"/>
+    <plugin plugin="mjorbit.orbit"/>
   </extension>
   <worldbody>
     <body name="spacecraft" pos="0 0 0">
       <freejoint/>
       <geom type="box" size="0.5 0.5 0.5" mass="100"/>
       <site name="sun_head" pos="0 0 0.2" quat="1 0 0 0"/>
-      <plugin plugin="mujoco_orbit.orbit">
+      <plugin plugin="mjorbit.orbit">
         <config key="use_j2" value="false"/>
       </plugin>
     </body>
@@ -91,7 +91,7 @@ struct Result {
 
 struct WorkerData {
   DataPtr data;
-  std::array<mujoco_orbit::OrbitSensorDescriptorNative, 1> sensors{};
+  std::array<mjorbit::OrbitSensorDescriptorNative, 1> sensors{};
   Result result;
   int rollout_status = 0;
   std::vector<double> rollout_state;
@@ -103,7 +103,7 @@ std::string write_xml_file() {
   const std::string tmpdir = tmpdir_env && tmpdir_env[0] != '\0' ? tmpdir_env : "/tmp";
   const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
   const std::string path =
-      tmpdir + "/mujoco_orbit_threaded_plugin_" + std::to_string(stamp) + ".xml";
+      tmpdir + "/mjorbit_threaded_plugin_" + std::to_string(stamp) + ".xml";
   std::ofstream file(path);
   file << kThreadedXml;
   return path;
@@ -127,12 +127,12 @@ int orbit_plugin_instance(const mjModel* model) {
   return model->body_plugin[body_id];
 }
 
-mujoco_orbit::OrbitInstance* orbit_instance(const mjModel* model, mjData* data) {
+mjorbit::OrbitInstance* orbit_instance(const mjModel* model, mjData* data) {
   const int instance = orbit_plugin_instance(model);
   if (instance < 0) {
     return nullptr;
   }
-  return reinterpret_cast<mujoco_orbit::OrbitInstance*>(data->plugin_data[instance]);
+  return reinterpret_cast<mjorbit::OrbitInstance*>(data->plugin_data[instance]);
 }
 
 bool init_worker(const mjModel* model, WorkerData* worker) {
@@ -148,16 +148,16 @@ bool init_worker(const mjModel* model, WorkerData* worker) {
     return false;
   }
 
-  const double r = mujoco_orbit::kREarth + 400.0;
+  const double r = mjorbit::kREarth + 400.0;
   inst->R_eci[0] = r;
   inst->R_eci[1] = 0.0;
   inst->R_eci[2] = 0.0;
   inst->V_eci[0] = 0.0;
-  inst->V_eci[1] = std::sqrt(mujoco_orbit::kGmEarth / r);
+  inst->V_eci[1] = std::sqrt(mjorbit::kGmEarth / r);
   inst->V_eci[2] = 0.0;
   inst->t = 0.0;
   inst->use_j2 = 0;
-  mujoco_orbit::refresh_orbit_caches(inst);
+  mjorbit::refresh_orbit_caches(inst);
 
   const int sensor_id = mj_name2id(model, mjOBJ_SENSOR, "orbit_sun_body");
   const int site_id = mj_name2id(model, mjOBJ_SITE, "sun_head");
@@ -166,7 +166,7 @@ bool init_worker(const mjModel* model, WorkerData* worker) {
     return false;
   }
   worker->sensors[0].sensor_id = sensor_id;
-  worker->sensors[0].kind = mujoco_orbit::kOrbitSensorSun;
+  worker->sensors[0].kind = mjorbit::kOrbitSensorSun;
   worker->sensors[0].site_id = site_id;
   worker->sensors[0].adr = model->sensor_adr[sensor_id];
   worker->sensors[0].dim = model->sensor_dim[sensor_id];
@@ -280,7 +280,7 @@ bool rollout_equal(const WorkerData& a, const WorkerData& b) {
 }
 
 bool plugin_instances_are_distinct(const mjModel* model, const std::vector<WorkerData>& workers) {
-  std::vector<const mujoco_orbit::OrbitInstance*> instances;
+  std::vector<const mjorbit::OrbitInstance*> instances;
   instances.reserve(workers.size());
   for (const auto& worker : workers) {
     const auto* inst = orbit_instance(model, worker.data.get());

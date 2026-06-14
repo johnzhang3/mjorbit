@@ -1,11 +1,11 @@
-#include "mujoco_orbit/environment.h"
+#include "mjorbit/environment.h"
 
 #include <cmath>
 
-#include "mujoco_orbit/constants.h"
-#include "mujoco_orbit/math_utils.h"
+#include "mjorbit/constants.h"
+#include "mjorbit/math_utils.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 namespace {
 
 constexpr double kAtmH0Km = 400.0;
@@ -144,4 +144,4 @@ void update_environment_cache(
   out_cache->atm_density = atm_density(orbit.R_eci, central_body);
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

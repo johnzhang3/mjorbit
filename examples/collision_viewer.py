@@ -27,9 +27,9 @@ from pathlib import Path
 import numpy as np
 from _orbit_reference import circular_orbit_eci
 
-from mujoco_orbit import MjoData, MjoModel, OrbitInit
-from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.testdata import TWO_BODIES_XML
+from mjorbit import MjoData, MjoModel, OrbitInit
+from mjorbit.constants import R_EARTH
+from mjorbit.testdata import TWO_BODIES_XML
 from viewer import MjOrbitViewer
 
 
@@ -70,7 +70,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     data.qvel[0] += 1.0
 
-    from mujoco_orbit import mjo_forward
+    from mjorbit import mjo_forward
     mjo_forward(model, data)
 
     # ------------------------------------------------------------------

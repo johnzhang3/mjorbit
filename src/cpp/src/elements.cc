@@ -1,10 +1,10 @@
-#include "mujoco_orbit/elements.h"
+#include "mjorbit/elements.h"
 
 #include <cmath>
 
-#include "mujoco_orbit/math_utils.h"
+#include "mjorbit/math_utils.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 
 void rot_pf_to_eci(double raan, double inc, double argp, double out_R[9]) {
   const double c_O = std::cos(raan);
@@ -115,4 +115,4 @@ void cartesian_to_keplerian(
   }
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

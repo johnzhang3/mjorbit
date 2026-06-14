@@ -18,8 +18,8 @@ from typing import Callable, Optional, Sequence
 import numpy as np
 import viser
 
-from mujoco_orbit.runtime import MjoData, MjoModel
-from mujoco_orbit.step import mjo_step
+from mjorbit.runtime import MjoData, MjoModel
+from mjorbit.step import mjo_step
 
 from .bodies import MuJoCoScene
 from .earth import add_earth

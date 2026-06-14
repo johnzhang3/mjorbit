@@ -3,7 +3,7 @@ requires = ["scikit-build-core>=0.9", "mujoco>=3.7,<3.8", "nanobind>=2.5"]
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "mujoco-orbit"
+name = "mjorbit"
 version = "0.1.0"
 requires-python = ">=3.11,<3.13"
 dependencies = [
@@ -35,13 +35,13 @@ cmake.version = ">=3.16"
 # They only matter for local development (`pixi run cpp-test`), and they pull in
 # pthreads/libdl which can fail to link inside pip's isolated build env on conda
 # Linux setups (compiler_compat libdl vs glibc mismatch).
-cmake.define = { MUJOCO_ORBIT_BUILD_TESTS = "OFF" }
-wheel.packages = ["src/mujoco_orbit", "src/mujoco_orbit_warp", "src/viewer"]
+cmake.define = { MJORBIT_BUILD_TESTS = "OFF" }
+wheel.packages = ["src/mjorbit", "src/mjorbit_warp", "src/viewer"]
 # ship XML testdata with the wheel
 wheel.exclude = []
 sdist.include = [
-    "src/mujoco_orbit/testdata/*.xml",
-    "src/mujoco_orbit_warp/**/*.py",
+    "src/mjorbit/testdata/*.xml",
+    "src/mjorbit_warp/**/*.py",
     "src/viewer/assets/*",
     "src/cpp/**",
 ]

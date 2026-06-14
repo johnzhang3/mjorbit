@@ -3,7 +3,7 @@
 Runs the same collision scenario as ``run.py`` twice from identical
 world-frame initial state:
 
-- ``mujoco_orbit``: ``mjo_step`` with the full Encke differential-gravity
+- ``mjorbit``: ``mjo_step`` with the full Encke differential-gravity
   coupling.
 - naive zero-g: plain ``mujoco.mj_step`` on the same XML (gravity already
   ``0 0 0``), with no orbital coupling at all.
@@ -24,8 +24,8 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from mujoco_orbit import MjoData, mjo_forward, mjo_step
-from mujoco_orbit.testdata import TWO_BODIES_XML
+from mjorbit import MjoData, mjo_forward, mjo_step
+from mjorbit.testdata import TWO_BODIES_XML
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run import (  # noqa: E402
@@ -190,7 +190,7 @@ def main() -> None:
     print(f"  samples per series  : {result.time.size}")
     print(f"  h_hat (world)       : {result.h_hat_world}")
     print(
-        "  mujoco_orbit z range: "
+        "  mjorbit z range: "
         f"A=[{result.cross_track_a_orbit.min():.3f}, {result.cross_track_a_orbit.max():.3f}]  "
         f"B=[{result.cross_track_b_orbit.min():.3f}, {result.cross_track_b_orbit.max():.3f}]"
     )

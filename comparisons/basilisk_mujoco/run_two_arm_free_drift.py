@@ -6,7 +6,7 @@ import argparse
 
 import numpy as np
 
-from .cases import TwoArmFreeDriftRun, run_two_arm_free_drift_mujoco_orbit
+from .cases import TwoArmFreeDriftRun, run_two_arm_free_drift_mjorbit
 from .common import ensure_out_dir, save_npz, write_json
 
 
@@ -26,7 +26,7 @@ def main() -> None:
         "--mj-integrator",
         choices=("Euler", "RK4", "implicit", "implicitfast"),
         default="Euler",
-        help="MuJoCo integrator used by the mujoco_orbit leg.",
+        help="MuJoCo integrator used by the mjorbit leg.",
     )
     parser.add_argument("--max-samples", type=int, default=2048)
     parser.add_argument(
@@ -58,7 +58,7 @@ def main() -> None:
         nargs="+",
         choices=("euler", "rk2", "rk4", "rkf45", "rkf78"),
         default=("rkf45",),
-        help="Basilisk integrators to run against the same mujoco_orbit setup.",
+        help="Basilisk integrators to run against the same mjorbit setup.",
     )
     args = parser.parse_args()
 
@@ -68,7 +68,7 @@ def main() -> None:
     print("Basilisk-MuJoCo comparison: passive two-arm free drift")
     print("=" * 72)
     print(
-        "mujoco_orbit: "
+        "mjorbit: "
         f"mj_timestep={args.dt:.6g} s, orbit_dt={args.orbit_dt:.6g} s, "
         f"integrator={args.mj_integrator}"
     )
@@ -78,7 +78,7 @@ def main() -> None:
 
     mj_suffix = args.mj_integrator.lower().replace(" ", "_")
     for integrator in args.integrators:
-        result = run_two_arm_free_drift_mujoco_orbit(
+        result = run_two_arm_free_drift_mjorbit(
             alt_km=args.alt_km,
             inc_deg=args.inc_deg,
             duration_s=args.duration,
@@ -112,7 +112,7 @@ def main() -> None:
         )
         _print_integrator_summary(integrator, result.summary)
         if not result.summary["all_finite"]:
-            raise SystemExit("two-arm free-drift run produced non-finite mujoco_orbit state")
+            raise SystemExit("two-arm free-drift run produced non-finite mjorbit state")
 
     payload = {
         "case": "two_arm_free_drift",

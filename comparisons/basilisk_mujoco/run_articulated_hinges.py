@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from .cases import run_articulated_hinges_mujoco_orbit
+from .cases import run_articulated_hinges_mjorbit
 from .common import ensure_out_dir, save_npz, write_json
 
 
@@ -23,7 +23,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    result = run_articulated_hinges_mujoco_orbit(
+    result = run_articulated_hinges_mjorbit(
         alt_km=args.alt_km,
         inc_deg=args.inc_deg,
         duration_s=args.duration,

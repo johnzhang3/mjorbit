@@ -1,13 +1,13 @@
-# MuJoCo Orbit
+# mjorbit
 
-MuJoCo Orbit is an orbit-aware MuJoCo simulator for spacecraft multibody dynamics.
+mjorbit is an orbit-aware MuJoCo simulator for spacecraft multibody dynamics.
 The CPU package is the reference backend, and the optional Warp package targets
 batched GPU simulation.
 
 ## Backends
 
-- CPU reference backend: `import mujoco_orbit`
-- MJWarp backend: `import mujoco_orbit_warp`
+- CPU reference backend: `import mjorbit`
+- MJWarp backend: `import mjorbit_warp`
 
 Backend choice is explicit by import path. Use `model.make_data(...)` to create
 runtime state for both backends.
@@ -40,9 +40,9 @@ pixi run cpp-test
 ```python
 import numpy as np
 
-from mujoco_orbit import MjoModel, OrbitInit, mjo_step
-from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.testdata import FREE_BODY_XML
+from mjorbit import MjoModel, OrbitInit, mjo_step
+from mjorbit.constants import GM_EARTH, R_EARTH
+from mjorbit.testdata import FREE_BODY_XML
 
 radius_km = R_EARTH + 400.0
 speed_km_s = np.sqrt(GM_EARTH / radius_km)

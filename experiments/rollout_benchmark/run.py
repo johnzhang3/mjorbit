@@ -1,13 +1,13 @@
-"""Multi-threaded rollout benchmark: humanoid in LEO via mujoco_orbit vs pure MuJoCo.
+"""Multi-threaded rollout benchmark: humanoid in LEO via mjorbit vs pure MuJoCo.
 
 Both backends run the same MuJoCo humanoid (no floor, no contact). The
-mujoco_orbit run additionally activates the full orbital environment via the
-mujoco_orbit plugin: J2, drag (with one drag surface on the torso), SRP, the
+mjorbit run additionally activates the full orbital environment via the
+mjorbit plugin: J2, drag (with one drag surface on the torso), SRP, the
 Earth magnetic field, and gravity gradient torques.
 
 Frames-per-second is reported for several thread counts. The MuJoCo baseline
-uses ``mujoco.rollout.Rollout(nthread=N)``; the mujoco_orbit side uses
-``mujoco_orbit.rollout(..., nthread=N)``, which spreads the batch across a
+uses ``mujoco.rollout.Rollout(nthread=N)``; the mjorbit side uses
+``mjorbit.rollout(..., nthread=N)``, which spreads the batch across a
 ``ThreadPoolExecutor`` of independent ``MjoData`` workers.
 
 Usage:
@@ -26,7 +26,7 @@ import mujoco
 import mujoco.rollout as mj_rollout
 import numpy as np
 
-from mujoco_orbit import (
+from mjorbit import (
     MjoData,
     MjoModel,
     OrbitInit,
@@ -34,7 +34,7 @@ from mujoco_orbit import (
     mjo_get_state,
     rollout,
 )
-from mujoco_orbit.constants import GM_EARTH, R_EARTH
+from mjorbit.constants import GM_EARTH, R_EARTH
 
 EXPERIMENT_DIR = Path(__file__).resolve().parent
 FIGURE_DIR = EXPERIMENT_DIR / "figures"
@@ -165,7 +165,7 @@ def _benchmark_orbit(model: MjoModel, nthread: int) -> Result:
     elapsed = time.perf_counter() - t0
 
     total_steps = NBATCH * NSTEP
-    return Result("mujoco_orbit", nthread, total_steps / elapsed, elapsed)
+    return Result("mjorbit", nthread, total_steps / elapsed, elapsed)
 
 
 def _save_figure(results: list[Result]) -> Path:
@@ -178,7 +178,7 @@ def _save_figure(results: list[Result]) -> Path:
     width = 0.4
     x = np.arange(len(nthreads))
     for offset, (label, color) in enumerate(
-        [("MuJoCo", "#4c78a8"), ("mujoco_orbit", "#f58518")]
+        [("MuJoCo", "#4c78a8"), ("mjorbit", "#f58518")]
     ):
         fps_per_n = [by_label.get(label, {}).get(n, 0.0) for n in nthreads]
         ax.bar(x + (offset - 0.5) * width, fps_per_n, width=width, label=label, color=color)
@@ -221,7 +221,7 @@ def main() -> None:
         )
         mjo_res = _benchmark_orbit(orbit_model, nthread)
         print(
-            f"  mujoco_orbit nthread={nthread}: "
+            f"  mjorbit nthread={nthread}: "
             f"{mjo_res.fps:>11,.0f} fps  ({mjo_res.wall_seconds:.2f} s)"
         )
         results.extend([mj_res, mjo_res])

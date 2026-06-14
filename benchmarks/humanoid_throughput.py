@@ -8,7 +8,7 @@ the contact + actuation pipeline is exercised every step.
 
 Backends and ``nworld`` sweeps:
 
-  - CPU: ``mujoco.rollout`` (pure) and ``mujoco_orbit.rollout`` (overlay).
+  - CPU: ``mujoco.rollout`` (pure) and ``mjorbit.rollout`` (overlay).
     Sweep ``nworld in [1, 4, 16, 64, 256]``. CPU thread count is set to
     ``min(nworld, 20)`` (i7-12700K logical-core ceiling).
   - GPU: ``mjw.step`` (pure) and ``mjo_step`` (overlay). Each captured
@@ -39,11 +39,11 @@ import mujoco
 import mujoco.rollout
 import numpy as np
 
-import mujoco_orbit as mjo_cpu
-from mujoco_orbit import OrbitInit, SurfaceSpec
-from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.rollout import mjo_get_state, rollout
-from mujoco_orbit.spec import MjoSpec
+import mjorbit as mjo_cpu
+from mjorbit import OrbitInit, SurfaceSpec
+from mjorbit.constants import GM_EARTH, R_EARTH
+from mjorbit.rollout import mjo_get_state, rollout
+from mjorbit.spec import MjoSpec
 
 XML_PATH = Path(__file__).parent / "humanoid.xml"
 
@@ -200,7 +200,7 @@ def _benchmark_cpu_orbit(
     *, nworlds: list[int], nstep: int, ctrl_seed: int, nthread_cap: int,
     trials: int,
 ) -> dict[str, Any]:
-    """Orbit-aware ``mujoco_orbit.rollout`` with drag + SRP via per-body surfaces."""
+    """Orbit-aware ``mjorbit.rollout`` with drag + SRP via per-body surfaces."""
     model = _build_cpu_orbit_model()
     data = model.make_data(orbit=_orbit_init())
     _set_initial_state(data.qpos, data.qvel)
@@ -239,7 +239,7 @@ def _benchmark_cpu_orbit(
             "sim_steps_per_s_best": (nworld * nstep) / min(walls),
         })
 
-    return {"backend": "mujoco_orbit.rollout (orbit CPU)", "nstep": nstep, "runs": runs}
+    return {"backend": "mjorbit.rollout (orbit CPU)", "nstep": nstep, "runs": runs}
 
 
 # ----------------------------------------------------------------------
@@ -321,7 +321,7 @@ def _benchmark_gpu_orbit(
     try:
         import warp as wp
 
-        import mujoco_orbit_warp as mjo_warp
+        import mjorbit_warp as mjo_warp
     except ImportError as exc:
         return {"available": False, "message": str(exc)}
 

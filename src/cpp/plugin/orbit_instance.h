@@ -1,9 +1,9 @@
-#ifndef MUJOCO_ORBIT_PLUGIN_ORBIT_INSTANCE_H_
-#define MUJOCO_ORBIT_PLUGIN_ORBIT_INSTANCE_H_
+#ifndef MJORBIT_PLUGIN_ORBIT_INSTANCE_H_
+#define MJORBIT_PLUGIN_ORBIT_INSTANCE_H_
 
-#include "mujoco_orbit/spec.h"
+#include "mjorbit/spec.h"
 
-// Per-mjData instance state for the mujoco_orbit.orbit plugin.
+// Per-mjData instance state for the mjorbit.orbit plugin.
 //
 // One OrbitInstance lives behind mjData->plugin_data[instance], allocated in
 // init() and freed in destroy(). Each thread that owns an mjData has its own
@@ -12,7 +12,7 @@
 // This struct is intentionally flat and POD-ish so it is cheap to zero-init
 // and trivially copyable for mjData copy semantics (see plugin copy() hook).
 
-namespace mujoco_orbit {
+namespace mjorbit {
 
 struct SurfaceMetadataNative {
   int body_id;
@@ -167,6 +167,6 @@ struct OrbitInstance {
   double feedback_accel_integral_dt;
 };
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit
 
-#endif  // MUJOCO_ORBIT_PLUGIN_ORBIT_INSTANCE_H_
+#endif  // MJORBIT_PLUGIN_ORBIT_INSTANCE_H_

@@ -15,9 +15,9 @@ Two control modes:
                high-impact contact events.
 
 Three backends:
-  - ``cpu``:    ``mujoco_orbit.rollout(model, data, control=ctrl, nstep=N,
+  - ``cpu``:    ``mjorbit.rollout(model, data, control=ctrl, nstep=N,
                 nthread=T)`` for several thread counts.
-  - ``gpu``:    ``mujoco_orbit_warp.MjoModel.make_data(nworld=W)`` followed by
+  - ``gpu``:    ``mjorbit_warp.MjoModel.make_data(nworld=W)`` followed by
                 a tight ``mjo_step`` loop with per-step ``mjo_upload`` of the
                 control vector.
   - ``basilisk``: TODO — Basilisk-MuJoCo integration for a multi-body
@@ -46,10 +46,10 @@ import mujoco
 import mujoco.rollout
 import numpy as np
 
-import mujoco_orbit as mjo_cpu
-from mujoco_orbit import OrbitInit
-from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.rollout import mjo_get_state, rollout
+import mjorbit as mjo_cpu
+from mjorbit import OrbitInit
+from mjorbit.constants import R_EARTH
+from mjorbit.rollout import mjo_get_state, rollout
 
 XML_PATH = Path(__file__).parent / "capture_arm.xml"
 
@@ -82,7 +82,7 @@ def _orbit_init() -> OrbitInit:
     a = R_EARTH + 400.0
     R_eci = np.array([a, 0.0, 0.0])
     # Equatorial circular: v ≈ sqrt(mu/a)
-    from mujoco_orbit.constants import GM_EARTH
+    from mjorbit.constants import GM_EARTH
 
     v = float(np.sqrt(GM_EARTH / a))
     V_eci = np.array([0.0, v, 0.0])
@@ -172,7 +172,7 @@ def _benchmark_pure_mujoco(
 
 
 # ----------------------------------------------------------------------
-# CPU benchmark (mujoco_orbit.rollout)
+# CPU benchmark (mjorbit.rollout)
 # ----------------------------------------------------------------------
 
 
@@ -226,7 +226,7 @@ def _benchmark_cpu(
         runs.append(CpuRun(threads=nthread_eff, wall_s=wall, sim_steps=nbatch * nstep))
 
     return {
-        "backend": "mujoco_orbit.rollout",
+        "backend": "mjorbit.rollout",
         "nbatch": nbatch,
         "nstep": nstep,
         "runs": [
@@ -310,7 +310,7 @@ def _benchmark_pure_mjwarp(
 
 
 # ----------------------------------------------------------------------
-# GPU benchmark (mujoco_orbit_warp batched mjo_step)
+# GPU benchmark (mjorbit_warp batched mjo_step)
 # ----------------------------------------------------------------------
 
 
@@ -331,9 +331,9 @@ def _benchmark_gpu(
     try:
         import warp as wp
 
-        import mujoco_orbit_warp as mjo_warp
+        import mjorbit_warp as mjo_warp
     except ImportError as exc:
-        return {"available": False, "message": f"mujoco_orbit_warp unavailable: {exc}"}
+        return {"available": False, "message": f"mjorbit_warp unavailable: {exc}"}
 
     runs: list[GpuRun] = []
     for nworld in nworlds:
@@ -397,7 +397,7 @@ def _benchmark_gpu(
 
     return {
         "available": True,
-        "backend": "mujoco_orbit_warp.mjo_step (batched)",
+        "backend": "mjorbit_warp.mjo_step (batched)",
         "nstep": nstep,
         "runs": [
             {

@@ -1,4 +1,4 @@
-"""Browser-based 3D viewer for mujoco_orbit simulations."""
+"""Browser-based 3D viewer for mjorbit simulations."""
 
 from .app import MjOrbitApp
 from .batched import BatchedMuJoCoScene

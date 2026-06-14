@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mujoco_orbit.constants import GM_EARTH
+from mjorbit.constants import GM_EARTH
 
 
 def circular_orbit_eci(radius_km: float, inclination_rad: float) -> tuple[np.ndarray, np.ndarray]:

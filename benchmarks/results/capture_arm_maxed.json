@@ -77,7 +77,7 @@
       ]
     },
     "cpu": {
-      "backend": "mujoco_orbit.rollout",
+      "backend": "mjorbit.rollout",
       "nbatch": 256,
       "nstep": 2000,
       "runs": [
@@ -164,7 +164,7 @@
     },
     "gpu": {
       "available": true,
-      "backend": "mujoco_orbit_warp.mjo_step (batched)",
+      "backend": "mjorbit_warp.mjo_step (batched)",
       "nstep": 2000,
       "runs": [
         {
@@ -259,7 +259,7 @@
       ]
     },
     "cpu": {
-      "backend": "mujoco_orbit.rollout",
+      "backend": "mjorbit.rollout",
       "nbatch": 256,
       "nstep": 2000,
       "runs": [
@@ -346,7 +346,7 @@
     },
     "gpu": {
       "available": true,
-      "backend": "mujoco_orbit_warp.mjo_step (batched)",
+      "backend": "mjorbit_warp.mjo_step (batched)",
       "nstep": 2000,
       "runs": [
         {

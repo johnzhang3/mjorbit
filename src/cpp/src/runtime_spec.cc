@@ -1,4 +1,4 @@
-#include "mujoco_orbit/spec.h"
+#include "mjorbit/spec.h"
 
 #include <algorithm>
 #include <cctype>
@@ -14,12 +14,12 @@
 #include <string>
 #include <utility>
 
-#include "mujoco_orbit/runtime.h"
+#include "mjorbit/runtime.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 namespace {
 
-constexpr char kPluginName[] = "mujoco_orbit.orbit";
+constexpr char kPluginName[] = "mjorbit.orbit";
 
 class VfsHolder {
  public:
@@ -952,4 +952,4 @@ void MjoSpec::RemoveCmg(const std::string& name) {
   remove_named(&orbit_.cmgs, name);
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

@@ -1,10 +1,10 @@
-# MJWarp Backend Phase 1 (`mujoco_orbit_warp`)
+# MJWarp Backend Phase 1 (`mjorbit_warp`)
 
 ## Summary
-- Add a new optional backend package at `src/mujoco_orbit_warp` alongside the existing CPU package `src/mujoco_orbit/`.
+- Add a new optional backend package at `src/mjorbit_warp` alongside the existing CPU package `src/mjorbit/`.
 - Users select the backend explicitly by import path:
-  - CPU: `mujoco_orbit`
-  - GPU/MJWarp: `mujoco_orbit_warp`
+  - CPU: `mjorbit`
+  - GPU/MJWarp: `mjorbit_warp`
 - Standardize runtime creation around `model.make_data(...)` for both backends.
 - For the warp backend, `model.make_data(..., nworld=N)` is the public way to request parallel GPU simulations.
 - Keep MJWarp transfer primitives internal but central to the implementation:
@@ -30,12 +30,12 @@
   - expose `data.nworld` so users can tell when they are running batched GPU simulations
 
 ## Backend Internals
-- `MjoModel.from_xml_path(...)` in `mujoco_orbit_warp`:
+- `MjoModel.from_xml_path(...)` in `mjorbit_warp`:
   - compile a host `mujoco.MjModel`
   - resolve ids and static metadata from the host model
   - upload it with `mjw.put_model(host_model)`
   - store both `host_model` and `warp_model` on the wrapper
-- `MjoModel.make_data(...)` in `mujoco_orbit_warp`:
+- `MjoModel.make_data(...)` in `mjorbit_warp`:
   - call `mjw.make_data(host_model, nworld=nworld)` for fresh device allocations
   - create the wrapper `MjoData` object around that device state
 - `mjw.put_data(...)` role:
@@ -85,7 +85,7 @@
   - plugin-based sensor/actuator support
 
 ## Tests
-- Add `tests/mujoco_orbit_warp/`, guarded with `pytest.importorskip("mujoco_warp")`.
+- Add `tests/mjorbit_warp/`, guarded with `pytest.importorskip("mujoco_warp")`.
 - Cover:
   - `MjoModel.from_xml_path(...)` uploads with `put_model`
   - `model.make_data(..., nworld=1)` and `model.make_data(..., nworld>1)`
@@ -109,8 +109,8 @@
 
 ## Documentation Updates
 - Update `AGENTS.md` and `CLAUDE.md` to state:
-  - CPU backend lives in `src/mujoco_orbit`
-  - MJWarp backend lives in `src/mujoco_orbit_warp`
+  - CPU backend lives in `src/mjorbit`
+  - MJWarp backend lives in `src/mjorbit_warp`
   - backend selection is by import path
   - `model.make_data(...)` is the preferred runtime construction API
   - warp users specify parallel simulation count with `nworld`
@@ -122,7 +122,7 @@
   - warp batched `nworld=N` usage
 
 ## Assumptions And Defaults
-- Use `src/mujoco_orbit_warp`, not `src/mujoco_orbot_warp`.
+- Use `src/mjorbit_warp`, not `src/mujoco_orbot_warp`.
 - Keep `mujoco-warp` as an optional extra, not a core dependency.
 - Backend choice is explicit by import path, not hidden behind auto-detection.
 - `model.make_data(...)` becomes the preferred construction path across both backends.

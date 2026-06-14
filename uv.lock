@@ -676,6 +676,44 @@ wheels = [
 ]
 
 [[package]]
+name = "mjorbit"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "cvxpy" },
+    { name = "mujoco" },
+    { name = "numpy" },
+    { name = "pillow" },
+    { name = "scipy" },
+    { name = "trimesh" },
+    { name = "viser" },
+]
+
+[package.optional-dependencies]
+report = [
+    { name = "matplotlib" },
+    { name = "scipy" },
+]
+warp = [
+    { name = "mujoco-warp" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cvxpy", specifier = ">=1.7.5" },
+    { name = "matplotlib", marker = "extra == 'report'", specifier = ">=3.10.8" },
+    { name = "mujoco", specifier = ">=3.7,<3.8" },
+    { name = "mujoco-warp", marker = "extra == 'warp'", specifier = ">=3.6.0" },
+    { name = "numpy", specifier = ">=1.26,<2" },
+    { name = "pillow", specifier = ">=10.0" },
+    { name = "scipy", specifier = ">=1.11" },
+    { name = "scipy", marker = "extra == 'report'", specifier = ">=1.17.1" },
+    { name = "trimesh", specifier = ">=4.0" },
+    { name = "viser", specifier = ">=0.2.0" },
+]
+provides-extras = ["report", "warp"]
+
+[[package]]
 name = "msgspec"
 version = "0.21.1"
 source = { registry = "https://pypi.org/simple" }
@@ -723,44 +761,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/97/fa/a8698b7bb0168483845f8e492991ee5cf01695eb0d1f20ea7d8bf3d61344/mujoco-3.7.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:79f741d93e2b4f315f32e7199ab1b21eb7b7ed82acd9daf7be24382e436f98b7", size = 7201272, upload-time = "2026-04-14T12:50:15.264Z" },
     { url = "https://files.pythonhosted.org/packages/32/b9/96a06d51d1b8a13ce010642c5e9a1b83b2364d6c290c2aba2d8c515f9871/mujoco-3.7.0-cp312-cp312-win_amd64.whl", hash = "sha256:b0e31da299ff182d1063f9991ad21c21a8b086593b8dee588d19e910f2e49833", size = 5757244, upload-time = "2026-04-14T12:50:17.562Z" },
 ]
-
-[[package]]
-name = "mujoco-orbit"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "cvxpy" },
-    { name = "mujoco" },
-    { name = "numpy" },
-    { name = "pillow" },
-    { name = "scipy" },
-    { name = "trimesh" },
-    { name = "viser" },
-]
-
-[package.optional-dependencies]
-report = [
-    { name = "matplotlib" },
-    { name = "scipy" },
-]
-warp = [
-    { name = "mujoco-warp" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "cvxpy", specifier = ">=1.7.5" },
-    { name = "matplotlib", marker = "extra == 'report'", specifier = ">=3.10.8" },
-    { name = "mujoco", specifier = ">=3.7,<3.8" },
-    { name = "mujoco-warp", marker = "extra == 'warp'", specifier = ">=3.6.0" },
-    { name = "numpy", specifier = ">=1.26,<2" },
-    { name = "pillow", specifier = ">=10.0" },
-    { name = "scipy", specifier = ">=1.11" },
-    { name = "scipy", marker = "extra == 'report'", specifier = ">=1.17.1" },
-    { name = "trimesh", specifier = ">=4.0" },
-    { name = "viser", specifier = ">=0.2.0" },
-]
-provides-extras = ["report", "warp"]
 
 [[package]]
 name = "mujoco-warp"

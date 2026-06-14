@@ -1,4 +1,4 @@
-"""Diagnose passive two-arm joint mismatch between MuJoCo, mujoco_orbit, and Basilisk."""
+"""Diagnose passive two-arm joint mismatch between MuJoCo, mjorbit, and Basilisk."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from mujoco_orbit import MjoData, OrbitInit, mjo_forward
+from mjorbit import MjoData, OrbitInit, mjo_forward
 
 from .cases import (
     TWO_ARM_BODY_NAMES,
@@ -26,7 +26,7 @@ from .cases import (
     _normalized_quat,
     _quat_angle_errors,
     _quat_world_body_to_basilisk_mrp,
-    run_two_arm_free_drift_mujoco_orbit,
+    run_two_arm_free_drift_mjorbit,
 )
 from .common import (
     GM_EARTH,
@@ -54,7 +54,7 @@ def main() -> None:
         nargs="+",
         choices=("Euler", "RK4"),
         default=("Euler", "RK4"),
-        help="MuJoCo integrators to test on the mujoco_orbit/plain-MuJoCo legs.",
+        help="MuJoCo integrators to test on the mjorbit/plain-MuJoCo legs.",
     )
     args = parser.parse_args()
 
@@ -91,7 +91,7 @@ def main() -> None:
         "orbit_duration_s": args.orbit_duration,
         "basilisk_integrator": "rkf45",
         "local_bridge": local_summary,
-        "mujoco_orbit_integrator_sweep": orbit_summaries,
+        "mjorbit_integrator_sweep": orbit_summaries,
         "tidal_wrench_snapshot": wrench_summary,
     }
     write_json(ensure_out_dir() / "two_arm_joint_diagnostics_summary.json", payload)
@@ -159,7 +159,7 @@ def _run_mjorbit_integrator_diagnostic(
 ) -> list[dict[str, Any]]:
     summaries = []
     for mj_integrator in mj_integrators:
-        result = run_two_arm_free_drift_mujoco_orbit(
+        result = run_two_arm_free_drift_mjorbit(
             duration_s=duration_s,
             dt_s=dt_s,
             orbit_dt=dt_s,
@@ -171,7 +171,7 @@ def _run_mjorbit_integrator_diagnostic(
         summaries.append(
             {
                 "mj_integrator": mj_integrator,
-                "mujoco_orbit": {
+                "mjorbit": {
                     "final_hinge_1_rad": result.summary["final_hinge_1_rad"],
                     "final_hinge_2_rad": result.summary["final_hinge_2_rad"],
                     "max_abs_hinge_angle_rad": result.summary["max_abs_hinge_angle_rad"],
@@ -221,7 +221,7 @@ def _run_tidal_wrench_snapshot(*, dt_s: float) -> dict[str, Any]:
         )
     return {
         "description": (
-            "mujoco_orbit initial differential-gravity wrench versus "
+            "mjorbit initial differential-gravity wrench versus "
             "point-mass analytic value"
         ),
         "max_force_error_norm_n": float(np.max(force_errors)),
@@ -634,10 +634,10 @@ def _print_local_summary(summary: dict[str, Any]) -> None:
 
 def _print_orbit_summary(summaries: list[dict[str, Any]]) -> None:
     print()
-    print("mujoco_orbit integrator sweep against Basilisk RKF45")
+    print("mjorbit integrator sweep against Basilisk RKF45")
     for item in summaries:
         basilisk = item["basilisk"]
-        print(f"  mujoco_orbit integrator: {item['mj_integrator']}")
+        print(f"  mjorbit integrator: {item['mj_integrator']}")
         print(f"    Basilisk ran: {basilisk.get('ran')}")
         if basilisk.get("ran"):
             print(
@@ -656,7 +656,7 @@ def _print_orbit_summary(summaries: list[dict[str, Any]]) -> None:
 
 def _print_wrench_summary(summary: dict[str, Any]) -> None:
     print()
-    print("mujoco_orbit tidal-wrench snapshot")
+    print("mjorbit tidal-wrench snapshot")
     print(f"  max force error: {summary['max_force_error_norm_n']:.6e} N")
 
 

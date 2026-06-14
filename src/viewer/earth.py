@@ -23,7 +23,7 @@ import trimesh.visual.material
 import viser
 import viser.transforms as vtf
 
-from mujoco_orbit.constants import OMEGA_EARTH, R_EARTH
+from mjorbit.constants import OMEGA_EARTH, R_EARTH
 
 EARTH_TEXTURE_PATH = Path(__file__).parent / "assets" / "earth_day_2k.jpg"
 # Higher-resolution NASA Blue Marble (5400x2700) for banner-quality renders.

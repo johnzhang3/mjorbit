@@ -1,10 +1,10 @@
-#include "mujoco_orbit/runtime.h"
+#include "mjorbit/runtime.h"
 
 #include <cstddef>
 #include <stdexcept>
 
-#include "mujoco_orbit/orbit_cache.h"
-#include "mujoco_orbit/orbit_schedule.h"
+#include "mjorbit/orbit_cache.h"
+#include "mjorbit/orbit_schedule.h"
 
 extern "C" int mjo_rollout(
     const mjModel* m,
@@ -21,7 +21,7 @@ extern "C" int mjo_rollout(
     mjtNum* state,
     mjtNum* sensordata);
 
-namespace mujoco_orbit {
+namespace mjorbit {
 namespace {
 
 int mjo_state_tail_size(const MjoModel& model) {
@@ -145,4 +145,4 @@ int mjo_rollout_native(
       sensordata);
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

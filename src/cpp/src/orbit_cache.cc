@@ -1,11 +1,11 @@
-#include "mujoco_orbit/orbit_cache.h"
+#include "mjorbit/orbit_cache.h"
 
 #include <cstring>
 
-#include "mujoco_orbit/environment.h"
-#include "mujoco_orbit/lvlh.h"
+#include "mjorbit/environment.h"
+#include "mjorbit/lvlh.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 
 void refresh_orbit_caches(OrbitInstance* inst) {
   if (!inst) {
@@ -36,4 +36,4 @@ void refresh_orbit_caches(OrbitInstance* inst) {
   inst->eclipse = env.eclipse;
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

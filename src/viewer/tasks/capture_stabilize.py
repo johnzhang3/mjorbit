@@ -19,11 +19,11 @@ from pathlib import Path
 
 import numpy as np
 
-from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward
-from mujoco_orbit.constants import GM_EARTH, R_EARTH
-from mujoco_orbit.planning import MppiConfig, MppiPlanner
-from mujoco_orbit.rollout import mjo_get_state, mjo_set_state
-from mujoco_orbit.testdata import SPACECRAFT_CAPTURE_XML
+from mjorbit import MjoData, MjoModel, OrbitInit, mjo_forward
+from mjorbit.constants import GM_EARTH, R_EARTH
+from mjorbit.planning import MppiConfig, MppiPlanner
+from mjorbit.rollout import mjo_get_state, mjo_set_state
+from mjorbit.testdata import SPACECRAFT_CAPTURE_XML
 
 from .base import ViewerTask, build_rollout_traces, ui_field
 from .registry import register_task

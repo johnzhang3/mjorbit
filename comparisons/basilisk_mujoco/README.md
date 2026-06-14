@@ -1,6 +1,6 @@
 # Basilisk-MuJoCo Comparison Harness
 
-This folder contains opt-in comparisons between `mujoco_orbit` and
+This folder contains opt-in comparisons between `mjorbit` and
 Basilisk-MuJoCo-style scenarios. The goal is to separate frame/coupling
 questions from larger GN&C examples before reproducing the full paper cases.
 
@@ -10,7 +10,7 @@ Basilisk-MuJoCo reports body and site states in an inertial simulation frame
 that is J2000/ECI aligned. When Earth is the central body, the body free-joint
 position can be interpreted as an absolute Earth-centered inertial state.
 
-`mujoco_orbit` keeps MuJoCo `world` chief-centered but ECI aligned:
+`mjorbit` keeps MuJoCo `world` chief-centered but ECI aligned:
 
 ```text
 absolute ECI body state = chief OrbitInit/data.orbit state + MuJoCo world offset
@@ -48,7 +48,7 @@ pixi run compare-two-arm-eci-frame
 pixi run benchmark-basilisk-rollouts
 ```
 
-The scripts always run the `mujoco_orbit` leg and write summaries/samples to
+The scripts always run the `mjorbit` leg and write summaries/samples to
 `comparisons/basilisk_mujoco/out/`. That directory is ignored by git.
 
 Basilisk is not a default dependency. If `Basilisk.simulation.mujoco` is not
@@ -60,29 +60,29 @@ Basilisk inertial trajectories and joint states to the `.npz` outputs.
 The direct Basilisk runners accept `--basilisk-integrator` with `euler`, `rk2`,
 `rk4`, `rkf45`, or `rkf78`. `compare-basilisk-integrators` sweeps the
 single-body case over Euler and RKF45 by default. `benchmark-basilisk-rollouts`
-compares `mujoco_orbit.rollout(..., nthread=...)` against independent Basilisk
+compares `mjorbit.rollout(..., nthread=...)` against independent Basilisk
 `MJScene` simulations launched through a Python process pool; that is not a
 shared-model batch rollout API, so the summary JSON records this caveat.
 
 `compare-basilisk-matched-dt` is the fairer ECI-frame integrator stress test:
-`mujoco_orbit` uses `mj_timestep=0.1 s` and `orbit_dt=0.1 s`, while Basilisk
+`mjorbit` uses `mj_timestep=0.1 s` and `orbit_dt=0.1 s`, while Basilisk
 uses a `0.1 s` task period. It runs Basilisk Euler and RKF45 and reports both
 ECI position error and attitude error for a torque-free spinning body.
 
 `compare-basilisk-two-arm` extends that matched-step setup to a passive
 multibody satellite. It records hub attitude, hub/body-origin ECI positions,
-hinge angles/rates, and system COM, then compares the same `mujoco_orbit`
+hinge angles/rates, and system COM, then compares the same `mjorbit`
 trajectory against Basilisk RKF45. `--mj-integrator RK4` can be used to test
 whether MuJoCo's internal integrator is the mismatch source.
 
 `diagnose-basilisk-two-arm` runs shorter isolating experiments for the passive
 joint mismatch: plain MuJoCo versus Basilisk without gravity/orbit coupling,
-`mujoco_orbit` Euler versus RK4 against Basilisk RKF45, and a snapshot check of
-the analytic tidal wrench applied by `mujoco_orbit`.
+`mjorbit` Euler versus RK4 against Basilisk RKF45, and a snapshot check of
+the analytic tidal wrench applied by `mjorbit`.
 
 `compare-two-arm-eci-frame` removes Basilisk entirely. It runs the two-arm
 passive drift once in raw MuJoCo absolute ECI coordinates and once through
-`mujoco_orbit`'s chief-centered ECI-aligned world. The default raw ECI leg uses
+`mjorbit`'s chief-centered ECI-aligned world. The default raw ECI leg uses
 a MuJoCo passive callback so point-mass gravity is refreshed inside the MuJoCo
 dynamics evaluation; `--gravity-application xfrc` is also available to mirror
 the original `experiments/frame_study` applied-force loop exactly. Matching

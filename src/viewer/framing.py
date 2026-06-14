@@ -44,12 +44,13 @@ def distance_for_fill(
     """Camera distance at which a bounding sphere fills *fill* of the view.
 
     Derived from the camera intrinsics: a sphere of *radius* at distance d
-    subtends ``2 * atan(radius / d)``, so filling ``fill * fov`` of the
-    vertical field of view gives ``d = radius / tan(fill * fov / 2)``. The
+    subtends ``2 * asin(radius / d)`` (the tangent lines from the eye touch the
+    limb, so the half-angle is ``asin``, not ``atan``), so filling ``fill * fov``
+    of the vertical field of view gives ``d = radius / sin(fill * fov / 2)``. The
     distance is clamped to stay outside the bounding sphere itself.
     """
     radius = float(radius)
-    distance = radius / np.tan(0.5 * float(fill) * float(fov))
+    distance = radius / np.sin(0.5 * float(fill) * float(fov))
     return max(distance, 1.3 * radius)
 
 

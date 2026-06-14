@@ -1,4 +1,4 @@
-"""Benchmark mujoco_orbit batch rollouts against Basilisk independent runs."""
+"""Benchmark mjorbit batch rollouts against Basilisk independent runs."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from typing import Any
 
 import numpy as np
 
-from mujoco_orbit import MjoData, OrbitInit
-from mujoco_orbit.rollout import mjo_get_state, rollout
+from mjorbit import MjoData, OrbitInit
+from mjorbit.rollout import mjo_get_state, rollout
 
 from .cases import _earth_state_msg, _make_basilisk_integrator
 from .common import (
@@ -77,7 +77,7 @@ def main() -> None:
 
 
 def run_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
-    ours = _benchmark_mujoco_orbit(config)
+    ours = _benchmark_mjorbit(config)
     basilisk_available, basilisk_message = basilisk_mujoco_import_status()
     if basilisk_available:
         basilisk = _benchmark_basilisk_process_pool(config)
@@ -90,7 +90,7 @@ def run_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
     return {
         "case": "parallel_rollout_benchmark",
         "notes": [
-            "mujoco_orbit uses one compiled model, batched state arrays, and per-thread MjoData.",
+            "mjorbit uses one compiled model, batched state arrays, and per-thread MjoData.",
             "Basilisk uses independent MJScene simulations in a Python process pool.",
             "Basilisk timings include per-run SimulationBase/MJScene construction.",
             "Basilisk per-step COM recording is controlled by basilisk_record.",
@@ -105,12 +105,12 @@ def run_benchmark(config: BenchmarkConfig) -> dict[str, Any]:
             "basilisk_integrator": config.basilisk_integrator,
             "basilisk_record": config.basilisk_record,
         },
-        "mujoco_orbit": ours,
+        "mjorbit": ours,
         "basilisk": basilisk,
     }
 
 
-def _benchmark_mujoco_orbit(config: BenchmarkConfig) -> dict[str, Any]:
+def _benchmark_mjorbit(config: BenchmarkConfig) -> dict[str, Any]:
     orbit = make_circular_orbit()
     model = compile_mjorbit_model(
         SINGLE_BODY_XML,
@@ -150,7 +150,7 @@ def _benchmark_mujoco_orbit(config: BenchmarkConfig) -> dict[str, Any]:
         )
     return {
         "available": True,
-        "backend": "mujoco_orbit.rollout",
+        "backend": "mjorbit.rollout",
         "runs": runs,
     }
 
@@ -256,8 +256,8 @@ def _print_summary(summary: dict[str, Any]) -> None:
         f"dt={config['dt_s']:.6g} s"
     )
     print()
-    print("mujoco_orbit:")
-    for run in summary["mujoco_orbit"]["runs"]:
+    print("mjorbit:")
+    for run in summary["mjorbit"]["runs"]:
         print(
             f"  threads={run['threads']:>2}: {run['wall_s']:.6f} s, "
             f"{run['sim_steps_per_s']:.3e} sim-steps/s"

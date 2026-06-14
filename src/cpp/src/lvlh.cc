@@ -1,9 +1,9 @@
-#include "mujoco_orbit/lvlh.h"
+#include "mjorbit/lvlh.h"
 
-#include "mujoco_orbit/gravity.h"
-#include "mujoco_orbit/math_utils.h"
+#include "mjorbit/gravity.h"
+#include "mjorbit/math_utils.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 
 void update_frame_cache(
     const double R_eci[3],
@@ -97,4 +97,4 @@ void eci_to_lvlh_vel(
   detail::sub3(delta_v_lvlh, omega_cross_r, out_v_lvlh);
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

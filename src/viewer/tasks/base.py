@@ -25,8 +25,8 @@ from typing import Any, ClassVar
 
 import numpy as np
 
-from mujoco_orbit import MjoData, MjoModel
-from mujoco_orbit.constants import GM_EARTH, R_EARTH
+from mjorbit import MjoData, MjoModel
+from mjorbit.constants import GM_EARTH, R_EARTH
 
 #: Trace colors, judo-style: best rollout orange, the rest purple.
 TRACE_BEST_COLOR: tuple[int, int, int] = (255, 165, 60)

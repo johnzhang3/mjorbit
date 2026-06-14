@@ -1,4 +1,4 @@
-#include "mujoco_orbit/runtime.h"
+#include "mjorbit/runtime.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,12 +7,12 @@
 #include <stdexcept>
 #include <string>
 
-#include "mujoco_orbit/math_utils.h"
+#include "mjorbit/math_utils.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 namespace {
 
-constexpr char kPluginName[] = "mujoco_orbit.orbit";
+constexpr char kPluginName[] = "mjorbit.orbit";
 constexpr int kOrbitSensorKindSun = 1;
 constexpr int kOrbitSensorKindHorizon = 2;
 constexpr int kOrbitSensorKindStar = 3;
@@ -167,7 +167,7 @@ bool body_has_direct_orbit_plugin(const std::string& xml, std::size_t body_conte
 
 void ensure_extension_plugin(std::string* xml) {
   if (extension_has_orbit_plugin(*xml)) return;
-  const std::string plugin = "\n    <plugin plugin=\"mujoco_orbit.orbit\"/>\n";
+  const std::string plugin = "\n    <plugin plugin=\"mjorbit.orbit\"/>\n";
   const std::size_t extension_close = xml->find("</extension>");
   if (extension_close != std::string::npos) {
     xml->insert(extension_close, plugin);
@@ -185,7 +185,7 @@ void ensure_plugin_host(
     const std::optional<std::string>& plugin_body,
     bool use_j2) {
   const std::string plugin =
-      "\n      <plugin plugin=\"mujoco_orbit.orbit\">"
+      "\n      <plugin plugin=\"mjorbit.orbit\">"
       "<config key=\"use_j2\" value=\"" +
       std::string(use_j2 ? "true" : "false") + "\"/></plugin>\n";
   std::regex body_re(R"(<body\b[^>]*>)");
@@ -533,7 +533,7 @@ std::unique_ptr<MjoModel> MjoModel::FromSpecXml(
   const int plugin_body_id = resolve_plugin_body_id(model->model_, orbit);
   model->orbit_plugin_instance_ = model->model_->body_plugin[plugin_body_id];
   if (model->orbit_plugin_instance_ < 0) {
-    throw std::runtime_error("Failed to attach mujoco_orbit plugin to host body");
+    throw std::runtime_error("Failed to attach mjorbit plugin to host body");
   }
 
   resolve_config(orbit, model.get());
@@ -552,4 +552,4 @@ const SensorDescriptor& MjoModel::sensor(const std::string& name) const {
   return it->second;
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

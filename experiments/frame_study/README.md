@@ -2,7 +2,7 @@
 
 Self-contained Newton–Euler experiment for comparing orbital frame choices. The
 local simulator is a 6-DOF rigid-body propagator implemented in `run.py`; this
-experiment does **not** depend on MuJoCo or `mujoco_orbit`.
+experiment does **not** depend on MuJoCo or `mjorbit`.
 
 Three frame choices are compared:
 

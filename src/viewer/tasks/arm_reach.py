@@ -15,10 +15,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward
-from mujoco_orbit.planning import MppiConfig, MppiPlanner
-from mujoco_orbit.rollout import mjo_control_size
-from mujoco_orbit.testdata import SPACECRAFT_ARM_REACH_XML
+from mjorbit import MjoData, MjoModel, OrbitInit, mjo_forward
+from mjorbit.planning import MppiConfig, MppiPlanner
+from mjorbit.rollout import mjo_control_size
+from mjorbit.testdata import SPACECRAFT_ARM_REACH_XML
 
 from .base import ViewerTask, build_rollout_traces, circular_orbit_eci, ui_field
 from .registry import register_task

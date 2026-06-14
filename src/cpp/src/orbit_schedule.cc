@@ -1,12 +1,12 @@
-#include "mujoco_orbit/orbit_schedule.h"
+#include "mjorbit/orbit_schedule.h"
 
 #include <algorithm>
 
-#include "mujoco_orbit/math_utils.h"
-#include "mujoco_orbit/orbit_cache.h"
-#include "mujoco_orbit/propagator.h"
+#include "mjorbit/math_utils.h"
+#include "mjorbit/orbit_cache.h"
+#include "mjorbit/propagator.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 namespace {
 
 constexpr double kEps = 1.0e-12;
@@ -169,4 +169,4 @@ void advance_orbit_schedule(const mjModel* m, OrbitInstance* inst) {
   refresh_orbit_caches(inst);
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

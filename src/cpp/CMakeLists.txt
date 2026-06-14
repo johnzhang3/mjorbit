@@ -1,30 +1,30 @@
 cmake_minimum_required(VERSION 3.16)
-project(mujoco_orbit_plugin LANGUAGES CXX)
+project(mjorbit_plugin LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-option(MUJOCO_ORBIT_ENABLE_TSAN "Build C++ tests with ThreadSanitizer" OFF)
-option(MUJOCO_ORBIT_BUILD_TESTS "Build the C++ test executables" ON)
+option(MJORBIT_ENABLE_TSAN "Build C++ tests with ThreadSanitizer" OFF)
+option(MJORBIT_BUILD_TESTS "Build the C++ test executables" ON)
 
-if(MUJOCO_ORBIT_BUILD_TESTS)
+if(MJORBIT_BUILD_TESTS)
     enable_testing()
 endif()
 find_package(Threads REQUIRED)
 
-if(MUJOCO_ORBIT_ENABLE_TSAN)
+if(MJORBIT_ENABLE_TSAN)
     include(CheckCXXSourceCompiles)
     set(CMAKE_REQUIRED_FLAGS "-fsanitize=thread")
-    check_cxx_source_compiles("int main() { return 0; }" MUJOCO_ORBIT_TSAN_AVAILABLE)
+    check_cxx_source_compiles("int main() { return 0; }" MJORBIT_TSAN_AVAILABLE)
     unset(CMAKE_REQUIRED_FLAGS)
-    if(NOT MUJOCO_ORBIT_TSAN_AVAILABLE)
-        message(FATAL_ERROR "MUJOCO_ORBIT_ENABLE_TSAN=ON, but this compiler cannot link a ThreadSanitizer binary")
+    if(NOT MJORBIT_TSAN_AVAILABLE)
+        message(FATAL_ERROR "MJORBIT_ENABLE_TSAN=ON, but this compiler cannot link a ThreadSanitizer binary")
     endif()
 endif()
 
-function(mujoco_orbit_enable_tsan target)
-    if(NOT MUJOCO_ORBIT_ENABLE_TSAN)
+function(mjorbit_enable_tsan target)
+    if(NOT MJORBIT_ENABLE_TSAN)
         return()
     endif()
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
@@ -51,7 +51,7 @@ execute_process(
 if(NOT MUJOCO_QUERY_RESULT EQUAL 0)
     message(FATAL_ERROR "Failed to locate mujoco package via ${Python_EXECUTABLE}: ${MUJOCO_QUERY_ERROR}")
 endif()
-message(STATUS "mujoco_orbit: using mujoco from ${MUJOCO_PACKAGE_DIR}")
+message(STATUS "mjorbit: using mujoco from ${MUJOCO_PACKAGE_DIR}")
 
 set(MUJOCO_INCLUDE_DIR "${MUJOCO_PACKAGE_DIR}/include")
 if(NOT EXISTS "${MUJOCO_INCLUDE_DIR}/mujoco/mujoco.h")
@@ -71,7 +71,7 @@ if(NOT MUJOCO_LIBRARY_CANDIDATES)
 endif()
 list(SORT MUJOCO_LIBRARY_CANDIDATES)
 list(GET MUJOCO_LIBRARY_CANDIDATES 0 MUJOCO_LIBRARY)
-message(STATUS "mujoco_orbit: linking against ${MUJOCO_LIBRARY}")
+message(STATUS "mjorbit: linking against ${MUJOCO_LIBRARY}")
 get_filename_component(MUJOCO_LIBRARY_BASENAME "${MUJOCO_LIBRARY}" NAME)
 
 execute_process(
@@ -87,10 +87,10 @@ endif()
 find_package(nanobind CONFIG REQUIRED)
 
 if(APPLE)
-    set(MUJOCO_ORBIT_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR}")
-    set(MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH
+    set(MJORBIT_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR}")
+    set(MJORBIT_PLUGIN_INSTALL_RPATH
         "${MUJOCO_PACKAGE_DIR};@loader_path/../../mujoco;@loader_path/../mujoco")
-    set(MUJOCO_ORBIT_BINDINGS_INSTALL_RPATH
+    set(MJORBIT_BINDINGS_INSTALL_RPATH
         "${MUJOCO_PACKAGE_DIR};@loader_path/../mujoco;@loader_path/../../mujoco")
     execute_process(
         COMMAND otool -D "${MUJOCO_LIBRARY}"
@@ -117,32 +117,32 @@ if(APPLE)
     if(NOT DEFINED MUJOCO_DYLIB_ID)
         message(FATAL_ERROR "Could not parse MuJoCo dylib id from: ${MUJOCO_DYLIB_ID_OUTPUT}")
     endif()
-    message(STATUS "mujoco_orbit: MuJoCo dylib id is ${MUJOCO_DYLIB_ID}")
-    set(MUJOCO_ORBIT_MUJOCO_RUNTIME_NAME "${MUJOCO_LIBRARY}")
+    message(STATUS "mjorbit: MuJoCo dylib id is ${MUJOCO_DYLIB_ID}")
+    set(MJORBIT_MUJOCO_RUNTIME_NAME "${MUJOCO_LIBRARY}")
 elseif(UNIX)
-    set(MUJOCO_ORBIT_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR}")
-    set(MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH
+    set(MJORBIT_INSTALL_RPATH "${MUJOCO_PACKAGE_DIR}")
+    set(MJORBIT_PLUGIN_INSTALL_RPATH
         "${MUJOCO_PACKAGE_DIR};$ORIGIN/../../mujoco;$ORIGIN/../mujoco")
-    set(MUJOCO_ORBIT_BINDINGS_INSTALL_RPATH
+    set(MJORBIT_BINDINGS_INSTALL_RPATH
         "${MUJOCO_PACKAGE_DIR};$ORIGIN/../mujoco;$ORIGIN/../../mujoco")
 else()
-    set(MUJOCO_ORBIT_INSTALL_RPATH "")
-    set(MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH "")
-    set(MUJOCO_ORBIT_BINDINGS_INSTALL_RPATH "")
+    set(MJORBIT_INSTALL_RPATH "")
+    set(MJORBIT_PLUGIN_INSTALL_RPATH "")
+    set(MJORBIT_BINDINGS_INSTALL_RPATH "")
 endif()
 
-function(mujoco_orbit_fix_macos_mujoco_id target)
+function(mjorbit_fix_macos_mujoco_id target)
     if(NOT APPLE)
         return()
     endif()
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_INSTALL_NAME_TOOL}
             -change "${MUJOCO_DYLIB_ID}"
-                    "${MUJOCO_ORBIT_MUJOCO_RUNTIME_NAME}"
+                    "${MJORBIT_MUJOCO_RUNTIME_NAME}"
                     "$<TARGET_FILE:${target}>"
         COMMAND ${CMAKE_INSTALL_NAME_TOOL}
             -change "@rpath/${MUJOCO_LIBRARY_BASENAME}"
-                    "${MUJOCO_ORBIT_MUJOCO_RUNTIME_NAME}"
+                    "${MJORBIT_MUJOCO_RUNTIME_NAME}"
                     "$<TARGET_FILE:${target}>"
         COMMAND /usr/bin/codesign
             --force --sign - "$<TARGET_FILE:${target}>"
@@ -163,11 +163,11 @@ set(ORBIT_CORE_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/rollout.cc
 )
 
-add_library(mujoco_orbit_core STATIC
+add_library(mjorbit_core STATIC
     ${ORBIT_CORE_SOURCES}
 )
 
-target_include_directories(mujoco_orbit_core
+target_include_directories(mjorbit_core
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/plugin
@@ -175,41 +175,41 @@ target_include_directories(mujoco_orbit_core
         ${MUJOCO_INCLUDE_DIR}
 )
 
-target_link_libraries(mujoco_orbit_core PUBLIC ${MUJOCO_LIBRARY})
-mujoco_orbit_enable_tsan(mujoco_orbit_core)
-set_target_properties(mujoco_orbit_core PROPERTIES
+target_link_libraries(mjorbit_core PUBLIC ${MUJOCO_LIBRARY})
+mjorbit_enable_tsan(mjorbit_core)
+set_target_properties(mjorbit_core PROPERTIES
     BUILD_RPATH "${MUJOCO_PACKAGE_DIR}"
-    INSTALL_RPATH "${MUJOCO_ORBIT_INSTALL_RPATH}"
+    INSTALL_RPATH "${MJORBIT_INSTALL_RPATH}"
 )
 
-add_library(mujoco_orbit_plugin SHARED
+add_library(mjorbit_plugin SHARED
     plugin/orbit_plugin.cc
 )
 
-target_include_directories(mujoco_orbit_plugin
+target_include_directories(mjorbit_plugin
     PRIVATE
         ${MUJOCO_INCLUDE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/plugin
 )
 
-target_link_libraries(mujoco_orbit_plugin PRIVATE mujoco_orbit_core ${MUJOCO_LIBRARY})
-mujoco_orbit_enable_tsan(mujoco_orbit_plugin)
-mujoco_orbit_fix_macos_mujoco_id(mujoco_orbit_plugin)
-set_target_properties(mujoco_orbit_plugin PROPERTIES
+target_link_libraries(mjorbit_plugin PRIVATE mjorbit_core ${MUJOCO_LIBRARY})
+mjorbit_enable_tsan(mjorbit_plugin)
+mjorbit_fix_macos_mujoco_id(mjorbit_plugin)
+set_target_properties(mjorbit_plugin PROPERTIES
     PREFIX ""
-    OUTPUT_NAME "mujoco_orbit_plugin"
+    OUTPUT_NAME "mjorbit_plugin"
     BUILD_RPATH "${MUJOCO_PACKAGE_DIR}"
-    INSTALL_RPATH "${MUJOCO_ORBIT_PLUGIN_INSTALL_RPATH}"
+    INSTALL_RPATH "${MJORBIT_PLUGIN_INSTALL_RPATH}"
 )
 
 # scikit-build-core installs relative to the wheel root; land the .so inside the
-# Python package so it is shipped alongside mujoco_orbit.
-install(TARGETS mujoco_orbit_plugin
-    LIBRARY DESTINATION mujoco_orbit/plugins
+# Python package so it is shipped alongside mjorbit.
+install(TARGETS mjorbit_plugin
+    LIBRARY DESTINATION mjorbit/plugins
 )
 
-nanobind_add_module(mujoco_orbit_bindings
+nanobind_add_module(mjorbit_bindings
     bindings/module.cc
     src/runtime.cc
     src/runtime_model.cc
@@ -218,26 +218,26 @@ nanobind_add_module(mujoco_orbit_bindings
     src/runtime_state.cc
 )
 
-target_include_directories(mujoco_orbit_bindings
+target_include_directories(mjorbit_bindings
     PRIVATE
         ${MUJOCO_INCLUDE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/plugin
 )
-target_link_libraries(mujoco_orbit_bindings PRIVATE mujoco_orbit_core ${MUJOCO_LIBRARY})
-mujoco_orbit_fix_macos_mujoco_id(mujoco_orbit_bindings)
-set_target_properties(mujoco_orbit_bindings PROPERTIES
+target_link_libraries(mjorbit_bindings PRIVATE mjorbit_core ${MUJOCO_LIBRARY})
+mjorbit_fix_macos_mujoco_id(mjorbit_bindings)
+set_target_properties(mjorbit_bindings PROPERTIES
     OUTPUT_NAME "_bindings"
     BUILD_RPATH "${MUJOCO_PACKAGE_DIR}"
-    INSTALL_RPATH "${MUJOCO_ORBIT_BINDINGS_INSTALL_RPATH}"
+    INSTALL_RPATH "${MJORBIT_BINDINGS_INSTALL_RPATH}"
 )
-install(TARGETS mujoco_orbit_bindings
-    LIBRARY DESTINATION mujoco_orbit
+install(TARGETS mjorbit_bindings
+    LIBRARY DESTINATION mjorbit
 )
 
 if(APPLE)
     install(CODE "
-        file(GLOB _mjorbit_binding_paths \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/mujoco_orbit/_bindings*.so\")
+        file(GLOB _mjorbit_binding_paths \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/mjorbit/_bindings*.so\")
         foreach(_mjorbit_path IN LISTS _mjorbit_binding_paths)
             execute_process(COMMAND \"${CMAKE_INSTALL_NAME_TOOL}\"
                 -change \"@rpath/${MUJOCO_LIBRARY_BASENAME}\"
@@ -258,7 +258,7 @@ if(APPLE)
                 --force --sign - \"\${_mjorbit_path}\" ERROR_QUIET)
         endforeach()
 
-        file(GLOB _mjorbit_plugin_paths \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/mujoco_orbit/plugins/mujoco_orbit_plugin*.dylib\")
+        file(GLOB _mjorbit_plugin_paths \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/mjorbit/plugins/mjorbit_plugin*.dylib\")
         foreach(_mjorbit_path IN LISTS _mjorbit_plugin_paths)
             execute_process(COMMAND \"${CMAKE_INSTALL_NAME_TOOL}\"
                 -change \"@rpath/${MUJOCO_LIBRARY_BASENAME}\"
@@ -281,6 +281,6 @@ if(APPLE)
     ")
 endif()
 
-if(MUJOCO_ORBIT_BUILD_TESTS)
+if(MJORBIT_BUILD_TESTS)
     add_subdirectory(tests)
 endif()

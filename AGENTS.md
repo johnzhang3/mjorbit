@@ -1,33 +1,33 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-`src/mujoco_orbit/` is the stable CPU reference backend. `src/mujoco_orbit_warp/` is the
+`src/mjorbit/` is the stable CPU reference backend. `src/mjorbit_warp/` is the
 GPU-targeting MJWarp backend. Both expose MuJoCo-style model/data APIs, and users choose the
 backend by import path.
 
-- `src/mujoco_orbit/config.py` defines public `OrbitInit` and `*Spec` dataclasses.
-- `src/mujoco_orbit/model.py` defines the Python `MjoModel` wrapper.
-- `src/mujoco_orbit/data.py` defines the Python `MjoData` wrapper.
-- `src/mujoco_orbit/step.py` defines `mjo_forward` and `mjo_step`.
-- `src/mujoco_orbit/rollout.py` defines state and rollout helpers.
-- `src/mujoco_orbit/planning/` defines the spline-knot MPPI planner on the batched rollout.
+- `src/mjorbit/config.py` defines public `OrbitInit` and `*Spec` dataclasses.
+- `src/mjorbit/model.py` defines the Python `MjoModel` wrapper.
+- `src/mjorbit/data.py` defines the Python `MjoData` wrapper.
+- `src/mjorbit/step.py` defines `mjo_forward` and `mjo_step`.
+- `src/mjorbit/rollout.py` defines state and rollout helpers.
+- `src/mjorbit/planning/` defines the spline-knot MPPI planner on the batched rollout.
 - `src/cpp/` contains the language-neutral C++ core and MuJoCo plugin.
 - `src/cpp/src/runtime_model.cc` compiles XML and resolves model metadata.
 - `src/cpp/src/runtime.cc` owns per-`MjoData` allocation, reset, and frame conversions.
 - `src/cpp/src/runtime_sensors.cc` owns C++ sensor bias/noise measurement helpers.
 - `src/cpp/src/runtime_state.cc` owns stepping, state packing, and rollout calls.
 - `src/cpp/bindings/` contains the nanobind Python module.
-- `tests/mujoco_orbit/reference/orbit/` contains Python reference/analysis orbit helpers.
-- `tests/mujoco_orbit/reference/coupling/` contains Python reference/analysis coupling helpers.
-- `tests/mujoco_orbit/reference/sensors.py` contains Python reference sensor helpers.
-- `src/mujoco_orbit/testdata/` contains XML fixtures used by tests and examples.
-- `src/mujoco_orbit_warp/` contains the optional MJWarp runtime, sync wrappers, and step API.
+- `tests/mjorbit/reference/orbit/` contains Python reference/analysis orbit helpers.
+- `tests/mjorbit/reference/coupling/` contains Python reference/analysis coupling helpers.
+- `tests/mjorbit/reference/sensors.py` contains Python reference sensor helpers.
+- `src/mjorbit/testdata/` contains XML fixtures used by tests and examples.
+- `src/mjorbit_warp/` contains the optional MJWarp runtime, sync wrappers, and step API.
 - `src/viewer/` contains the browser viewer integration and the `mjo-viewer` task app
   (`pixi run viewer`); built-in tasks live in `src/viewer/tasks/`.
 - `examples/` contains small runnable demos of the public API.
 - `ISS/` is a separate top-level workspace for homework analysis, plots, and report material.
-- `tests/mujoco_orbit/` mirrors the production package; shared setup lives in `_helpers.py`.
-- `tests/mujoco_orbit_warp/` holds MJWarp tests; guard them with `pytest.importorskip`.
+- `tests/mjorbit/` mirrors the production package; shared setup lives in `_helpers.py`.
+- `tests/mjorbit_warp/` holds MJWarp tests; guard them with `pytest.importorskip`.
 
 ## Build, Test, and Development Commands
 Use `pixi` for environment management and command execution.
@@ -60,18 +60,18 @@ for new code. Avoid adding new `Scenario`, `compile`, `step`, or `*Cfg` surfaces
 user explicitly asks for a new compatibility wrapper.
 
 For warp work, preserve exact MuJoCo frame conventions and keep warp-specific code under
-`src/mujoco_orbit_warp/`. Backend choice should stay explicit by import path rather than by
+`src/mjorbit_warp/`. Backend choice should stay explicit by import path rather than by
 auto-detection. Warp users request batched parallel simulations with `model.make_data(..., nworld=N)`.
 
 ## Testing Guidelines
-Add tests in `tests/mujoco_orbit/test_*.py` or `tests/mujoco_orbit_warp/test_*.py` beside the
+Add tests in `tests/mjorbit/test_*.py` or `tests/mjorbit_warp/test_*.py` beside the
 subsystem you change. Prefer deterministic numeric assertions with `numpy.testing` or
 `pytest.approx`, and cover both nominal behavior and validation errors.
 
 If you touch the runtime API, stepping, sensors, or coupling code, update
-`tests/mujoco_orbit/test_api_model_data.py` and the relevant subsystem tests. Run
+`tests/mjorbit/test_api_model_data.py` and the relevant subsystem tests. Run
 `pixi run test` before submitting. If you touch warp code, add or update guarded tests in
-`tests/mujoco_orbit_warp/` as well. If you touch `ISS/` analysis scripts, run the affected
+`tests/mjorbit_warp/` as well. If you touch `ISS/` analysis scripts, run the affected
 script directly and keep generated plots or PDFs intentional.
 
 ## Commit & Pull Request Guidelines

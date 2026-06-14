@@ -1,14 +1,15 @@
-#include "mujoco_orbit/coupling.h"
+#include "mjorbit/coupling.h"
 
 #include <algorithm>
 #include <cmath>
 
 #include <mujoco/mujoco.h>
 
-#include "mujoco_orbit/gravity.h"
-#include "mujoco_orbit/math_utils.h"
+#include "mjorbit/environment.h"
+#include "mjorbit/gravity.h"
+#include "mjorbit/math_utils.h"
 
-namespace mujoco_orbit {
+namespace mjorbit {
 namespace {
 
 constexpr double kMToKm = 1.0e-3;
@@ -307,8 +308,12 @@ void apply_surface_wrenches(const mjModel* m, mjData* d, OrbitInstance* inst) {
       detail::scale3(v_rel_m_s, 1.0 / speed, v_hat);
       const double cos_angle = detail::dot3(n_world, v_hat);
       if (cos_angle > 0.0) {
+        // Evaluate density at this surface's own ECI position, not the chief's
+        // cached scalar, so bodies offset in altitude see the correct drag.
+        // Matches the Warp kernel and the Python reference.
+        const double rho_local = atm_density(r_point_eci_km, inst->central_body);
         const double projected_area = surface.area * cos_angle;
-        const double drag_scale = -0.5 * inst->atm_density * surface.drag_coeff *
+        const double drag_scale = -0.5 * rho_local * surface.drag_coeff *
                                   projected_area * speed * speed;
         double drag_force[3];
         detail::scale3(v_hat, drag_scale, drag_force);
@@ -316,14 +321,22 @@ void apply_surface_wrenches(const mjModel* m, mjData* d, OrbitInstance* inst) {
       }
     }
 
-    if (surface.use_srp && inst->use_srp && inst->eclipse > 0.0) {
+    if (surface.use_srp && inst->use_srp) {
       const double cos_sun = detail::dot3(n_world, inst->sun_vector_eci);
       if (cos_sun > 0.0) {
-        const double projected_area = surface.area * cos_sun;
-        const double srp_scale = -inst->eclipse * kPSun * surface.srp_coeff * projected_area;
-        double srp_force[3];
-        detail::scale3(inst->sun_vector_eci, srp_scale, srp_force);
-        detail::add3(total_force, srp_force, total_force);
+        // Evaluate the shadow at this surface's own ECI position, not the
+        // chief's cached scalar, so a formation straddling the terminator gets
+        // the correct per-surface SRP. Matches the Warp kernel and reference.
+        const double eclipse_local =
+            eclipse_factor(r_point_eci_km, inst->sun_vector_eci);
+        if (eclipse_local > 0.0) {
+          const double projected_area = surface.area * cos_sun;
+          const double srp_scale =
+              -eclipse_local * kPSun * surface.srp_coeff * projected_area;
+          double srp_force[3];
+          detail::scale3(inst->sun_vector_eci, srp_scale, srp_force);
+          detail::add3(total_force, srp_force, total_force);
+        }
       }
     }
 
@@ -678,4 +691,4 @@ void advance_actuators(const mjModel* m, OrbitInstance* inst) {
   advance_cmgs(m, inst);
 }
 
-}  // namespace mujoco_orbit
+}  // namespace mjorbit

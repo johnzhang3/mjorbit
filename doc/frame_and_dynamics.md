@@ -1,8 +1,8 @@
 # Frame Conventions and Equations of Motion
 
-This note documents the dynamics actually integrated by `mujoco_orbit`, the
+This note documents the dynamics actually integrated by `mjorbit`, the
 frame in which they live, and how the orbit-side propagator and MuJoCo's
-multibody solver are stitched together by the `mujoco_orbit.orbit` plugin.
+multibody solver are stitched together by the `mjorbit.orbit` plugin.
 
 ## Frames
 
@@ -103,7 +103,7 @@ evaluated at each body's position. The translational tidal effect (a.k.a. the
 "gravity gradient" force on a swarm of bodies) falls out automatically from
 the per-body `g(R_i) − g(R_c)` evaluation — there is no separate tidal-force
 correction. Empirically this reproduces Clohessy–Wiltshire to ~1 % (see
-`tests/mujoco_orbit/test_inertial_wrenches.py`).
+`tests/mjorbit/test_inertial_wrenches.py`).
 
 ### Why `apply_gravity_gradient_torques` is still needed
 
@@ -198,13 +198,13 @@ body-attitude for surface normals, surface position for torque arms.
 
 ## How Orbit and MuJoCo Are Stitched: the Plugin
 
-The integration is glued together by `mujoco_orbit.orbit`, a MuJoCo plugin
+The integration is glued together by `mjorbit.orbit`, a MuJoCo plugin
 declaring two capability hooks (`src/cpp/plugin/orbit_plugin.cc`):
 
 - `mjPLUGIN_PASSIVE` → `Compute(...)` callback,
 - per-step `Advance(...)` callback.
 
-`MjoModel.from_xml_path` injects `<extension><plugin plugin="mujoco_orbit.orbit"/></extension>`
+`MjoModel.from_xml_path` injects `<extension><plugin plugin="mjorbit.orbit"/></extension>`
 into the user's XML and attaches one plugin instance to a host body. It also
 sets `mj_model.opt.gravity[:] = 0.0` so that MuJoCo's built-in uniform
 gravity does *not* duplicate the gravity model.
@@ -231,7 +231,7 @@ Per-step lifecycle inside `mj_step`:
    3. `refresh_orbit_caches(inst)` — re-syncs cached frame/environment
       quantities at the new `R_c`.
 
-Python-side glue (`src/mujoco_orbit/core/step.py`) is intentionally thin:
+Python-side glue (`src/mjorbit/core/step.py`) is intentionally thin:
 
 ```python
 def mjo_step(model, data):
@@ -269,7 +269,7 @@ plugin → `qfrc_passive` → MuJoCo integrator.
 
 ## Validation
 
-`tests/mujoco_orbit/test_inertial_wrenches.py::TestCWLimit` integrates the
+`tests/mjorbit/test_inertial_wrenches.py::TestCWLimit` integrates the
 full coupled simulator from a CW initial condition and compares against the
 closed-form Clohessy–Wiltshire trajectory:
 

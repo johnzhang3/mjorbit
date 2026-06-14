@@ -27,9 +27,9 @@ from pathlib import Path
 import numpy as np
 from _orbit_reference import circular_orbit_eci
 
-from mujoco_orbit import MjoData, MjoModel, OrbitInit, mjo_forward
-from mujoco_orbit.constants import R_EARTH
-from mujoco_orbit.testdata import SPACECRAFT_DUAL_ARM_PANELS_XML
+from mjorbit import MjoData, MjoModel, OrbitInit, mjo_forward
+from mjorbit.constants import R_EARTH
+from mjorbit.testdata import SPACECRAFT_DUAL_ARM_PANELS_XML
 from viewer import MjOrbitMultiViewer
 
 
