@@ -126,9 +126,11 @@ def _gravity_gradient_torque(
     """Body gravity-gradient torque ``tau = 3 GM / r^3 * r_hat x (J r_hat)``.
 
     ``r_hat`` and ``ximat_target`` must be in the same frame; the returned torque
-    is in that frame. Pass r_hat in MuJoCo-world (LVLH for the Warp backend) and
-    ``ximat`` from MJWarp data, since ``ximat`` is world-from-principal-axes so
-    ``J = ximat @ diag(I) @ ximat^T`` directly. Inertia is in kg·m², r in km, GM
+    is in that frame. Pass r_hat in MuJoCo-world and ``ximat`` from MJWarp data.
+    For the Warp backend MuJoCo-world is the chief-centered, ECI-parallel inertial
+    frame (NOT LVLH) — the caller forms ``r_hat`` from ``R_chief + rho`` directly
+    with no LVLH rotation (see coupling.py). ``ximat`` is world-from-principal-axes
+    so ``J = ximat @ diag(I) @ ximat^T`` directly. Inertia is in kg·m², r in km, GM
     in km³/s², so the resulting torque is in N·m. Mirrors
     src/cpp/src/coupling_passive.cc:170.
     """

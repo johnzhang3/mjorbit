@@ -80,7 +80,7 @@ class MjoModel:
         reaction_wheels: Iterable[ReactionWheelSpec] = (),
         magnetorquers: Iterable[MagnetorquerSpec] = (),
         thrusters: Iterable[ThrusterSpec] = (),
-        mj_timestep: float | None = 0.01,
+        mj_timestep: float | None = None,
         orbit_dt: float | None = None,
         use_j2: bool | None = None,
         use_drag: bool | None = None,
@@ -90,9 +90,12 @@ class MjoModel:
     ) -> "MjoModel":
         """Compile the host model and upload an MJWarp device model.
 
-        The ``use_*`` flags and ``orbit_dt`` default to ``None``, meaning the
-        values parsed from the XML ``<mjorbit>`` element are kept (matching
-        the CPU backend); passing an explicit value overrides the XML.
+        ``mj_timestep``, the ``use_*`` flags, and ``orbit_dt`` default to
+        ``None``, meaning the values parsed from the XML (``<option timestep>``
+        and the ``<mjorbit>`` element) are kept, matching the CPU backend;
+        passing an explicit value overrides the XML. Defaulting ``mj_timestep``
+        to a fixed value here would silently re-time any model whose XML sets a
+        different ``<option timestep>`` and make CPU/warp trajectories diverge.
         """
         spec = MjoSpec.from_xml_path(xml_path)
         if use_j2 is not None:
