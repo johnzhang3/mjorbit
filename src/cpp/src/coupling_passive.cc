@@ -328,7 +328,7 @@ void apply_surface_wrenches(const mjModel* m, mjData* d, OrbitInstance* inst) {
         // chief's cached scalar, so a formation straddling the terminator gets
         // the correct per-surface SRP. Matches the Warp kernel and reference.
         const double eclipse_local =
-            eclipse_factor(r_point_eci_km, inst->sun_vector_eci);
+            eclipse_factor(r_point_eci_km, inst->sun_vector_eci, inst->central_body);
         if (eclipse_local > 0.0) {
           const double projected_area = surface.area * cos_sun;
           const double srp_scale =

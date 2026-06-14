@@ -26,8 +26,11 @@ the eclipse factor per surface.
 **Failure:** a formation spanning altitude or straddling the shadow terminator
 gets the wrong differential drag and wrong SRP, and the CPU and Warp backends
 silently disagree.
-**Fix:** evaluate `atm_density(r_point_eci_km)` and `eclipse_factor(r_point_eci_km,
-sun_hat)` per surface on the CPU path, matching the Warp kernel and reference.
+**Fix:** evaluate `atm_density(r_point_eci_km, central_body)` and
+`eclipse_factor(r_point_eci_km, sun_hat, central_body)` per surface on the CPU
+path, matching the Warp kernel and reference. Both calls pass `inst->central_body`
+(the central-body-aware overloads) so non-Earth occluder radii keep working, the
+way the chief's cached `eclipse`/`atm_density` were computed (per Codex review).
 
 ### P2 — Warp drops user `xfrc_applied` — **Documented (fix recommended, not landed)**
 `src/mjorbit_warp/device/kernels/coupling.py` (`_assemble_wrenches`) and
