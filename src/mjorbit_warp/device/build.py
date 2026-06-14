@@ -69,6 +69,13 @@ def make_device_core_model(model: Any) -> DeviceCoreModel:
     total_mass = float(np.sum(model.body_mass[1:]))
     central_body = model.central_body
 
+    # Normalize the dipole axis here (the CPU dipole_field_eci normalizes it too)
+    # so the device kernel can treat it as a unit moment direction.
+    mag_axis = np.asarray(central_body.magnetic_axis, dtype=np.float64)
+    mag_axis_norm = float(np.linalg.norm(mag_axis))
+    if mag_axis_norm > 0.0:
+        mag_axis = mag_axis / mag_axis_norm
+
     return DeviceCoreModel(
         body_mass=_array_f64(model.body_mass),
         body_ipos=_array_vec3d(model.body_ipos),
@@ -110,6 +117,11 @@ def make_device_core_model(model: Any) -> DeviceCoreModel:
         nmtq=len(magnetorquers),
         nthr=len(thrusters),
         total_mass=total_mass,
+        radius_km=float(central_body.radius),
+        magnetic_b0=float(central_body.magnetic_b0),
+        magnetic_axis=wp.vec3(
+            float(mag_axis[0]), float(mag_axis[1]), float(mag_axis[2])
+        ),
         atm_h0_km=float(central_body.atmosphere_h0),
         atm_rho0=float(central_body.atmosphere_rho0),
         atm_h_scale_km=float(central_body.atmosphere_scale_height),

@@ -26,6 +26,9 @@ def _refresh_core(
     atm_h0_km: wp.float32,
     atm_rho0: wp.float32,
     atm_h_scale_km: wp.float32,
+    radius_km: wp.float32,
+    magnetic_b0: wp.float32,
+    magnetic_axis: wp.vec3,
     orbit_R_eci: wp.array(dtype=wp.vec3),
     orbit_V_eci: wp.array(dtype=wp.vec3),
     orbit_t: wp.array(dtype=wp.float32),
@@ -48,20 +51,25 @@ def _refresh_core(
     frame_omega_lvlh[world_id] = omega_lvlh
     frame_omega_dot_lvlh[world_id] = omega_dot_lvlh
     env_sun_vector_eci[world_id] = sun_hat
-    env_eclipse[world_id] = _eclipse_factor(R, sun_hat)
-    env_mag_field_eci[world_id] = _dipole_field_eci(R)
+    env_eclipse[world_id] = _eclipse_factor(R, sun_hat, radius_km)
+    env_mag_field_eci[world_id] = _dipole_field_eci(R, magnetic_b0, magnetic_axis, radius_km)
     env_atmosphere_omega_eci[world_id] = wp.vec3(
         wp.float32(0.0),
         wp.float32(0.0),
         wp.float32(OMEGA_EARTH),
     )
-    env_atm_density[world_id] = _atm_density(R, atm_h0_km, atm_rho0, atm_h_scale_km)
+    env_atm_density[world_id] = _atm_density(
+        R, atm_h0_km, atm_rho0, atm_h_scale_km, radius_km
+    )
 @wp.kernel
 def _refresh_core_kernel(
     use_j2: int,
     atm_h0_km: wp.float32,
     atm_rho0: wp.float32,
     atm_h_scale_km: wp.float32,
+    radius_km: wp.float32,
+    magnetic_b0: wp.float32,
+    magnetic_axis: wp.vec3,
     orbit_R_eci: wp.array(dtype=wp.vec3),
     orbit_V_eci: wp.array(dtype=wp.vec3),
     orbit_t: wp.array(dtype=wp.float32),
@@ -86,6 +94,9 @@ def _refresh_core_kernel(
         atm_h0_km,
         atm_rho0,
         atm_h_scale_km,
+        radius_km,
+        magnetic_b0,
+        magnetic_axis,
         orbit_R_eci,
         orbit_V_eci,
         orbit_t,

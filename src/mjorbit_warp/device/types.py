@@ -56,6 +56,9 @@ class DeviceCoreModel:
     nmtq: int
     nthr: int
     total_mass: float
+    radius_km: float
+    magnetic_b0: float
+    magnetic_axis: Any  # normalized dipole-moment direction (wp.vec3)
     atm_h0_km: float
     atm_rho0: float
     atm_h_scale_km: float
