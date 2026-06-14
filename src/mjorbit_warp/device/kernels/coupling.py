@@ -66,6 +66,7 @@ def _assemble_wrenches(
     atm_h0_km: wp.float32,
     atm_rho0: wp.float32,
     atm_h_scale_km: wp.float32,
+    radius_km: wp.float32,
     orbit_R_eci: wp.array(dtype=wp.vec3),
     orbit_V_eci: wp.array(dtype=wp.vec3),
     frame_C_LI: wp.array(dtype=wp.mat33),
@@ -173,7 +174,9 @@ def _assemble_wrenches(
             v_hat = v_rel_m_s / speed
             cos_angle = wp.dot(n_world, v_hat)
             if cos_angle > zero64:
-                rho_local = _atm_density(r_point_eci_km, atm_h0_km, atm_rho0, atm_h_scale_km)
+                rho_local = _atm_density(
+                    r_point_eci_km, atm_h0_km, atm_rho0, atm_h_scale_km, radius_km
+                )
                 projected_area = surface_area[surface_id] * cos_angle
                 drag_scale = -wp.float32(0.5) * rho_local
                 drag_scale = drag_scale * surface_drag_coeff[surface_id]
@@ -183,7 +186,7 @@ def _assemble_wrenches(
         if surface_use_srp[surface_id] != 0 and use_srp != 0:
             cos_sun = wp.dot(n_world, sun_eci)
             if cos_sun > zero64:
-                eclipse_local = _eclipse_factor(r_point_eci_km, sun_eci)
+                eclipse_local = _eclipse_factor(r_point_eci_km, sun_eci, radius_km)
                 if eclipse_local > zero64:
                     projected_area = surface_area[surface_id] * cos_sun
                     srp_scale = -eclipse_local * wp.float32(P_SUN)

@@ -764,3 +764,109 @@ def test_cuda_graph_capture_replay_matches_uncaptured_step():
     np.testing.assert_allclose(
         np.asarray(cap.orbit.R_eci), np.asarray(ref.orbit.R_eci), atol=1e-6, rtol=0.0
     )
+
+
+def test_central_body_config_propagates_to_warp_device_core():
+    """radius / magnetic_b0 / magnetic_axis must reach the device core.
+
+    Before this fix the warp environment kernels hardcoded Earth's R_EARTH,
+    B0_EARTH, and dipole axis (0, 0, -1), so a non-default CentralBodySpec
+    silently produced Earth physics on the GPU (wrong eclipse radius, drag
+    altitude reference, dipole magnitude, and dipole direction). The axis is
+    normalized at upload time, mirroring the CPU dipole_field_eci.
+    """
+    from mjorbit.spec import CentralBodySpec, MjoSpec
+    from mjorbit_warp.core_gpu import make_device_core_model
+
+    default_core = make_device_core_model(
+        mjo_warp.MjoModel.from_xml_path(FREE_BODY_XML, mj_timestep=0.01).host_model
+    )
+    assert default_core.radius_km == pytest.approx(R_EARTH)
+
+    spec = MjoSpec.from_xml_path(FREE_BODY_XML)
+    custom = CentralBodySpec()
+    custom.radius = 6000.0
+    custom.magnetic_b0 = 5.0e-5
+    custom.magnetic_axis = (0.2, -0.1, -1.0)  # tilted and intentionally non-unit
+    spec.mjorbit.central_body = custom
+    core = make_device_core_model(spec.compile(mj_timestep=0.01))
+
+    assert core.radius_km == pytest.approx(6000.0)
+    assert core.magnetic_b0 == pytest.approx(5.0e-5)
+    axis = np.array([core.magnetic_axis[0], core.magnetic_axis[1], core.magnetic_axis[2]])
+    expected = np.array([0.2, -0.1, -1.0])
+    expected = expected / np.linalg.norm(expected)
+    np.testing.assert_allclose(axis, expected, atol=1e-6)
+
+
+def test_custom_central_body_step_matches_cpu_reference():
+    """CPU/warp parity with a NON-default central body + drag + magnetic torque.
+
+    A custom radius shifts the drag/eclipse altitude reference and the dipole
+    ``radius_ratio``; a custom ``magnetic_b0`` and tilted axis change the
+    B-field magnitude and direction. With the Earth constants formerly hardcoded
+    in the warp kernels, the GPU wrenches would diverge from the CPU reference
+    here, so this is the regression guard for that fix. Both backends are built
+    from one shared spec, guaranteeing identical configuration.
+    """
+    from mjorbit.spec import CentralBodySpec, MjoSpec
+
+    spec = MjoSpec.from_xml_path(FREE_BODY_XML)
+    custom = CentralBodySpec()
+    custom.radius = 6000.0
+    custom.magnetic_b0 = 5.0e-5
+    custom.magnetic_axis = (0.2, -0.1, -1.0)
+    # Atmosphere referenced near the test altitude so drag is well above the
+    # fp32 floor; with the radius bug the warp altitude would be wrong by
+    # (R_EARTH - 6000) km and the density off by orders of magnitude.
+    custom.atmosphere_h0 = 800.0
+    custom.atmosphere_rho0 = 1.0e-8
+    custom.atmosphere_scale_height = 58.2
+    spec.mjorbit.central_body = custom
+    spec.mjorbit.use_drag = True
+    spec.mjorbit.use_srp = True
+    spec.mjorbit.use_magnetic = True
+    spec.mjorbit.use_gravity_gradient = False
+    spec.mjorbit.add_surface(
+        mjo_cpu.SurfaceSpec(
+            body_name="spacecraft",
+            center_of_pressure_body=np.array([0.0, 0.0, 0.0]),
+            normal_body=np.array([1.0, 0.0, 0.0]),
+            area=5.0,
+        )
+    )
+    spec.mjorbit.add_magnetic_body(
+        mjo_cpu.MagneticBodySpec(
+            body_name="spacecraft",
+            dipole_body=np.array([0.6, -0.3, 0.4]),
+        )
+    )
+    cpu_model = spec.compile(mj_timestep=0.01)
+    warp_model = mjo_warp.MjoModel.from_host_model(cpu_model)
+
+    orbit = _orbit_init(450.0)
+    cpu_data = cpu_model.make_data(orbit=orbit)
+    warp_data = warp_model.make_data(orbit=_warp_orbit_init(orbit))
+
+    qpos = _normalize_quat([0.1, 0.2, -0.1, 0.98, 0.1, -0.15, 0.05])
+    qvel = np.array([0.02, 0.01, -0.01, 0.01, 0.02, 0.03])
+    cpu_data.qpos[:] = qpos
+    warp_data.qpos[:] = qpos
+    cpu_data.qvel[:] = qvel
+    warp_data.qvel[:] = qvel
+    _upload_warp_inputs(warp_model, warp_data)
+
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+    # Initial wrench parity isolates the environment kernels (drag + dipole)
+    # from any integration drift.
+    _assert_close(warp_data.wrench_buffer, cpu_data.wrench_buffer, atol=DERIVED_ATOL)
+
+    for _ in range(50):
+        mjo_cpu.mjo_step(cpu_model, cpu_data)
+        mjo_warp.mjo_step(warp_model, warp_data)
+
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+    _assert_single_world_state_matches(cpu_data, warp_data)
+    _assert_close(warp_data.wrench_buffer, cpu_data.wrench_buffer, atol=DERIVED_ATOL)
