@@ -23,6 +23,24 @@ from .types import DeviceCoreData, DeviceCoreModel
 def make_device_core_model(model: Any) -> DeviceCoreModel:
     """Upload static orbit/coupling metadata for a compiled CPU model."""
 
+    # Control moment gyros are not yet implemented on the device core: there is
+    # no CMG loop in _assemble_wrenches and no device advance_cmgs, so a
+    # CMG-equipped model would silently run with zero CMG gyroscopic/command
+    # torque and a frozen gimbal angle, diverging from the CPU backend
+    # (apply_cmg_wrenches / advance_cmgs in src/cpp/src/coupling_passive.cc).
+    # Fail loudly rather than silently mis-simulating until the device kernels
+    # land. The other actuators (reaction wheels, magnetorquers, thrusters) and
+    # surfaces are fully supported below.
+    cmgs = getattr(model, "cmgs", ())
+    if len(cmgs) > 0:
+        raise NotImplementedError(
+            f"The MJWarp backend does not yet implement control moment gyros "
+            f"(found {len(cmgs)} CMG(s) on the model). CMG gyroscopic and "
+            f"command torques and gimbal integration are CPU-only for now; use "
+            f"the mjorbit (CPU) backend for CMG-equipped models, or remove "
+            f"the CMGs to run on the GPU."
+        )
+
     empty_vec3 = np.zeros((0, 3), dtype=np.float64)
     empty_float = np.zeros(0, dtype=np.float64)
     empty_int = np.zeros(0, dtype=np.int32)
