@@ -870,3 +870,25 @@ def test_custom_central_body_step_matches_cpu_reference():
     _forward_and_pull_warp(warp_model, warp_data)
     _assert_single_world_state_matches(cpu_data, warp_data)
     _assert_close(warp_data.wrench_buffer, cpu_data.wrench_buffer, atol=DERIVED_ATOL)
+
+
+def test_warp_rejects_cmg_models_loudly():
+    """CMGs are not implemented on the device core, so a CMG-equipped model must
+    raise when uploaded to MJWarp rather than silently dropping the CMG
+    gyroscopic/command torque and freezing the gimbal angle (which would
+    diverge from the CPU backend with no error)."""
+    from mjorbit.spec import MjoSpec
+
+    spec = MjoSpec.from_xml_path(FREE_BODY_XML)
+    spec.mjorbit.add_cmg(
+        mjo_cpu.ControlMomentGyroSpec(
+            body_name="spacecraft",
+            gimbal_axis_body=np.array([0.0, 0.0, 1.0]),
+            spin_axis_body_0=np.array([1.0, 0.0, 0.0]),  # orthogonal to gimbal axis
+            rotor_momentum=0.05,
+        )
+    )
+    cpu_model = spec.compile(mj_timestep=0.01)
+
+    with pytest.raises(NotImplementedError, match="control moment gyro"):
+        mjo_warp.MjoModel.from_host_model(cpu_model)
