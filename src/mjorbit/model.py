@@ -17,11 +17,12 @@ class MjoModel:
     API that mjorbit supports directly.
     """
 
-    __slots__ = ("_mjorbit_warp_model", "_native", "_raw_xml")
+    __slots__ = ("_asset_dir", "_mjorbit_warp_model", "_native", "_raw_xml")
 
     def __init__(self, native: _bindings.MjoModel, *, raw_xml: str | None = None) -> None:
         self._native = native
         self._raw_xml = raw_xml
+        self._asset_dir = None
         self._mjorbit_warp_model = None
 
     @classmethod
@@ -40,6 +41,9 @@ class MjoModel:
             )
         from mjorbit.spec import MjoSpec
 
+        # MjoSpec.from_xml_path records the source dir; compile() carries it onto
+        # the model as _asset_dir so viewers can resolve relatively-referenced
+        # mesh/attach/include files.
         return MjoSpec.from_xml_path(xml_path).compile(mj_timestep=mj_timestep)
 
     def __getattr__(self, name: str) -> Any:

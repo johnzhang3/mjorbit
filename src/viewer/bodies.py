@@ -13,6 +13,9 @@ Follows the approach from judo/visualizers/model.py:
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import mujoco
 import numpy as np
 import trimesh
@@ -42,6 +45,25 @@ def _make_trimesh(geom_type: int, size: np.ndarray) -> trimesh.Trimesh | None:
             radius=float(size[0]), height=float(2.0 * size[1])
         )
     return None
+
+
+def _read_mesh_assets(raw_xml: str, asset_dir: str | None) -> dict[str, bytes]:
+    """Read mesh files referenced in ``raw_xml`` into a MuJoCo assets dict.
+
+    Keys are the exact ``file`` strings used in the XML; values are the file
+    bytes. Files are resolved relative to ``asset_dir`` (the model's source
+    directory). Missing files are skipped so compilation can surface the error.
+    """
+    if asset_dir is None:
+        return {}
+    base = Path(asset_dir)
+    assets: dict[str, bytes] = {}
+    for file_ref in re.findall(r'<mesh\b[^>]*\bfile="([^"]+)"', raw_xml):
+        candidate = Path(file_ref)
+        path = candidate if candidate.is_absolute() else base / candidate
+        if path.is_file():
+            assets[file_ref] = path.read_bytes()
+    return assets
 
 
 def _apply_color(mesh: trimesh.Trimesh, rgba: np.ndarray) -> None:
@@ -82,6 +104,14 @@ class MuJoCoScene:
         )
         self._body_frames: list[viser.FrameHandle] = []
         self._geom_handles: list[viser.SceneNodeHandle] = []
+        # Lazily-populated cache of geom_id -> (vertices, faces) for mesh geoms,
+        # in the geom's local frame (mesh scale already baked in by MuJoCo).
+        self._mesh_geometry: dict[int, tuple[np.ndarray, np.ndarray]] | None = None
+        # Lazily-compiled standalone mujoco.MjModel rebuilt from the model's raw
+        # XML, used to read geom attributes the native MjoModel bindings do not
+        # expose (mesh vertices, geom_group, geom_matid, mat_rgba). ``False``
+        # means "not attempted yet"; ``None`` means "attempted and unavailable".
+        self._source_model: mujoco.MjModel | None | bool = False
         self._build()
 
     def _build(self) -> None:
@@ -103,22 +133,46 @@ class MuJoCoScene:
 
     def _build_geom_meshes(self) -> None:
         mjm = self._mjm
+        # geom_group / geom_matid / mat_rgba are not on the native bindings, so
+        # read them from the rebuilt source model (same geom indexing) when it is
+        # available; degrade gracefully when it is not.
+        source = self._get_source_model()
         for geom_id in range(mjm.ngeom):
             body_id = int(mjm.geom_bodyid[geom_id])
             if body_id == 0:
                 continue
 
+            # Skip non-visual geoms (e.g. collision group 3); MuJoCo's default
+            # visualizer shows geom groups 0-2, so we mirror that and avoid
+            # drawing collision shells on top of the visual mesh.
+            if source is not None and int(source.geom_group[geom_id]) > 2:
+                continue
+
             body_name = mjm.body_name(body_id)
             geom_name = mjm.geom_name(geom_id)
 
-            mesh = _make_trimesh(
-                mjm.geom_type[geom_id],
-                self._scale * mjm.geom_size[geom_id],
-            )
+            if int(mjm.geom_type[geom_id]) == int(mujoco.mjtGeom.mjGEOM_MESH):
+                mesh = self._mesh_for_geom(geom_id)
+            else:
+                mesh = _make_trimesh(
+                    mjm.geom_type[geom_id],
+                    self._scale * mjm.geom_size[geom_id],
+                )
             if mesh is None:
                 continue
 
-            rgba = mjm.geom_rgba[geom_id].copy()
+            # Color: a geom's rgba is only meaningful when it has no material;
+            # if a material is assigned, MuJoCo renders with the material color
+            # (it does not fold it into geom_rgba), so resolve it via the source
+            # model. Fall back to the native geom_rgba when no source is available.
+            if source is not None:
+                matid = int(source.geom_matid[geom_id])
+                if matid >= 0:
+                    rgba = source.mat_rgba[matid].copy()
+                else:
+                    rgba = source.geom_rgba[geom_id].copy()
+            else:
+                rgba = mjm.geom_rgba[geom_id].copy()
             if rgba[3] == 0.0:
                 # Transparent fallback — use default grey
                 rgba = np.array([0.5, 0.5, 0.5, 1.0])
@@ -132,6 +186,96 @@ class MuJoCoScene:
                     wxyz=tuple(mjm.geom_quat[geom_id]),
                 )
             )
+
+    def _mesh_for_geom(self, geom_id: int) -> trimesh.Trimesh | None:
+        """Build a scaled trimesh for a MuJoCo mesh geom.
+
+        The native ``MjoModel`` bindings do not expose mesh vertex/face data, so
+        the geometry is recovered (once) by compiling a standalone
+        ``mujoco.MjModel`` from the model's raw XML and reading its mesh arrays.
+        Vertices are returned in the geom's local frame with the viewer's local
+        scene scale applied.
+        """
+        if self._mesh_geometry is None:
+            self._mesh_geometry = self._load_mesh_geometry()
+        entry = self._mesh_geometry.get(geom_id)
+        if entry is None:
+            return None
+        vertices, faces = entry
+        return trimesh.Trimesh(
+            vertices=self._scale * vertices,
+            faces=faces,
+            process=False,
+        )
+
+    def _get_source_model(self) -> mujoco.MjModel | None:
+        """Compile (once) a standalone ``mujoco.MjModel`` from the raw XML.
+
+        The native ``MjoModel`` bindings do not expose mesh vertex/face data,
+        geom groups, or material colors, so the viewer recovers them from a
+        vanilla MuJoCo model rebuilt from the model's source XML. Its geom
+        indexing matches the ``MjoModel``'s. Returns ``None`` if the XML or its
+        assets cannot be resolved.
+
+        The XML is written back to a temp file in its own asset directory and
+        compiled with ``from_xml_path`` so that *all* relative references —
+        meshes plus ``<attach>`` / ``<include>`` sub-model files — resolve from
+        disk. A flat ``from_xml_string`` asset dict cannot cover sub-model files.
+        """
+        if self._source_model is not False:
+            return self._source_model  # type: ignore[return-value]
+        self._source_model = None
+
+        mjm = self._mjm
+        raw_xml = getattr(mjm, "_raw_xml", None)
+        if not raw_xml:
+            return None
+        asset_dir = getattr(mjm, "_asset_dir", None)
+        try:
+            if asset_dir is not None:
+                import os
+                import tempfile
+
+                fd, tmp_path = tempfile.mkstemp(suffix=".xml", dir=asset_dir)
+                try:
+                    with os.fdopen(fd, "w") as handle:
+                        handle.write(raw_xml)
+                    self._source_model = mujoco.MjModel.from_xml_path(tmp_path)
+                finally:
+                    os.unlink(tmp_path)
+            else:
+                assets = _read_mesh_assets(raw_xml, asset_dir)
+                self._source_model = mujoco.MjModel.from_xml_string(raw_xml, assets)
+        except Exception:  # pragma: no cover - malformed/unresolvable assets
+            self._source_model = None
+        return self._source_model
+
+    def _load_mesh_geometry(self) -> dict[int, tuple[np.ndarray, np.ndarray]]:
+        """Extract mesh vertices/faces from the standalone source model.
+
+        Returns a mapping from geom_id (matching the MjoModel geom indexing) to
+        ``(vertices, faces)`` arrays in the geom's local frame. Empty if the raw
+        XML or asset files cannot be resolved.
+        """
+        source = self._get_source_model()
+        if source is None:
+            return {}
+
+        geometry: dict[int, tuple[np.ndarray, np.ndarray]] = {}
+        for geom_id in range(source.ngeom):
+            if int(source.geom_type[geom_id]) != int(mujoco.mjtGeom.mjGEOM_MESH):
+                continue
+            data_id = int(source.geom_dataid[geom_id])
+            if data_id < 0:
+                continue
+            vadr = int(source.mesh_vertadr[data_id])
+            vnum = int(source.mesh_vertnum[data_id])
+            fadr = int(source.mesh_faceadr[data_id])
+            fnum = int(source.mesh_facenum[data_id])
+            vertices = source.mesh_vert[vadr : vadr + vnum].reshape(-1, 3).astype(float)
+            faces = source.mesh_face[fadr : fadr + fnum].reshape(-1, 3).astype(np.int64)
+            geometry[geom_id] = (vertices, faces)
+        return geometry
 
     def set_scale(self, scale: float) -> None:
         self._scale = float(scale)

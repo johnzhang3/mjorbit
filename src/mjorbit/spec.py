@@ -353,15 +353,23 @@ class MjoOrbitSpec:
 class MjoSpec:
     """Editable mjorbit spec. Call ``compile()`` to create an immutable model."""
 
-    __slots__ = ("_native", "mjorbit")
+    __slots__ = ("_native", "_source_dir", "mjorbit")
 
     def __init__(self, native: Any) -> None:
         self._native = native
         self.mjorbit = MjoOrbitSpec(native)
+        # Directory the spec was loaded from, if any. Carried into the compiled
+        # model as ``_asset_dir`` so viewers can resolve relatively-referenced
+        # mesh/attach/include files. ``None`` for string-built specs.
+        self._source_dir: str | None = None
 
     @classmethod
     def from_xml_path(cls, path: str) -> "MjoSpec":
-        return cls(_native_call(_bindings.MjoSpec.from_xml_path, str(path)))
+        from pathlib import Path
+
+        spec = cls(_native_call(_bindings.MjoSpec.from_xml_path, str(path)))
+        spec._source_dir = str(Path(path).resolve().parent)
+        return spec
 
     @classmethod
     def from_xml_string(
@@ -385,13 +393,17 @@ class MjoSpec:
         return cls.from_xml_string(str(xml), assets=assets)
 
     def copy(self) -> "MjoSpec":
-        return MjoSpec(_native_call(self._native.copy))
+        spec = MjoSpec(_native_call(self._native.copy))
+        spec._source_dir = self._source_dir
+        return spec
 
     def compile(self, *, mj_timestep: float | None = None):
         from mjorbit.model import MjoModel
 
         native_model = _native_call(self._native.compile, mj_timestep)
-        return MjoModel(native_model, raw_xml=_raw_mujoco_xml(self.to_xml()))
+        model = MjoModel(native_model, raw_xml=_raw_mujoco_xml(self.to_xml()))
+        model._asset_dir = self._source_dir
+        return model
 
     def to_xml(self) -> str:
         return str(_native_call(self._native.to_xml))

@@ -1,0 +1,40 @@
+<mujoco model="ISS_lowpoly">
+  <default>
+    <default class="visual">
+      <geom group="2" type="mesh" contype="0" conaffinity="0" mass="0"/>
+    </default>
+    <default class="collision">
+      <geom group="3" type="mesh" mass="0"/>
+    </default>
+  </default>
+  <asset>
+    <material name="Brown" specular="0.5" shininess="0.2" rgba="0.372549 0.295429 0.160707 1.000000"/>
+    <material name="ISSDarkMetal" specular="0.5" shininess="0.01245731" rgba="0.109590 0.109590 0.109590 1.000000"/>
+    <material name="ISSGray2" specular="0.5" shininess="0.01245731" rgba="0.376715 0.376715 0.376715 1.000000"/>
+    <material name="ISSMetal1" specular="0.5" shininess="0.01245731" rgba="0.595895 0.595895 0.595895 1.000000"/>
+    <material name="ISSSolarPanels" specular="0.5" shininess="0.01245731" rgba="0.068157 0.036909 0.470588 1.000000"/>
+    <material name="ISSWhiteMetal" specular="0.5" shininess="0.01245731" rgba="0.876707 0.876707 0.876707 1.000000"/>
+    <mesh file="ISS_lowpoly_0.obj"/>
+    <mesh file="ISS_lowpoly_1.obj"/>
+    <mesh file="ISS_lowpoly_2.obj"/>
+    <mesh file="ISS_lowpoly_3.obj"/>
+    <mesh file="ISS_lowpoly_4.obj"/>
+    <mesh file="ISS_lowpoly_5.obj"/>
+  </asset>
+  <worldbody>
+    <body name="ISS_lowpoly">
+      <geom mesh="ISS_lowpoly_0" material="Brown" class="visual"/>
+      <geom mesh="ISS_lowpoly_1" material="ISSWhiteMetal" class="visual"/>
+      <geom mesh="ISS_lowpoly_2" material="ISSDarkMetal" class="visual"/>
+      <geom mesh="ISS_lowpoly_3" material="ISSMetal1" class="visual"/>
+      <geom mesh="ISS_lowpoly_4" material="ISSSolarPanels" class="visual"/>
+      <geom mesh="ISS_lowpoly_5" material="ISSGray2" class="visual"/>
+      <geom mesh="ISS_lowpoly_0" class="collision"/>
+      <geom mesh="ISS_lowpoly_1" class="collision"/>
+      <geom mesh="ISS_lowpoly_2" class="collision"/>
+      <geom mesh="ISS_lowpoly_3" class="collision"/>
+      <geom mesh="ISS_lowpoly_4" class="collision"/>
+      <geom mesh="ISS_lowpoly_5" class="collision"/>
+    </body>
+  </worldbody>
+</mujoco>
