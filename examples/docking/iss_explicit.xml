@@ -1,0 +1,129 @@
+<mujoco model="ISS_docking_explicit">
+  <compiler angle="radian"/>
+
+  <!-- Units: meters, kg (MuJoCo SI). Contact is disabled: the only coupling
+       between the two spacecraft is the conditional docking-port weld, which is
+       inactive during approach and activated at latch (recompile with
+       active="true" and transfer the packed mjo state, as in the capture demo).
+
+       Drop-in replacement for iss.xml: same bodies, joints, masses, inertias,
+       docking ports, weld, actuators, and sensors. The only difference is the
+       geometry — instead of one fused mesh per craft it pulls in the
+       material-subdivided ISS_lowpoly / Soyuz_lowpoly display models with
+       <attach>, so the different colored sections of each spacecraft are
+       visible. Those models declare their geoms with mass="0" (real mass and
+       inertia live on the iss_main / soyuz inertial elements below), so attaching
+       them is purely cosmetic and does not change the dynamics. The subdivided
+       meshes share the old single-mesh coordinate frame and scale (the ISS dock
+       port at x=-44.931 m still sits on the mesh's -x extent), so the hard-coded
+       docking-port and CoM offsets carry over unchanged. -->
+  <option timestep="0.01" gravity="0 0 0" integrator="implicitfast">
+    <flag contact="disable"/>
+  </option>
+
+  <asset>
+    <model name="iss_model" file="assets/ISS/ISS_lowpoly/ISS_lowpoly.xml"/>
+    <model name="soyuz_model" file="assets/Soyuz/Soyuz_lowpoly/Soyuz_lowpoly.xml"/>
+  </asset>
+
+  <worldbody>
+    <!-- ===================== ISS (target) ===================== -->
+    <body name="iss_main" pos="0 0 0" quat="0.7071 0 0 -0.7071">
+      <freejoint name="iss_free"/>
+      <inertial pos="0 0 0" mass="420000" diaginertia="1.4e8 1.0e8 2.0e8"/>
+      <!-- Colored ISS shell (massless display geometry, see note above). -->
+      <attach model="iss_model" body="ISS_lowpoly" prefix="iss_"/>
+
+      <!-- Docking port (ISS body frame): (-35.278, -4.1379, 0) m -->
+      <!-- Lowpoly: (-44.931, 0, 0)m-->
+      <body name="iss_dock_port" pos="-45.931 0.0 0.0"> <!-- added 1 m offset -->
+        <geom name="iss_dock_geom" type="sphere" size="0.25" rgba="1 0 0 1"
+              mass="0" contype="0" conaffinity="0"/>
+        <site name="iss_dock_site" pos="0 0 0" size="0.2" rgba="0 1 0 1"/>
+      </body>
+    </body>
+
+    <!-- ===================== Soyuz (chaser) ===================== -->
+    <!-- Placed so its docking port sits ~5 m from the ISS port along the
+         approach (-x) axis, +x face pointing toward the ISS. -->
+
+    <body name="soyuz" pos="0.0 53.033833 -1.37365" quat="0.7071 0 0 -0.7071">
+      <!-- CoM placed at the docking port (5.2267, 0.2358, -0.067) m in the
+           body/mesh frame, coincident with soyuz_dock_port below. Putting the
+           mass center on the port makes the controlled point the port itself,
+           and keeping the thrust site (below) on this CoM means the translation
+           thrusters produce pure translation of the port with no parasitic
+           torque about the mass center. -->
+      <freejoint name="soyuz_free"/>
+      <inertial pos="5.2267 0.2358 -0.067" mass="7000" diaginertia="1.0e4 3.0e4 3.0e4"/>
+      <!-- Colored Soyuz shell (massless display geometry, see note above). -->
+      <attach model="soyuz_model" body="Soyuz_lowpoly" prefix="soyuz_"/>
+
+      <!-- Control site at the CoM / docking port. Actuators reference this site
+           so their gear vectors act in the Soyuz body frame (force = body axes,
+           torque = body axes), giving a clean fully-actuated 6-DOF model. The
+           site sits on the inertial CoM (the docking port) so the translation
+           thrusters apply no parasitic torque about the mass center. -->
+      <site name="soyuz_com" pos="5.2267 0.2358 -0.067" size="0.1" rgba="0.2 0.6 1 0.5"/>
+
+      <!-- Docking port (Soyuz body frame): (-1.7743, 0.033833, 0.23575) m -->
+      <!-- Lowpoly: (5.2267, 0.2358, -0.067) m -->
+      <body name="soyuz_dock_port" pos="5.2267 0.2358 -0.067">
+        <geom name="soyuz_dock_geom" type="sphere" size="0.25" rgba="0 1 0 1"
+              mass="0" contype="0" conaffinity="0"/>
+        <site name="soyuz_dock_site" pos="0 0 0" size="0.2" rgba="0 1 0 1"/>
+      </body>
+    </body>
+  </worldbody>
+
+  <!-- Conditional docking port: weld the two port frames together. Inactive
+       during approach; when latched, soyuz_dock_port is pulled to coincide with
+       iss_dock_port (relpose identity). -->
+  <equality>
+    <weld name="dock_latch" body1="iss_dock_port" body2="soyuz_dock_port"
+          active="false"/>
+  </equality>
+
+  <!-- ===================== Soyuz actuation =====================
+       Simplified, fully-actuated stand-in for the Soyuz DPO/SKD reaction
+       control system. All actuators act through the soyuz_com site, so ctrl
+       is expressed directly in body-frame N (thrusters) and N*m (wheels).
+
+       Thrusters (DPO): the DPO-B approach thrusters produce ~130 N (13.3 kgf)
+       each; firing several per axis gives ~400 N of net translation authority,
+       which is representative of Soyuz docking maneuvers (the 2.95 kN SKD main
+       engine is not used at close range). Modeled as +/-400 N on each body
+       axis. Set forcelimited explicitly so the saturation is hard.
+
+       Reaction wheels / attitude: Soyuz controls attitude with DPO-M (~26.5 N)
+       and DPO-B thruster couples on ~1-2 m moment arms, yielding ~150 N*m of
+       control torque about each axis. Modeled here as ideal torque actuators
+       (i.e. reaction wheels) at +/-150 N*m so the model is fully actuated in
+       rotation without per-thruster bookkeeping. -->
+  <actuator>
+    <!-- Translation thrusters (body-frame force) -->
+    <motor name="thrust_x" site="soyuz_com" gear="1 0 0 0 0 0"
+           ctrlrange="-400 400" ctrllimited="true"/>
+    <motor name="thrust_y" site="soyuz_com" gear="0 1 0 0 0 0"
+           ctrlrange="-400 400" ctrllimited="true"/>
+    <motor name="thrust_z" site="soyuz_com" gear="0 0 1 0 0 0"
+           ctrlrange="-400 400" ctrllimited="true"/>
+
+    <!-- Reaction wheels (body-frame torque) -->
+    <motor name="wheel_x" site="soyuz_com" gear="0 0 0 1 0 0"
+           ctrlrange="-150 150" ctrllimited="true"/>
+    <motor name="wheel_y" site="soyuz_com" gear="0 0 0 0 1 0"
+           ctrlrange="-150 150" ctrllimited="true"/>
+    <motor name="wheel_z" site="soyuz_com" gear="0 0 0 0 0 1"
+           ctrlrange="-150 150" ctrllimited="true"/>
+  </actuator>
+
+  <sensor>
+    <framepos name="iss_port_pos" objtype="site" objname="iss_dock_site"/>
+    <framequat name="iss_port_quat" objtype="site" objname="iss_dock_site"/>
+    <framepos name="soyuz_port_pos" objtype="site" objname="soyuz_dock_site"/>
+    <framequat name="soyuz_port_quat" objtype="site" objname="soyuz_dock_site"/>
+    <framepos name="soyuz_port_rel" objtype="site" objname="soyuz_dock_site"
+              reftype="site" refname="iss_dock_site"/>
+  </sensor>
+</mujoco>

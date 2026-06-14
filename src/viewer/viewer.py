@@ -67,6 +67,10 @@ def _assert_socket_bindable(host: str, port: int) -> None:
     bind_host = host if host not in ("", "0.0.0.0") else "127.0.0.1"
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            # Match viser's server, which sets SO_REUSEADDR. Without this, a
+            # recently closed viewer leaves the port in TIME-WAIT (~60s) and the
+            # bind check spuriously fails even though viser could rebind fine.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((bind_host, port))
     except OSError as exc:
         raise RuntimeError(

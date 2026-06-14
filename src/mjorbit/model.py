@@ -17,11 +17,12 @@ class MjoModel:
     API that mjorbit supports directly.
     """
 
-    __slots__ = ("_mjorbit_warp_model", "_native", "_raw_xml")
+    __slots__ = ("_asset_dir", "_mjorbit_warp_model", "_native", "_raw_xml")
 
     def __init__(self, native: _bindings.MjoModel, *, raw_xml: str | None = None) -> None:
         self._native = native
         self._raw_xml = raw_xml
+        self._asset_dir = None
         self._mjorbit_warp_model = None
 
     @classmethod
@@ -38,9 +39,15 @@ class MjoModel:
                 "MjoModel.from_xml_path is XML-first; move orbit config into "
                 f"<mjorbit> instead of passing keyword(s): {names}"
             )
+        from pathlib import Path
+
         from mjorbit.spec import MjoSpec
 
-        return MjoSpec.from_xml_path(xml_path).compile(mj_timestep=mj_timestep)
+        model = MjoSpec.from_xml_path(xml_path).compile(mj_timestep=mj_timestep)
+        # Record the source directory so viewers can resolve mesh asset files
+        # (e.g. <mesh file="ISS.obj">) that are referenced relatively in the XML.
+        model._asset_dir = str(Path(xml_path).resolve().parent)
+        return model
 
     def __getattr__(self, name: str) -> Any:
         if name in {"mj_model", "mj_data"}:
