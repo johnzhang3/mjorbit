@@ -12,12 +12,22 @@ import pytest
 
 pytest.importorskip("mujoco_warp")
 
+import warp as wp
+
 import mjorbit as mjo_cpu
 import mjorbit_warp as mjo_warp
 from mjorbit.constants import R_EARTH
-from mjorbit.testdata import FREE_BODY_XML, SPACECRAFT_ARM_XML
+from mjorbit.testdata import (
+    FREE_BODY_XML,
+    SPACECRAFT_ARM_XML,
+    SPACECRAFT_BIMANUAL_PANELS_XML,
+)
 from tests.mjorbit._helpers import _xml_with_mjorbit as _cpu_xml_with_mjorbit
 from tests.mjorbit.reference.orbit.elements import keplerian_to_cartesian
+
+# CUDA-graph capture/replay needs a CUDA device; on a CPU-only Warp install the
+# graph tests are skipped rather than failed.
+_HAS_CUDA = any(getattr(d, "is_cuda", False) for d in wp.get_devices())
 
 # MJWarp runs in fp32 by default while the CPU mjorbit backend runs in fp64,
 # so cross-backend state divergence is dominated by accumulated fp32 round-off
@@ -623,3 +633,134 @@ def test_atmosphere_config_propagates_to_warp_device_core():
     custom_core = make_device_core_model(custom_host)
     assert custom_core.atm_h_scale_km == pytest.approx(30.0)
     assert custom_core.atm_h0_km == pytest.approx(350.0)
+
+
+def test_bimanual_panels_step_matches_cpu_reference():
+    """Full coupled parity for the bundled dual-arm bimanual+panels model.
+
+    This is the model ``examples/banner_viewer_gpu.py`` simulates on the GPU:
+    14 bodies, an articulated dual-arm tree, 4 position actuators, the
+    ``implicitfast`` integrator, and gravity-gradient torque ON. None of those
+    were exercised together in the existing parity suite (free body / 2-joint
+    arm). The XML self-describes its ``<mjorbit>`` block (J2/drag/SRP/magnetic
+    off, gravity_gradient on), so both backends load it directly with no
+    injected overlay — the same path the example and benchmarks use, and a
+    regression guard for the keep-XML ``use_*``/``mj_timestep`` defaults.
+
+    A tilted initial attitude plus chief-offset arms make the gravity-gradient
+    torque measurable, so an accidental gravity_gradient-off (or wrong frame)
+    on either backend would diverge the attitude and fail the xquat check.
+    """
+    orbit = _orbit_init(600.0)
+    cpu_model = mjo_cpu.MjoModel.from_xml_path(SPACECRAFT_BIMANUAL_PANELS_XML)
+    warp_model = mjo_warp.MjoModel.from_xml_path(SPACECRAFT_BIMANUAL_PANELS_XML)
+    cpu_data = cpu_model.make_data(orbit=orbit)
+    warp_data = warp_model.make_data(orbit=_warp_orbit_init(orbit))
+
+    nq, nv = int(cpu_model.nq), int(cpu_model.nv)
+    quat = np.array([0.98, 0.1, -0.15, 0.05])
+    quat /= np.linalg.norm(quat)
+    qpos = np.zeros(nq)
+    qpos[3:7] = quat
+    qpos[7:11] = np.array([-1.1, -0.9, 1.1, 0.9])  # bimanual arm stance
+    qvel = np.zeros(nv)
+    qvel[3:6] = np.array([0.02, -0.015, 0.01])  # body-frame spin
+    qvel[6:10] = np.array([0.05, -0.03, 0.04, -0.02])
+    ctrl = np.array([-1.0, -0.8, 1.0, 0.8])
+
+    for data in (cpu_data, warp_data):
+        data.qpos[:] = qpos
+        data.qvel[:] = qvel
+        data.ctrl[:] = ctrl
+    _upload_warp_inputs(warp_model, warp_data)
+
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+    _assert_single_world_state_matches(cpu_data, warp_data)
+
+    for _ in range(100):
+        mjo_cpu.mjo_step(cpu_model, cpu_data)
+        mjo_warp.mjo_step(warp_model, warp_data)
+
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+    _assert_single_world_state_matches(cpu_data, warp_data)
+    _assert_close(warp_data.ctrl, cpu_data.ctrl)
+    _assert_close(warp_data.actuator_force, cpu_data.actuator_force)
+
+
+@pytest.mark.skipif(not _HAS_CUDA, reason="CUDA-graph capture requires a CUDA device")
+def test_cuda_graph_capture_replay_matches_uncaptured_step():
+    """Replaying a CUDA-graph-captured ``mjo_step`` must match the plain loop.
+
+    This is the exact hot-loop construct every GPU example/benchmark depends on
+    (``wp.ScopedCapture`` around ``mjo_step``, then ``wp.capture_launch`` per
+    frame, with ``ctrl`` re-uploaded between launches) and it was previously
+    unverified. Two batched datas start from identical state and are warmed up
+    identically; one then advances with uncaptured ``mjo_step`` while the other
+    replays a captured graph. Both receive the SAME per-step, per-world ``ctrl``
+    sequence via ``mjo_upload(fields=("ctrl",))``. If capture were unsafe, or if
+    mid-loop ctrl uploads did not reach the captured graph, the replayed worlds
+    would diverge well beyond fp32 round-off.
+    """
+    orbit = _orbit_init(500.0)
+    model = mjo_warp.MjoModel.from_xml_path(
+        SPACECRAFT_ARM_XML,
+        mj_timestep=0.01,
+        use_j2=False,
+        use_drag=False,
+        use_srp=False,
+        use_magnetic=False,
+    )
+    nworld = 4
+    ref = model.make_data(orbit=_warp_orbit_init(orbit), nworld=nworld)
+    cap = model.make_data(orbit=_warp_orbit_init(orbit), nworld=nworld)
+
+    base_ctrl = np.tile(np.array([0.3, -0.2]), (nworld, 1))
+    for data in (ref, cap):
+        data.qpos[:] = 0.0
+        data.qpos[:, 3] = 1.0  # identity quaternion (w,x,y,z)
+        data.ctrl[:] = base_ctrl
+        _upload_warp_inputs(model, data)
+        mjo_warp.mjo_forward(model, data)
+
+    # Identical warmup so both datas sit at the same state before divergence.
+    for _ in range(4):
+        mjo_warp.mjo_step(model, ref)
+        mjo_warp.mjo_step(model, cap)
+    wp.synchronize()
+
+    # Capture records the kernel sequence without executing it; capture_launch
+    # replays it. The graph is bound to ``cap``'s device buffers, so re-uploaded
+    # ctrl lands in the same arrays the graph reads.
+    with wp.ScopedCapture() as capture:
+        mjo_warp.mjo_step(model, cap)
+    graph = capture.graph
+    wp.synchronize()
+
+    n_run = 20
+    for k in range(n_run):
+        # Distinct per-step, per-world control so a dropped upload is visible.
+        delta = 0.02 * np.sin(0.3 * k + np.arange(nworld))[:, None]
+        new_ctrl = base_ctrl + delta * np.array([1.0, -1.0])
+        ref.ctrl[:] = new_ctrl
+        mjo_warp.mjo_upload(model, ref, fields=("ctrl",))
+        mjo_warp.mjo_step(model, ref)
+
+        cap.ctrl[:] = new_ctrl
+        mjo_warp.mjo_upload(model, cap, fields=("ctrl",))
+        wp.capture_launch(graph)
+    wp.synchronize()
+
+    mjo_warp.mjo_pull(model, ref)
+    mjo_warp.mjo_pull(model, cap)
+
+    # Same kernels on the same device with the same inputs: agreement is at the
+    # fp32 floor, far tighter than the CPU/warp cross-backend tolerance.
+    np.testing.assert_allclose(np.asarray(cap.qpos), np.asarray(ref.qpos), atol=1e-5, rtol=0.0)
+    np.testing.assert_allclose(np.asarray(cap.qvel), np.asarray(ref.qvel), atol=1e-5, rtol=0.0)
+    np.testing.assert_allclose(np.asarray(cap.xpos), np.asarray(ref.xpos), atol=1e-5, rtol=0.0)
+    np.testing.assert_allclose(np.asarray(cap.xquat), np.asarray(ref.xquat), atol=1e-5, rtol=0.0)
+    np.testing.assert_allclose(
+        np.asarray(cap.orbit.R_eci), np.asarray(ref.orbit.R_eci), atol=1e-6, rtol=0.0
+    )
