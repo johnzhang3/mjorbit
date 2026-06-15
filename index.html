@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>mjorbit: A Simulation Framework for Space Robotics</title>
+  <meta name="description" content="mjorbit is an orbit-aware MuJoCo simulator for contact-rich space robotics — coupling orbital dynamics and environmental perturbations with articulated multibody contact, on CPU and GPU." />
+
+  <!-- Social cards -->
+  <meta property="og:title" content="mjorbit: A Simulation Framework for Space Robotics" />
+  <meta property="og:description" content="An orbit-aware MuJoCo simulator for contact-rich space robotics, with low-latency CPU and high-throughput GPU backends behind one Python API." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://johnzhang3.github.io/mjorbit/" />
+  <meta property="og:image" content="https://johnzhang3.github.io/mjorbit/assets/images/banner.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='9' fill='none' stroke='%238c1a1a' stroke-width='2.5'/><circle cx='25' cy='9' r='3.2' fill='%238c1a1a'/></svg>" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- TABLE OF CONTENTS -->
+  <nav class="toc">
+    <h3>mjorbit</h3>
+    <hr />
+    <ul>
+      <li><a href="#abstract">Abstract</a></li>
+      <li><a href="#approach">Approach</a></li>
+      <li><a href="#examples">Examples</a></li>
+      <li><a href="#accuracy">Long-Horizon Accuracy</a></li>
+      <li><a href="#performance">Performance</a></li>
+      <li><a href="#compare">How It Compares</a></li>
+      <li><a href="#bibtex">BibTeX</a></li>
+    </ul>
+  </nav>
+
+  <!-- HERO -->
+  <header class="full-page-image" id="hero">
+    <!-- The banner shows as the header background. Drop a reel at
+         assets/videos/hero.mp4 and it fades in on top automatically. -->
+    <video id="bg-video" preload="auto" autoplay muted playsinline loop>
+      <source src="assets/videos/hero.mp4" type="video/mp4" />
+    </video>
+    <div class="overlay"></div>
+    <div class="bottom-overlay">
+      <h1><span class="brand">mjorbit</span><br />A Simulation Framework for Space Robotics
+        <span class="hero-sub">Orbit-aware MuJoCo for contact-rich on-orbit manipulation &mdash; on CPU and GPU.</span>
+      </h1>
+    </div>
+    <div class="scroll-indicator" onclick="scrollToContent()">&#8595;</div>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <main class="main-content">
+
+    <div class="sub-hero-text"><span class="brand">mjorbit</span>: A Simulation Framework for Space Robotics</div>
+
+    <!-- AUTHORS -->
+    <div class="authors">
+      <a href="https://johnzhang3.github.io/" target="_blank" rel="noopener noreferrer">John Z. Zhang</a><sup>1</sup>,
+      Joris Verhagen<sup>1,2</sup>,
+      Fausto Vega<sup>1</sup>,
+      Patrick McKeen<sup>1</sup>,
+      and <a href="https://roboticexplorationlab.org/" target="_blank" rel="noopener noreferrer">Zachary Manchester</a><sup>1</sup>
+      <div class="affiliation">
+        <sup>1</sup>&nbsp;Dept. of Aeronautics &amp; Astronautics, MIT&nbsp;&nbsp;&nbsp;&nbsp;<sup>2</sup>&nbsp;KTH Royal Institute of Technology
+      </div>
+      <div class="author-note">Correspondence: <a href="mailto:jzhang3@mit.edu">jzhang3@mit.edu</a></div>
+    </div>
+
+    <!-- QUICK LINKS -->
+    <div class="quick-links">
+      <a class="disabled" title="Preprint coming soon">[arXiv]</a>
+      <a href="https://github.com/johnzhang3/mjorbit" target="_blank" rel="noopener noreferrer">[code]</a>
+      <a class="disabled" title="Video coming soon">[video]</a>
+    </div>
+
+    <!-- TEASER -->
+    <div class="teaser">
+      <img src="assets/images/banner.png" alt="Thousands of bi-manual satellite robots in low-Earth orbit, simulated on a single GPU." />
+      <p class="figure-caption" style="text-align:center;max-width:900px;">Thousands of bi-manual satellite robots in low-Earth orbit, simulated in parallel on a single GPU with <span style="color:var(--brand);font-weight:700;">mjorbit</span>.</p>
+    </div>
+
+    <!-- ABSTRACT -->
+    <div class="tagline" id="abstract">Abstract</div>
+    <div class="section">
+      <p>
+        This paper presents a general framework for simulating multi-body space robots with contact.
+        Motivated by the increasing demand for on-orbit manipulation, we aim to bring efficient, large-scale
+        robot simulation to space applications. First, we empirically analyze common design choices and their
+        trade-offs when coupling orbit propagation with existing robotics simulation frameworks. Next, we
+        present <span style="color:var(--brand);font-weight:700;font-family:'Roboto Mono',monospace;">mjorbit</span>,
+        a general, flexible, and performant simulation framework based on the MuJoCo simulation engine commonly
+        used in robotics, while modeling key spacecraft dynamics, actuators, and sensors. We provide two
+        implementations of mjorbit: a low-latency C++ implementation on the CPU, and a high-throughput
+        GPU-accelerated implementation. Both variants can be accessed through a simple Python API. We demonstrate
+        mjorbit by solving several realistic space-manipulation case studies with both real-time
+        model-predictive control and reinforcement learning. Open-source code and examples are available
+        <a href="https://github.com/johnzhang3/mjorbit" target="_blank" rel="noopener noreferrer">on GitHub</a>.
+      </p>
+    </div>
+
+    <!-- APPROACH -->
+    <div class="tagline" id="approach">Approach</div>
+    <div class="section">
+      <p>
+        <span style="color:var(--brand);font-weight:700;font-family:'Roboto Mono',monospace;">mjorbit</span>
+        extends MuJoCo with orbital state, spacecraft actuators and sensors, and passive environment forces and
+        torques, while keeping MuJoCo's articulated-body dynamics, contact solver, and MJCF modeling workflow.
+        The reference orbit <code>(R, V)</code> is propagated in an Earth-centered inertial frame, while MuJoCo
+        runs in an <em>orbit-following</em> world frame whose origin tracks the reference orbit and whose axes
+        stay parallel to ECI. This single design choice &mdash; the orbit-following frame combined with a
+        cancellation-resistant (Encke) formulation of differential gravity &mdash; is what keeps long-horizon
+        physics accurate even in single precision on the GPU.
+      </p>
+      <p>
+        Each <code>mjo_step</code> projects per-body wrenches (differential gravity, J<sub>2</sub>, atmospheric
+        drag, solar radiation pressure, gravity-gradient, magnetic, and actuator torques) into MuJoCo's
+        generalized forces, lets MuJoCo solve the constrained multibody dynamics, then advances the actuator and
+        orbit states and refreshes the environment caches. The CPU backend runs this as a MuJoCo engine plugin
+        for low-latency control; the GPU backend (<span style="font-family:'Roboto Mono',monospace;">mjorbit-warp</span>)
+        realizes the identical pipeline as fused MJWarp kernels for massively parallel rollouts. Both share one
+        Python API.
+      </p>
+
+      <div class="figure wide">
+        <img src="assets/images/pipeline.png" alt="mjorbit software pipeline diagram" />
+        <p class="figure-caption"><b>Software pipeline, shared by the CPU and GPU backends.</b> Spacecraft MJCF and actuator, sensor, and environment configs are composed into an editable <code>MjoSpec</code>, compiled into a shared <code>MjoModel</code>, and instantiated as one or more independent <code>MjoData</code> states, each seeded with a reference-orbit state. Each <code>mjo_step</code> projects body wrenches into MuJoCo's generalized forces, advances the contact dynamics, propagates the actuator and orbit states, and refreshes the environment caches for the next step.</p>
+      </div>
+
+      <p class="subhead">Minimal example</p>
+      <div class="code-card">
+        <div class="code-head">coupled orbit + rigid-body dynamics &mdash; a circular 400&nbsp;km LEO orbit</div>
+<pre><code><span class="k">import</span> <span class="n">numpy</span> <span class="k">as</span> <span class="n">np</span>
+
+<span class="k">from</span> <span class="n">mujoco_orbit</span> <span class="k">import</span> MjoModel, OrbitInit, mjo_step
+<span class="k">from</span> <span class="n">mujoco_orbit.constants</span> <span class="k">import</span> GM_EARTH, R_EARTH
+<span class="k">from</span> <span class="n">mujoco_orbit.testdata</span> <span class="k">import</span> FREE_BODY_XML
+
+<span class="c"># Circular LEO orbit at 400 km altitude.</span>
+radius_km  = R_EARTH + <span class="s">400.0</span>
+speed_km_s = np.sqrt(GM_EARTH / radius_km)
+orbit = OrbitInit(
+    R_eci=[radius_km, <span class="s">0.0</span>, <span class="s">0.0</span>],
+    V_eci=[<span class="s">0.0</span>, speed_km_s, <span class="s">0.0</span>],
+)
+
+<span class="c"># Compile model from MJCF; allocate per-rollout data.</span>
+model = MjoModel.from_xml_path(FREE_BODY_XML, mj_timestep=<span class="s">0.01</span>)
+data  = model.make_data(orbit=orbit)
+
+<span class="c"># Step the coupled orbit and rigid-body dynamics.</span>
+mjo_step(model, data)
+<span class="k">print</span>(data.time, data.qpos[:<span class="s">3</span>])</code></pre>
+      </div>
+    </div>
+
+    <!-- EXAMPLES -->
+    <div class="tagline" id="examples">Examples</div>
+    <div class="section" style="margin-bottom:18px;">
+      <p>
+        We demonstrate mjorbit on four on-orbit scenarios that exercise both the low-latency CPU backend for
+        real-time control and the GPU backend for large-scale reinforcement learning. Interactive browser demos
+        ship with the code (<code>pixi run viewer</code>); rendered videos of each scenario are coming soon.
+      </p>
+    </div>
+    <div class="example-grid">
+
+      <div class="example">
+        <div class="video-frame" style="background-image:url('assets/posters/attitude_control.svg')">
+          <span class="badge">video coming soon</span>
+          <video muted playsinline loop preload="none">
+            <source src="assets/videos/attitude_control.mp4" type="video/mp4" />
+          </video>
+        </div>
+        <h4>(a) Multibody Attitude Control <span class="tag">&middot; CPU</span></h4>
+        <p>A multibody spacecraft regulates its attitude under orbital disturbances, using momentum-exchange actuators to reject gravity-gradient and aerodynamic torques while tracking a commanded pointing direction over several orbits.</p>
+      </div>
+
+      <div class="example">
+        <div class="video-frame" style="background-image:url('assets/posters/autonomous_docking.svg')">
+          <span class="badge">video coming soon</span>
+          <video muted playsinline loop preload="none">
+            <source src="assets/videos/autonomous_docking.mp4" type="video/mp4" />
+          </video>
+        </div>
+        <h4>(b) Autonomous Docking <span class="tag">&middot; CPU / MPPI</span></h4>
+        <p>A chaser spacecraft autonomously docks with a large target station. A sampling-based MPC (MPPI) commands body thrusters and reaction wheels over a receding horizon to drive the relative position and attitude of the two docking ports to zero before latching &mdash; running in closed loop at control rates.</p>
+      </div>
+
+      <div class="example">
+        <div class="video-frame" style="background-image:url('assets/posters/grasping_gravity_gradient.svg')">
+          <span class="badge">video coming soon</span>
+          <video muted playsinline loop preload="none">
+            <source src="assets/videos/grasping_gravity_gradient.mp4" type="video/mp4" />
+          </video>
+        </div>
+        <h4>(c) Grasping under Gravity Gradient <span class="tag">&middot; CPU / MPPI</span></h4>
+        <p>A free-floating servicer with a two-link arm captures a nearby drifting payload, then stabilizes the combined stack about the local vertical. With no dedicated attitude actuators, an MPPI planner over a multi-minute horizon exploits the passive gravity-gradient torque and slow arm motions to damp the libration.</p>
+      </div>
+
+      <div class="example">
+        <div class="video-frame" style="background-image:url('assets/posters/rl_truss_pointing.svg')">
+          <span class="badge">video coming soon</span>
+          <video muted playsinline loop preload="none">
+            <source src="assets/videos/rl_truss_pointing.mp4" type="video/mp4" />
+          </video>
+        </div>
+        <h4>(d) Reinforcement Learning for Truss Pointing <span class="tag">&middot; GPU / PPO</span></h4>
+        <p>A policy trained with PPO on the GPU backend across many parallel worlds slews a grasped truss to nadir and holds it as the rotating local-vertical frame carries it around the orbit &mdash; learning to swing the payload into the gravity-gradient well rather than fighting the environment.</p>
+      </div>
+
+    </div>
+
+    <!-- LONG-HORIZON ACCURACY -->
+    <div class="tagline" id="accuracy">Long-Horizon Accuracy</div>
+    <div class="section">
+      <p>
+        A common shortcut for space robotics is to simply disable gravity in an off-the-shelf rigid-body engine.
+        This is fine over seconds, but over an orbit the missing differential gravity changes the answer
+        qualitatively. We also study how the choice of multibody world frame and integrator interacts with
+        floating-point precision &mdash; the regime that matters for single-precision GPU simulation.
+      </p>
+      <div class="figure-row">
+        <div class="figure">
+          <img src="assets/images/zero_g_comparison.png" alt="Cross-track position: orbit-coupled vs zero-gravity baseline." />
+          <p class="figure-caption"><b>Orbit coupling matters over long horizons.</b> Cross-track position of two free-floating boxes after impact, orbit-coupled (solid) vs. a zero-gravity baseline (dashed). Top: across the contact event the two agree. Bottom: over one orbit, the orbit-coupled bodies follow a bounded oscillation and recross at <em>T</em>/2, while the zero-g simulation drifts without bound.</p>
+        </div>
+        <div class="figure">
+          <img src="assets/images/frame_comparison.png" alt="Position error under three frames and two integrators, in double and single precision." />
+          <p class="figure-caption"><b>Frame choice + precision.</b> Position error of a single spacecraft under three frames (ECI, orbit-following, LVLH) and two integrators (symplectic Euler, RK4). In double precision RK4 is sub-millimeter in any frame; in single precision only local frames stay accurate, and the orbit-following frame reaches millimeter accuracy with just a first-order symplectic integrator.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- PERFORMANCE -->
+    <div class="tagline" id="performance">Performance</div>
+    <div class="section">
+      <p>
+        On a standard MuJoCo humanoid in microgravity with self-contact and 16 drag/SRP surfaces enabled, mjorbit
+        adds only a <b>20&ndash;30% runtime overhead</b> over the corresponding gravity-only MuJoCo baseline for
+        full orbital propagation and environmental wrenches &mdash; modest given the added differential gravity,
+        per-body environmental forces, and reference-orbit propagation.
+      </p>
+      <div class="stat-row">
+        <div class="stat"><div class="num">~2.34M</div><div class="lbl">GPU steps/s<br />at 8192 worlds (RTX&nbsp;3080)</div></div>
+        <div class="stat"><div class="num">~49&nbsp;Hz</div><div class="lbl">single-world CPU rate<br />for real-time control (i7-12700K)</div></div>
+        <div class="stat"><div class="num">20&ndash;30%</div><div class="lbl">coupling overhead<br />vs. vanilla MuJoCo</div></div>
+      </div>
+      <div class="bench">
+        <svg viewBox="0 0 740 250" role="img" aria-label="Peak throughput: mjorbit vs MuJoCo on CPU and GPU">
+          <!-- title -->
+          <text x="0" y="20" font-family="monospace" font-size="14" fill="#333" font-weight="700">Peak throughput (million steps / second)</text>
+          <!-- legend -->
+          <rect x="430" y="9" width="14" height="12" fill="#8c1a1a"/><text x="450" y="20" font-family="monospace" font-size="12" fill="#555">mjorbit</text>
+          <rect x="560" y="9" width="14" height="12" fill="#b9b3a6"/><text x="580" y="20" font-family="monospace" font-size="12" fill="#555">MuJoCo</text>
+          <!-- group labels -->
+          <text x="0" y="78"  font-family="monospace" font-size="13" fill="#333">CPU (256 worlds)</text>
+          <text x="0" y="170" font-family="monospace" font-size="13" fill="#333">GPU (8192 worlds)</text>
+          <!-- CPU bars (scale: 480px = 2.68M) -->
+          <rect x="190" y="60"  width="177" height="22" rx="3" fill="#8c1a1a"/><text x="375" y="77"  font-family="monospace" font-size="12" fill="#333">0.99</text>
+          <rect x="190" y="88"  width="278" height="22" rx="3" fill="#b9b3a6"/><text x="476" y="105" font-family="monospace" font-size="12" fill="#333">1.55</text>
+          <!-- GPU bars -->
+          <rect x="190" y="152" width="419" height="22" rx="3" fill="#8c1a1a"/><text x="617" y="169" font-family="monospace" font-size="12" fill="#333">2.34</text>
+          <rect x="190" y="180" width="480" height="22" rx="3" fill="#b9b3a6"/><text x="678" y="197" font-family="monospace" font-size="12" fill="#333">2.68</text>
+          <!-- baseline -->
+          <line x1="190" y1="50" x2="190" y2="212" stroke="#ddd" stroke-width="1"/>
+        </svg>
+      </div>
+      <p class="figure-caption" style="text-align:center;">The low-latency CPU path serves real-time control; the massively parallel GPU path supports reinforcement learning and batch evaluation &mdash; reaching roughly 64% (CPU peak) to 87% (GPU peak) of the corresponding vanilla-MuJoCo throughput.</p>
+    </div>
+
+    <!-- HOW IT COMPARES -->
+    <div class="tagline" id="compare">How It Compares</div>
+    <div class="section">
+      <div class="cmp-wrap">
+        <table class="cmp">
+          <thead>
+            <tr>
+              <th>Simulator</th>
+              <th>Orbit<br />dynamics</th>
+              <th>Env.<br />perturb.</th>
+              <th>CPU<br />parallel</th>
+              <th>GPU<br />parallel</th>
+              <th>Multibody<br />contact</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Generalized ADCS</td><td class="yes">&#10003;</td><td class="yes">&#10003;</td><td class="no">&#10007;</td><td class="no">&#10007;</td><td class="no">&#10007;</td></tr>
+            <tr><td>Basilisk</td><td class="yes">&#10003;</td><td class="yes">&#10003;</td><td class="yes">&#10003;</td><td class="no">&#10007;</td><td class="yes">&#10003;</td></tr>
+            <tr><td>Dshell-DARTS</td><td class="yes">&#10003;</td><td class="yes">&#10003;</td><td class="no">&#10007;</td><td class="no">&#10007;</td><td class="yes">&#10003;</td></tr>
+            <tr><td>SmallSatSim</td><td class="no">&#10007;</td><td class="no">&#10007;</td><td class="yes">&#10003;</td><td class="yes">&#10003;</td><td class="yes">&#10003;</td></tr>
+            <tr class="ours"><td>mjorbit (ours)</td><td class="yes">&#10003;</td><td class="yes">&#10003;</td><td class="yes">&#10003;</td><td class="yes">&#10003;</td><td class="yes">&#10003;</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="figure-caption">mjorbit is, to our knowledge, the first open-source space-robot simulator to combine orbital dynamics and environmental perturbations with high-throughput CPU- and GPU-parallel multibody contact behind a single robotics-style API.</p>
+    </div>
+
+    <!-- BIBTEX -->
+    <div class="tagline" id="bibtex">BibTeX</div>
+    <div class="section">
+      <p style="font-size:15px;color:var(--muted);font-family:'Roboto Mono',monospace;">The citation will be updated once the preprint is posted.</p>
+      <div class="bibtex-code">
+<pre>@article{zhang2026mjorbit,
+  title   = {mjorbit: A Simulation Framework for Space Robotics},
+  author  = {Zhang, John Z. and Verhagen, Joris and Vega, Fausto
+             and McKeen, Patrick and Manchester, Zachary},
+  journal = {arXiv preprint},
+  year    = {2026},
+  url     = {https://github.com/johnzhang3/mjorbit}
+}</pre>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="footer">
+    Page template adapted from the <a href="https://sumo.rai-inst.com/" target="_blank" rel="noopener noreferrer">Sumo</a> project page.
+    &nbsp;&middot;&nbsp; <a href="https://github.com/johnzhang3/mjorbit" target="_blank" rel="noopener noreferrer">mjorbit on GitHub</a>
+  </footer>
+
+  <script src="assets/js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,191 @@
+/* ==================================================================
+   mjorbit — project page
+   Template adapted from the Sumo project page (sumo.rai-inst.com):
+   Playfair Display + Roboto Mono, warm paper background, black tagline
+   pills. mjorbit accents in dark red (#8c1a1a, the paper wordmark color).
+   ================================================================== */
+
+@import url("https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Roboto+Mono:wght@300;400;700&display=swap");
+
+:root{
+  --paper:#fdfaf4;
+  --ink:#1b1b1b;
+  --muted:#555;
+  --brand:#8c1a1a;       /* mjorbit wordmark red */
+  --brand-soft:#b8423a;
+  --rule:#ccc;
+  --card-shadow:0 4px 12px rgba(0,0,0,.15);
+}
+
+html,body{margin:0;padding:0;overflow-x:hidden;width:100%}
+body{
+  background:var(--paper);
+  font-family:'Playfair Display',serif;
+  color:var(--ink);
+}
+*{box-sizing:border-box}
+
+/* ------------------------------------------------------------------
+   HERO (fills viewport)
+   ------------------------------------------------------------------*/
+header.full-page-image{height:100vh;width:100%;position:relative;overflow:hidden;
+  background:#05070d url('assets/images/banner.png') center/cover no-repeat}
+header.full-page-image .overlay{position:absolute;inset:0;background:rgba(0,0,0,.30);z-index:1}
+header.full-page-image .bottom-overlay{
+  position:absolute;bottom:0;left:0;width:100%;height:55%;
+  background:linear-gradient(to top, rgba(0,0,0,.85), transparent);
+  z-index:2;display:flex;align-items:flex-end;padding:0 48px 52px;
+}
+header.full-page-image .bottom-overlay h1{
+  margin:0;color:#fff;font-weight:700;line-height:1.08;
+  font-size:clamp(34px,5.4vw,72px);letter-spacing:-.5px;
+  text-shadow:0 2px 18px rgba(0,0,0,.45);
+}
+header.full-page-image .bottom-overlay h1 .brand{font-family:'Roboto Mono',monospace;font-weight:700;color:#ff8f86}
+header.full-page-image .bottom-overlay .hero-sub{
+  display:block;font-family:'Roboto Mono',monospace;font-weight:300;
+  font-size:clamp(15px,1.7vw,22px);color:#e9e4da;margin-top:14px;letter-spacing:.2px;
+}
+/* hero <video> stays transparent until a real reel loads, so the banner
+   background shows through when assets/videos/hero.mp4 is absent. */
+#bg-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:0;
+  opacity:0;transition:opacity .8s ease}
+#bg-video.loaded{opacity:1}
+
+.scroll-indicator{position:absolute;bottom:26px;right:34px;z-index:5;color:#fff;font-size:60px;
+  animation:bounce 2s infinite;cursor:pointer;opacity:.85;transition:opacity .3s ease;line-height:1}
+.scroll-indicator:hover{opacity:1}
+@keyframes bounce{0%,20%,50%,80%,100%{transform:translateY(0)}40%{transform:translateY(-10px)}60%{transform:translateY(-5px)}}
+
+/* ------------------------------------------------------------------
+   TABLE OF CONTENTS (≥1100px)
+   ------------------------------------------------------------------*/
+.toc{width:172px;font-family:'Roboto Mono',monospace;position:fixed;top:120px;left:24px;z-index:1000;display:none}
+@media(min-width:1180px){.toc{display:block}}
+.toc h3{font-family:'Playfair Display',serif;font-size:22px;margin:0 0 10px}
+.toc ul{list-style:none;margin:0;padding:0}
+.toc li{margin:0 0 9px}
+.toc a{color:#666;text-decoration:none;font-size:14px;transition:color .15s}
+.toc a:hover{color:#000;text-decoration:underline}
+.toc a.active{color:var(--brand);font-weight:700}
+.toc hr{border:0;height:1px;background:var(--rule);margin:0 0 14px}
+
+/* ------------------------------------------------------------------
+   MAIN ARTICLE
+   ------------------------------------------------------------------*/
+.main-content{max-width:1100px;margin:0 auto;padding:0 24px}
+.main-content,.sub-hero-text,.authors,.quick-links,.section,.figure-caption{position:relative;z-index:2}
+
+.sub-hero-text{font-size:clamp(26px,3.4vw,40px);font-weight:400;line-height:1.2;margin:56px 0 26px;text-align:center}
+.sub-hero-text .brand{font-family:'Roboto Mono',monospace;font-weight:700;color:var(--brand)}
+
+/* AUTHORS */
+.authors{font-family:'Roboto Mono',monospace;font-size:16px;color:#333;line-height:1.85;margin:10px 0 16px;text-align:center}
+.authors a{color:inherit;text-decoration:none}
+.authors a:hover{text-decoration:underline;color:var(--brand)}
+.authors .affiliation{font-weight:600;font-size:15px;color:#111;margin-top:8px}
+.authors .author-note{font-size:13.5px;color:var(--muted);margin-top:4px}
+.authors .author-note a{color:var(--brand)}
+
+/* QUICK LINKS */
+.quick-links{text-align:center;margin:6px 0 14px;line-height:2.1}
+.quick-links a{font-family:'Roboto Mono',monospace;font-size:18px;font-weight:700;color:#333;margin:0 22px;text-decoration:none}
+.quick-links a:hover{text-decoration:underline;color:var(--brand)}
+.quick-links a.disabled{color:#aaa;cursor:default}
+.quick-links a.disabled:hover{text-decoration:none;color:#aaa}
+
+/* TEASER */
+.teaser{margin:18px 0 8px;text-align:center}
+.teaser img{width:100%;max-width:1040px;border-radius:15px;box-shadow:var(--card-shadow)}
+
+/* TAGLINES */
+.tagline{font-family:'Roboto Mono',monospace;font-size:23px;background:#000;color:#fff;display:inline-block;padding:8px 16px;margin:46px 0 22px;scroll-margin-top:24px}
+.subhead{font-family:'Roboto Mono',monospace;font-size:17px;font-weight:700;color:var(--brand);margin:30px 0 8px;letter-spacing:.3px}
+
+/* SECTION TEXT */
+.section{font-size:19px;line-height:1.72;margin:0 0 34px}
+.section p{margin:0 0 18px}
+.section a{color:var(--brand);text-decoration:none}
+.section a:hover{text-decoration:underline}
+.section ul{font-size:18px;line-height:1.6}
+.section code{font-family:'Roboto Mono',monospace;font-size:.86em;background:#efeae0;padding:1px 6px;border-radius:4px;color:#3a2222}
+
+/* FIGURE CARDS */
+.figure{margin:24px 0 8px;text-align:center}
+.figure img{width:100%;max-width:760px;background:#fff;border-radius:14px;box-shadow:var(--card-shadow);padding:6px}
+.figure.wide img{max-width:920px}
+.figure-row{display:flex;gap:26px;justify-content:center;align-items:flex-start;flex-wrap:wrap}
+.figure-row .figure{flex:1 1 360px;max-width:480px;margin-top:0}
+.figure-caption{font-family:'Roboto Mono',monospace;font-size:13.5px;color:var(--muted);line-height:1.6;text-align:left;max-width:760px;margin:12px auto 0}
+.figure-caption b{color:#333}
+.figure-row .figure-caption{text-align:left}
+
+/* ------------------------------------------------------------------
+   EXAMPLES GRID
+   ------------------------------------------------------------------*/
+.example-grid{display:grid;grid-template-columns:1fr 1fr;gap:30px;margin:8px 0 10px}
+@media(max-width:760px){.example-grid{grid-template-columns:1fr}}
+.example{display:flex;flex-direction:column}
+/* The poster lives as the frame background (always visible). The <video>
+   sits on top at opacity 0 and only fades in once a real .mp4 loads, so an
+   absent video file cleanly shows the placeholder poster instead of black. */
+.example .video-frame{position:relative;width:100%;aspect-ratio:16/9;border-radius:14px;overflow:hidden;
+  box-shadow:var(--card-shadow);background:#05070d center/cover no-repeat}
+.example .video-frame video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;
+  opacity:0;transition:opacity .4s ease}
+.example .video-frame video.loaded{opacity:1}
+.example .badge{position:absolute;top:12px;left:12px;z-index:3;font-family:'Roboto Mono',monospace;font-size:11px;
+  font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:#fff;background:rgba(140,26,26,.92);
+  padding:4px 10px;border-radius:999px}
+.example .badge.live{background:rgba(30,120,60,.92)}
+.example h4{font-family:'Roboto Mono',monospace;font-size:16px;font-weight:700;margin:14px 0 4px;color:#222}
+.example h4 .tag{font-weight:400;color:var(--muted);font-size:13px}
+.example p{font-family:'Roboto Mono',monospace;font-size:13.5px;line-height:1.6;color:var(--muted);margin:0}
+
+/* ------------------------------------------------------------------
+   COMPARISON TABLE
+   ------------------------------------------------------------------*/
+.cmp-wrap{overflow-x:auto;margin:6px 0 8px}
+table.cmp{border-collapse:collapse;width:100%;max-width:760px;font-family:'Roboto Mono',monospace;font-size:14px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:var(--card-shadow)}
+table.cmp th,table.cmp td{padding:10px 12px;text-align:center;border-bottom:1px solid #eee}
+table.cmp thead th{background:#000;color:#fff;font-weight:700;font-size:12.5px}
+table.cmp tbody td:first-child,table.cmp thead th:first-child{text-align:left}
+table.cmp tbody tr:last-child td{border-bottom:none}
+table.cmp tr.ours td{background:#fcf2f1;font-weight:700;color:#3a2222}
+table.cmp .yes{color:#1e7a3c;font-weight:700}
+table.cmp .no{color:#c0392b}
+
+/* ------------------------------------------------------------------
+   STAT CARDS (throughput)
+   ------------------------------------------------------------------*/
+.stat-row{display:flex;gap:18px;flex-wrap:wrap;margin:10px 0 20px}
+.stat{flex:1 1 200px;background:#fff;border-radius:14px;box-shadow:var(--card-shadow);padding:20px 22px;text-align:center}
+.stat .num{font-family:'Playfair Display',serif;font-weight:700;font-size:34px;color:var(--brand);line-height:1}
+.stat .lbl{font-family:'Roboto Mono',monospace;font-size:13px;color:var(--muted);margin-top:8px;line-height:1.5}
+.bench{background:#fff;border-radius:14px;box-shadow:var(--card-shadow);padding:22px;margin:6px 0 8px}
+.bench svg{width:100%;height:auto;display:block}
+
+/* ------------------------------------------------------------------
+   CODE BLOCK (API listing)
+   ------------------------------------------------------------------*/
+.code-card{background:#1d2026;color:#e7e3da;border-radius:12px;box-shadow:var(--card-shadow);
+  margin:14px 0 10px;overflow:hidden;max-width:760px}
+.code-card .code-head{font-family:'Roboto Mono',monospace;font-size:12px;color:#9aa0ab;
+  background:#15171c;padding:9px 16px;border-bottom:1px solid #2a2e36;letter-spacing:.4px}
+.code-card pre{margin:0;padding:18px 18px;overflow-x:auto;font-family:'Roboto Mono',monospace;font-size:13.5px;line-height:1.65}
+.code-card code{font-family:inherit}
+.code-card .c{color:#7d8694}        /* comment */
+.code-card .k{color:#ff8f86}        /* keyword */
+.code-card .n{color:#9ad1ff}        /* name/module */
+.code-card .s{color:#d6c98a}        /* string/number */
+
+/* ------------------------------------------------------------------
+   BIBTEX
+   ------------------------------------------------------------------*/
+.bibtex-code{background:rgba(80,80,80,.9);color:#f1f1f1;padding:20px;border-radius:10px;max-width:900px;margin:10px 0 0;box-sizing:border-box}
+.bibtex-code pre{white-space:pre-wrap;overflow-wrap:break-word;margin:0;font-family:'Roboto Mono',monospace;font-size:13px;line-height:1.55}
+
+/* FOOTER */
+.footer{font-size:14px;font-family:'Roboto Mono',monospace;color:#666;margin:72px 0 0;border-top:1px solid var(--rule);padding:30px 0 50px;text-align:center}
+.footer a{color:var(--brand);text-decoration:none}
+.footer a:hover{text-decoration:underline}
