@@ -821,6 +821,83 @@ def test_cuda_graph_capture_replay_matches_uncaptured_step():
     )
 
 
+@pytest.mark.skipif(not _HAS_CUDA, reason="CUDA-graph capture requires a CUDA device")
+def test_cuda_graph_capture_respects_mid_loop_command_uploads():
+    """A captured ``mjo_step`` on an actuator-equipped model must read commands
+    uploaded between ``wp.capture_launch`` calls.
+
+    Codex review of #11 flagged that the eager command auto-sync, if recorded
+    inside the captured graph, could replay the capture-time command on every
+    launch and freeze/drop later uploads. The fix skips that auto-sync during
+    capture (``sync_command_inputs`` is a no-op while the stream is capturing),
+    so the captured step contains no host->device command copy and commands are
+    uploaded explicitly per launch, exactly as for ``ctrl``. The existing graph
+    hot-loop test uses an actuator-free model, so it never exercised this path;
+    this test locks in the contract for ``mtq_dipole_cmd``.
+    """
+    orbit = _orbit_init(400.0)
+    magnetorquers = [
+        mjo_cpu.MagnetorquerSpec(
+            body_name="spacecraft",
+            axis_body=np.array([1.0, 0.0, 0.0]),
+            dipole_limit=500.0,
+        )
+    ]
+    common = dict(
+        mj_timestep=0.01,
+        use_magnetic=True,
+        use_gravity_gradient=False,
+        magnetorquers=magnetorquers,
+    )
+    model = mjo_warp.MjoModel.from_xml_path(FREE_BODY_XML, **common)
+    nworld = 4
+    ref = model.make_data(orbit=_warp_orbit_init(orbit), nworld=nworld)
+    cap = model.make_data(orbit=_warp_orbit_init(orbit), nworld=nworld)
+    bid = model.body_id("spacecraft")
+
+    qpos0 = _normalize_quat([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+    for data in (ref, cap):
+        data.qpos[:] = np.tile(qpos0, (nworld, 1))
+        data.actuators.mtq_dipole_cmd[:] = 0.0  # capture-time command is zero
+        _upload_warp_inputs(model, data)
+        mjo_warp.mjo_forward(model, data)
+
+    for _ in range(3):
+        mjo_warp.mjo_step(model, ref)
+        mjo_warp.mjo_step(model, cap)
+    wp.synchronize()
+
+    with wp.ScopedCapture() as capture:
+        mjo_warp.mjo_step(model, cap)
+    graph = capture.graph
+    wp.synchronize()
+
+    for k in range(10):
+        # Distinct per-world dipole so a frozen/dropped upload is unmistakable.
+        new_cmd = (200.0 + 50.0 * np.arange(nworld) + 10.0 * k).reshape(nworld, 1)
+        ref.actuators.mtq_dipole_cmd[:] = new_cmd
+        mjo_warp.mjo_upload(model, ref, fields=("mtq_dipole_cmd",))
+        mjo_warp.mjo_step(model, ref)
+
+        cap.actuators.mtq_dipole_cmd[:] = new_cmd
+        mjo_warp.mjo_upload(model, cap, fields=("mtq_dipole_cmd",))
+        wp.capture_launch(graph)
+    wp.synchronize()
+
+    mjo_warp.mjo_pull(model, ref)
+    mjo_warp.mjo_pull(model, cap)
+
+    # wrench is the direct signal; qpos/qvel confirm the integrated effect.
+    assert np.linalg.norm(np.asarray(ref.wrench_buffer)[:, bid, 3:]) > 1e-6, (
+        "reference produced no magnetorquer torque"
+    )
+    np.testing.assert_allclose(
+        np.asarray(cap.wrench_buffer), np.asarray(ref.wrench_buffer), atol=1e-6, rtol=0.0
+    )
+    np.testing.assert_allclose(np.asarray(cap.qvel), np.asarray(ref.qvel), atol=1e-5, rtol=0.0)
+    np.testing.assert_allclose(np.asarray(cap.qpos), np.asarray(ref.qpos), atol=1e-5, rtol=0.0)
+
+
 def test_central_body_config_propagates_to_warp_device_core():
     """radius / magnetic_b0 / magnetic_axis must reach the device core.
 
