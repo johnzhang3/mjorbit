@@ -168,16 +168,16 @@ table.cmp .no{color:#c0392b}
 /* ------------------------------------------------------------------
    CODE BLOCK (API listing)
    ------------------------------------------------------------------*/
-.code-card{background:#1d2026;color:#e7e3da;border-radius:12px;box-shadow:var(--card-shadow);
+.code-card{background:#faf7f0;color:#2b2b2b;border:1px solid #e6ddca;border-radius:12px;box-shadow:var(--card-shadow);
   margin:14px 0 10px;overflow:hidden;max-width:760px}
-.code-card .code-head{font-family:'Roboto Mono',monospace;font-size:12px;color:#9aa0ab;
-  background:#15171c;padding:9px 16px;border-bottom:1px solid #2a2e36;letter-spacing:.4px}
+.code-card .code-head{font-family:'Roboto Mono',monospace;font-size:12px;color:#8a7f6b;
+  background:#f0eada;padding:9px 16px;border-bottom:1px solid #e6ddca;letter-spacing:.4px}
 .code-card pre{margin:0;padding:18px 18px;overflow-x:auto;font-family:'Roboto Mono',monospace;font-size:13.5px;line-height:1.65}
 .code-card code{font-family:inherit}
-.code-card .c{color:#7d8694}        /* comment */
-.code-card .k{color:#ff8f86}        /* keyword */
-.code-card .n{color:#9ad1ff}        /* name/module */
-.code-card .s{color:#d6c98a}        /* string/number */
+.code-card .c{color:#4f8a3d;font-style:italic}  /* comment */
+.code-card .k{color:#0046aa;font-weight:700}     /* keyword */
+.code-card .n{color:#8a2a7a}                      /* name/module */
+.code-card .s{color:#b06a1a}                      /* string/number */
 
 /* ------------------------------------------------------------------
    BIBTEX

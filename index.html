@@ -44,9 +44,7 @@
     </video>
     <div class="overlay"></div>
     <div class="bottom-overlay">
-      <h1><span class="brand">mjorbit</span><br />A Simulation Framework for Space Robotics
-        <span class="hero-sub">Orbit-aware MuJoCo for contact-rich on-orbit manipulation &mdash; on CPU and GPU.</span>
-      </h1>
+      <h1><span class="brand">mjorbit</span><br />A Simulation Framework for Space Robotics</h1>
     </div>
     <div class="scroll-indicator" onclick="scrollToContent()">&#8595;</div>
   </header>
@@ -64,7 +62,7 @@
       Patrick McKeen<sup>1</sup>,
       and <a href="https://roboticexplorationlab.org/" target="_blank" rel="noopener noreferrer">Zachary Manchester</a><sup>1</sup>
       <div class="affiliation">
-        <sup>1</sup>&nbsp;Dept. of Aeronautics &amp; Astronautics, MIT&nbsp;&nbsp;&nbsp;&nbsp;<sup>2</sup>&nbsp;KTH Royal Institute of Technology
+        <sup>1</sup>&nbsp;MIT&nbsp;&nbsp;&nbsp;&nbsp;<sup>2</sup>&nbsp;KTH
       </div>
       <div class="author-note">Correspondence: <a href="mailto:jzhang3@mit.edu">jzhang3@mit.edu</a></div>
     </div>
@@ -74,12 +72,6 @@
       <a class="disabled" title="Preprint coming soon">[arXiv]</a>
       <a href="https://github.com/johnzhang3/mjorbit" target="_blank" rel="noopener noreferrer">[code]</a>
       <a class="disabled" title="Video coming soon">[video]</a>
-    </div>
-
-    <!-- TEASER -->
-    <div class="teaser">
-      <img src="assets/images/banner.png" alt="Thousands of bi-manual satellite robots in low-Earth orbit, simulated on a single GPU." />
-      <p class="figure-caption" style="text-align:center;max-width:900px;">Thousands of bi-manual satellite robots in low-Earth orbit, simulated in parallel on a single GPU with <span style="color:var(--brand);font-weight:700;">mjorbit</span>.</p>
     </div>
 
     <!-- ABSTRACT -->
@@ -94,8 +86,8 @@
         a general, flexible, and performant simulation framework based on the MuJoCo simulation engine commonly
         used in robotics, while modeling key spacecraft dynamics, actuators, and sensors. We provide two
         implementations of mjorbit: a low-latency C++ implementation on the CPU, and a high-throughput
-        GPU-accelerated implementation. Both variants can be accessed through a simple Python API. We demonstrate
-        mjorbit by solving several realistic space-manipulation case studies with both real-time
+        GPU-accelerated implementation. Both of these variants can be accessed through a simple Python API. We
+        demonstrate mjorbit by solving several realistic space manipulation case studies with both real-time
         model-predictive control and reinforcement learning. Open-source code and examples are available
         <a href="https://github.com/johnzhang3/mjorbit" target="_blank" rel="noopener noreferrer">on GitHub</a>.
       </p>
@@ -245,7 +237,7 @@ mjo_step(model, data)
       </p>
       <div class="stat-row">
         <div class="stat"><div class="num">~2.34M</div><div class="lbl">GPU steps/s<br />at 8192 worlds (RTX&nbsp;3080)</div></div>
-        <div class="stat"><div class="num">~49&nbsp;Hz</div><div class="lbl">single-world CPU rate<br />for real-time control (i7-12700K)</div></div>
+        <div class="stat"><div class="num">~49</div><div class="lbl">single-world rollouts/s<br />over a 10&nbsp;s (2000-step) horizon (i7-12700K)</div></div>
         <div class="stat"><div class="num">20&ndash;30%</div><div class="lbl">coupling overhead<br />vs. vanilla MuJoCo</div></div>
       </div>
       <div class="bench">
