@@ -243,6 +243,10 @@ def main() -> None:
     ps.add_argument(
         "--camera-distance", type=float, default=50000.0, help="viewer camera distance (m)"
     )
+    ps.add_argument(
+        "--save-traj", type=str, default=None,
+        help="headless only: dump per-step qpos + chief R_eci to this .npz for offline rendering",
+    )
     args = ps.parse_args()
 
     alt_km = 400.0
@@ -448,6 +452,8 @@ def main() -> None:
     separations = np.empty(n_steps)
     errors = np.empty(n_steps)
     collisions = np.empty(n_steps)
+    traj_qpos: list[np.ndarray] = []
+    traj_R: list[np.ndarray] = []
     latched = False
     t_start = wall_time.perf_counter()
     for step in range(n_steps):
@@ -482,6 +488,9 @@ def main() -> None:
         separations[step] = current_separation_m()
         errors[step] = current_error_deg()
         collisions[step] = current_collision()
+        if args.save_traj is not None:
+            traj_qpos.append(np.asarray(data.qpos).copy())
+            traj_R.append(np.asarray(data.orbit.R_eci).copy())
         if (step + 1) % log_every == 0:
             assert planner.last_costs is not None
             vlin = float(np.linalg.norm(np.asarray(data.qvel)[6:9]))
@@ -516,6 +525,17 @@ def main() -> None:
             f"(margin {args.collision_margin:+.2f} m)"
         )
     print(f"wall time: {elapsed:.1f} s ({n_steps * dt / elapsed:.1f}x realtime)")
+
+    if args.save_traj is not None:
+        np.savez(
+            args.save_traj,
+            qpos=np.asarray(traj_qpos),
+            R_eci=np.asarray(traj_R),
+            V_eci=np.asarray(V_eci),
+            dt=dt,
+            xml_path=str(xml_path),
+        )
+        print(f"saved {len(traj_qpos)}-step trajectory to {args.save_traj}")
 
     all_finite = bool(
         np.all(np.isfinite(np.asarray(data.qpos))) and np.all(np.isfinite(np.asarray(data.qvel)))
