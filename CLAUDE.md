@@ -34,8 +34,17 @@ data = model.make_data(
     nworld=256,
 )
 
+data.actuators.mtq_dipole_cmd[:, 0] = 5.0  # actuator commands auto-sync each step
 mjo_step(model, data)
 ```
+
+On the warp backend the **device state is authoritative**. `mjo_step`/`mjo_forward`
+auto-sync only the cheap actuator *command* inputs (`rw_torque_cmd`, `mtq_dipole_cmd`,
+`thr_force_cmd`) from the public buffers, so `set cmd; mjo_step` produces torque exactly
+as on the CPU backend. Edits to larger or device-integrated buffers (`qpos`, `qvel`,
+`ctrl`, `orbit`, `rw_speed`) are **not** pushed by default — call `mjo_upload(model, data,
+fields=...)` (or `mjo_step(model, data, sync=True)`) after editing those, and `mjo_pull`
+before reading public buffers or host `MjData` back from the device.
 
 `MjoModel` owns compiled/static state. `MjoData` owns runtime state, orbit state, actuator
 commands, caches, and sensor runtime state. On the CPU backend,
@@ -144,6 +153,11 @@ energy/momentum non-conservation.
   `mjo_forward(model, data)`.
 - Advance the simulation with `mjo_step(model, data)`. MuJoCo controls come from `data.ctrl`,
   and orbital actuators come from `data.actuators.*_cmd`.
+- On the warp backend the device is authoritative: `mjo_step`/`mjo_forward` auto-sync the
+  actuator command inputs (`*_cmd`) but not `qpos`/`qvel`/`ctrl`/`orbit`/`rw_speed`. After
+  editing those, call `mjo_upload(...)` (or pass `sync=True`); call `mjo_pull(...)` before
+  reading public buffers back. The CPU backend has no host/device split, so all edits take
+  effect directly.
 - `data.sensordata` is the canonical forward/step-updated sensor buffer. Stochastic sampling
   lives behind `data.sensors`.
 - Keep warp-specific implementation under `src/mjorbit_warp/`. Preserve MuJoCo frame

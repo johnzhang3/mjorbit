@@ -398,6 +398,61 @@ def test_surface_magnetic_and_limited_rw_coupling_matches_cpu_reference():
     _assert_close(warp_data.actuators.rw_momentum, cpu_data.actuators.rw_momentum, atol=1e-8)
 
 
+def test_magnetorquer_command_applies_without_explicit_upload():
+    """Documented public pattern (set cmd, then plain mjo_step/mjo_forward with
+    NO explicit upload) must produce torque on the warp backend, matching the
+    CPU backend. Regression for issue #10: before the command-input auto-sync,
+    warp silently dropped the dipole command (device buffer stayed 0) so this
+    asserted-nonzero torque was 0 and the test failed."""
+    magnetorquers = [
+        mjo_cpu.MagnetorquerSpec(
+            body_name="spacecraft",
+            axis_body=np.array([1.0, 0.0, 0.0]),
+            dipole_limit=10.0,
+        )
+    ]
+    cpu_model, cpu_data, warp_model, warp_data = _make_pair(
+        FREE_BODY_XML,
+        use_magnetic=True,
+        use_gravity_gradient=False,  # isolate the magnetorquer torque
+        magnetorquers=magnetorquers,
+    )
+    bid = cpu_model.body_id("spacecraft")
+
+    # Documented pattern: set the command, then forward — no _upload_warp_inputs.
+    cpu_data.actuators.mtq_dipole_cmd[0] = 10.0
+    warp_data.actuators.mtq_dipole_cmd[0] = 10.0
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+
+    b_world = np.asarray(cpu_data.env.mag_field_eci)
+    assert np.linalg.norm(b_world) > 0.0, "env magnetic field is zero; cannot test MTQ torque"
+    assert np.linalg.norm(warp_data.wrench_buffer[bid, 3:]) > 1e-9, (
+        "warp magnetorquer produced no torque without an explicit upload"
+    )
+    _assert_close(warp_data.wrench_buffer, cpu_data.wrench_buffer, atol=1e-6)
+
+    # Clearing the command must also propagate through the auto-sync.
+    warp_data.actuators.mtq_dipole_cmd[0] = 0.0
+    _forward_and_pull_warp(warp_model, warp_data)
+    np.testing.assert_allclose(warp_data.wrench_buffer[bid, 3:], 0.0, atol=1e-9)
+
+    # End-to-end: plain mjo_step (no upload) must move the body rate in parity
+    # with the CPU backend.
+    cpu_data.actuators.mtq_dipole_cmd[0] = 10.0
+    warp_data.actuators.mtq_dipole_cmd[0] = 10.0
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+    w0 = cpu_data.qvel[3:6].copy()
+    for _ in range(50):
+        mjo_cpu.mjo_step(cpu_model, cpu_data)
+        mjo_warp.mjo_step(warp_model, warp_data)
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+    assert np.linalg.norm(cpu_data.qvel[3:6] - w0) > 1e-9, "CPU body rate did not respond to MTQ"
+    _assert_close(warp_data.qvel, cpu_data.qvel)
+
+
 def test_batched_warp_worlds_match_independent_cpu_runs():
     common: dict[str, Any] = dict(
         mj_timestep=0.01,
