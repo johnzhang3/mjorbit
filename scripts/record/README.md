@@ -23,8 +23,11 @@ it takes.
 ## Produce the paper clips
 
 ```bash
-# Banner — fleet of bimanual robots in LEO (CPU equivalent of banner_viewer_gpu)
-pixi run python scripts/record/record_banner.py --out videos/banner.mp4 --nworld 60
+# Banner (paper Fig. 1) — fleet of bimanual robots flying around in LEO.
+# Each robot is a real coupled sim with 3 reaction wheels + 6 RCS thrusters,
+# driven by smooth random commands so the fleet tumbles and drifts. Framed
+# like figures/banner.png: Earth limb on the left, cloud receding to the right.
+pixi run python scripts/record/record_banner.py --out videos/banner.mp4
 
 # Autonomous docking (paper example b)
 pixi run python examples/docking/main_mppi.py --duration 13 --save-traj /tmp/dock_traj.npz
