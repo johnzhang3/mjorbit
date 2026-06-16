@@ -59,13 +59,13 @@ _ARM_ACT = ("shoulder_pos", "wrist_pos")
 _THRUST_ACT = ("thrust_x", "thrust_y", "thrust_z")
 _RW_ACT = ("rw_x", "rw_y", "rw_z")
 
-# Symmetric gripper command: the lower jaw mirrors the upper (grip_l = -grip_u),
-# so one command opens/closes both. Open retracts both jaws clear of the bar;
-# closed pinches it.
+# Parallel-jaw command: the lower pad mirrors the upper (grip_l = -grip_u), so a
+# single binary command opens/closes both. Open retracts both pads clear of the
+# bar; closed pinches it.
 _GRIP_OPEN = 0.06
 _GRIP_CLOSED = -0.02
-_JAW_REACH = 0.085  # jaw-region midpoint along the ee +x axis
-_BAR_OFFSET = np.array([-0.20, 0.0, 0.0])  # grapple bar center in the cargo body frame
+_JAW_REACH = 0.07  # pad-region midpoint along the ee +x axis
+_BAR_OFFSET = np.array([-0.205, 0.0, 0.0])  # handle bar center in the cargo body frame
 
 # Authority sized for the ~9 kg cube (matches the XML ctrlranges).
 _RW_LIMIT = 0.15
@@ -106,32 +106,30 @@ class AstrobeeEnvCfg:
     cargo_lateral: float = 0.15  # +/- Y,Z spread of the cargo position (m)
     cargo_att_noise: float = 0.1  # cargo attitude noise (rad)
 
-    # Capture geometry. The radius is generous: latching as soon as the aligned
-    # gripper is on the bar stops the robot from chasing (and bumping) the free
-    # cargo, and the grip then physically pinches the bar.
-    capture_radius: float = 0.14  # gripper-center to bar-center distance to latch a grasp
-    capture_align: float = 0.7  # min cos(gripper-x, bar-axis) to latch a grasp
-    drop_radius: float = 0.30  # gripper-center to bar-center beyond which a grasp is lost
+    # A grasp counts when the gripper is on the bar (small distance), aligned
+    # (jaw axis parallel to the bar), and the policy has commanded the grip
+    # closed. The pads are forgiving, so the distance need not be tiny.
+    capture_radius: float = 0.07  # gripper-center to bar-center distance for a grasp
+    capture_align: float = 0.7  # min |cos(jaw axis, bar axis)| for a grasp
     fail_radius: float = 3.5  # gripper too far from the bar -> failed episode
 
     # Reward weights.
     settle_width: float = 0.25  # detumble reward width (rad/s)
     gate_width: float = 0.45  # approach reward is gated by exp(-(spin/gate_width)^2)
     w_settle: float = 0.6
-    w_progress: float = 15.0  # dense approach progress (reduce gripper->bar distance)
-    w_near: float = 1.0  # wide proximity pull
-    near_width: float = 0.45
-    w_tight: float = 2.5  # steep capture pull into the last few cm
-    tight_width: float = 0.08
-    w_align: float = 0.8
-    w_grasp: float = 6.0  # bonus while grasped
+    w_progress: float = 12.0  # dense approach progress (reduce gripper->bar distance)
+    w_reach: float = 3.0  # (CHANGE 3) reward the gripper being close to the bar
+    reach_width: float = 0.35
+    w_reach_tight: float = 4.0  # steep pull into the last ~10 cm so it reaches the bar
+    reach_tight_width: float = 0.10
+    w_align: float = 1.0  # reward the jaw axis aligned with the bar axis (when near)
+    w_grasp: float = 6.0  # bonus while grasped (gripper closed on the bar)
     w_hold: float = 1.5  # (while grasped) keep the pair quiet
     hold_width: float = 0.1
+    w_grip_pen: float = 0.3  # discourage closing the grip away from the bar
     w_spin: float = 0.15  # detumble penalty (spin^2)
-    # Soft-capture: penalize closing speed only in the last ~10 cm, weakly, so it
-    # does not become a barrier that parks the robot just outside the jaws.
-    w_dock_vel: float = 0.12
-    dock_width: float = 0.10
+    w_dock_vel: float = 0.1  # soft-capture: penalize closing speed only near the bar
+    dock_width: float = 0.12
     w_effort: float = 0.003
     w_arm_rate: float = 0.02
     fail_penalty: float = 15.0
@@ -160,7 +158,7 @@ class AstrobeeGraspEnv(VecEnv):
         self.cfg = cfg
         self.device = cfg.device
         self.num_envs = cfg.num_envs
-        self.num_actions = 8  # 2 arm + 3 rw + 3 thrust
+        self.num_actions = 9  # 2 arm + 3 rw + 3 thrust + 1 binary grip
         self.max_episode_length = int(round(cfg.episode_length_s / cfg.control_dt))
         self.episode_length_buf = torch.zeros(cfg.num_envs, dtype=torch.long, device=cfg.device)
         self._decimation = int(round(decimation))
@@ -205,6 +203,7 @@ class AstrobeeGraspEnv(VecEnv):
         self._arm_ready = np.zeros(2)  # straight: gripper points +x, level
 
         self._grasped = np.zeros(cfg.num_envs, dtype=bool)
+        self._grip_closed = np.zeros(cfg.num_envs, dtype=bool)
         self._last_actions = np.zeros((cfg.num_envs, self.num_actions))
         self._obs = TensorDict({}, batch_size=[cfg.num_envs])
 
@@ -263,10 +262,11 @@ class AstrobeeGraspEnv(VecEnv):
         )
         rw = acts[:, 2:5] * _RW_LIMIT
         thr = acts[:, 5:8] * _THRUST_LIMIT
-        # The grip auto-closes once latched as grasped (see _compute_reward); it
-        # is open while approaching so the bar can enter the jaws. The lower jaw
-        # mirrors the upper (grip_l = -grip_u).
-        grip = np.where(self._grasped, _GRIP_CLOSED, _GRIP_OPEN)
+        # Binary grip: action[8] > 0 closes the pads, else opens them (the lower
+        # pad mirrors the upper, grip_l = -grip_u). The policy decides when to
+        # close on the bar.
+        self._grip_closed = acts[:, 8] > 0.0
+        grip = np.where(self._grip_closed, _GRIP_CLOSED, _GRIP_OPEN)
         self.data.ctrl[:, self._arm_ctrl] = arm
         self.data.ctrl[:, self._grip_u_ctrl] = grip
         self.data.ctrl[:, self._grip_l_ctrl] = -grip
@@ -334,6 +334,7 @@ class AstrobeeGraspEnv(VecEnv):
         self.data.ctrl[idx, self._grip_l_ctrl] = -_GRIP_OPEN
         self.data.qacc_warmstart[idx] = 0.0
         self._grasped[idx] = False
+        self._grip_closed[idx] = False
         self._last_actions[idx] = 0.0
         self.episode_length_buf[torch.as_tensor(idx, device=self.device)] = 0
 
@@ -369,14 +370,14 @@ class AstrobeeGraspEnv(VecEnv):
         xpos = np.asarray(self.data.xpos)
         r_ee = self._body_rot(self._ee_bid)
         center = xpos[:, self._ee_bid] + r_ee[:, :, 0] * _JAW_REACH
-        return center, r_ee[:, :, 0]  # gripper center, gripper +x axis (world)
+        return center, r_ee[:, :, 1]  # gripper center, jaw axis (ee +y, world)
 
     def _bar_state(self) -> tuple[np.ndarray, np.ndarray]:
         xpos = np.asarray(self.data.xpos)
         r_cargo = self._body_rot(self._cargo_bid)
         bar_off = np.tile(_BAR_OFFSET, (self.num_envs, 1))
         center = xpos[:, self._cargo_bid] + _mat_vec(r_cargo, bar_off)
-        return center, r_cargo[:, :, 0]  # bar center, bar axis (world)
+        return center, r_cargo[:, :, 1]  # bar center, bar axis (cargo +y, world)
 
     def _grip_bar_dist(self) -> np.ndarray:
         gc, _ = self._gripper_center()
@@ -389,8 +390,9 @@ class AstrobeeGraspEnv(VecEnv):
 
     def _compute_obs(self) -> TensorDict:
         r_bus = self._body_rot(self._bus_bid)
+        r_ee = self._body_rot(self._ee_bid)
         qvel = self.data.qvel
-        gc, gx = self._gripper_center()
+        gc, _ = self._gripper_center()
         bc, bx = self._bar_state()
 
         bus_w = qvel[:, self._bus_v + 3 : self._bus_v + 6]  # body-frame angular rate
@@ -406,7 +408,8 @@ class AstrobeeGraspEnv(VecEnv):
                 _mat_t_vec(r_bus, bus_v) / 0.2,
                 _mat_t_vec(r_bus, bc - gc) / 0.5,  # gripper->bar vector (bus frame)
                 _mat_t_vec(r_bus, bx),  # bar axis (bus frame)
-                _mat_t_vec(r_bus, gx),  # gripper axis (bus frame)
+                _mat_t_vec(r_bus, r_ee[:, :, 1]),  # jaw axis (ee +y, bus frame)
+                _mat_t_vec(r_bus, r_ee[:, :, 0]),  # approach axis (ee +x, bus frame)
                 _mat_t_vec(r_bus, cargo_v) / 0.2,
                 _mat_t_vec(r_bus, cargo_w) / 0.5,
                 self._grasped[:, None].astype(np.float64),
@@ -425,16 +428,18 @@ class AstrobeeGraspEnv(VecEnv):
     ) -> tuple[np.ndarray, dict[str, float], np.ndarray]:
         cfg = self.cfg
         qvel = self.data.qvel
-        gc, gx = self._gripper_center()
-        bc, bx = self._bar_state()
+        gc, jaw_ax = self._gripper_center()  # jaw axis = ee +y
+        bc, bar_ax = self._bar_state()  # bar axis = cargo +y
 
         dist = np.linalg.norm(gc - bc, axis=1)
-        align = np.sum(gx * bx, axis=1).clip(-1.0, 1.0)
+        align = np.abs(np.sum(jaw_ax * bar_ax, axis=1)).clip(0.0, 1.0)
         spin = np.linalg.norm(qvel[:, self._bus_v + 3 : self._bus_v + 6], axis=1)
 
-        # Latch / drop the grasp.
-        capture = (dist < cfg.capture_radius) & (align > cfg.capture_align)
-        self._grasped = (self._grasped | capture) & (dist < cfg.drop_radius)
+        # A grasp = the policy commanded the grip closed, with the gripper on the
+        # bar and the jaws aligned to it (binary grip action -> no auto-latch).
+        self._grasped = (
+            self._grip_closed & (dist < cfg.capture_radius) & (align > cfg.capture_align)
+        )
 
         progress = np.clip(self._prev_dist - dist, -0.05, 0.05)
         self._prev_dist = dist.copy()
@@ -446,11 +451,13 @@ class AstrobeeGraspEnv(VecEnv):
         )
 
         settle = cfg.w_settle * np.exp(-((spin / cfg.settle_width) ** 2))
+        reach = cfg.w_reach * np.exp(-((dist / cfg.reach_width) ** 2)) + cfg.w_reach_tight * np.exp(
+            -((dist / cfg.reach_tight_width) ** 2)
+        )  # (CHANGE 3) wide pull + steep pull into the last few cm
         approach = gate * (
             cfg.w_progress * progress
-            + cfg.w_near * np.exp(-((dist / cfg.near_width) ** 2))
-            + cfg.w_tight * np.exp(-((dist / cfg.tight_width) ** 2))
-            + cfg.w_align * np.maximum(align, 0.0) * np.exp(-((dist / cfg.near_width) ** 2))
+            + reach
+            + cfg.w_align * align * np.exp(-((dist / cfg.reach_width) ** 2))
         )
         dock_vel_pen = cfg.w_dock_vel * np.exp(-((dist / cfg.dock_width) ** 2)) * np.minimum(
             rel_vel**2 / 0.04, 25.0
@@ -458,8 +465,10 @@ class AstrobeeGraspEnv(VecEnv):
         grasp = self._grasped * (
             cfg.w_grasp + cfg.w_hold * np.exp(-((rel_vel / cfg.hold_width) ** 2))
         )
+        # Discourage closing the grip away from the bar (flailing the gripper).
+        grip_pen = cfg.w_grip_pen * (self._grip_closed & (dist > cfg.capture_radius))
 
-        effort = np.mean(actions[:, 2:] ** 2, axis=1)
+        effort = np.mean(actions[:, 2:8] ** 2, axis=1)
         arm_rate = np.mean((actions[:, :2] - self._last_actions[:, :2]) ** 2, axis=1)
 
         reward = (
@@ -468,6 +477,7 @@ class AstrobeeGraspEnv(VecEnv):
             + grasp
             - cfg.w_spin * np.minimum(spin**2, 4.0)
             - dock_vel_pen
+            - grip_pen
             - cfg.w_effort * effort
             - cfg.w_arm_rate * arm_rate
         )
@@ -478,6 +488,7 @@ class AstrobeeGraspEnv(VecEnv):
         metrics = {
             "grip_bar_dist": float(np.nanmean(dist)),
             "grasped_frac": float(np.mean(self._grasped)),
+            "grip_closed_frac": float(np.mean(self._grip_closed)),
             "spin": float(np.nanmean(spin)),
             "align": float(np.nanmean(align)),
             "rel_vel": float(np.nanmean(rel_vel)),

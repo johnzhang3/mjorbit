@@ -124,10 +124,10 @@ hug essentially every step (hug-lost < 0.1%). A representative rollout: 52° →
 
 An **Astrobee-style cube free-flyer** (NASA's ~32 cm ISS robot) starts tumbling
 and drifting from an initial disturbance, **detumbles**, flies to a
-**free-floating cargo module**, and **grasps** the cargo's grapple bar with its
+**free-floating cargo module**, and **grasps** the cargo's handle bar with its
 perching-arm gripper. The cargo is a fully independent free body; the only
-coupling is contact, so the policy must fly the open jaws onto the bar — the grip
-then auto-closes to pinch it.
+coupling is contact, so the policy must bring the open gripper around the bar
+and **close it** (a binary grip action) to pinch it.
 
 ## Why this task
 
@@ -135,13 +135,18 @@ then auto-closes to pinch it.
   being detumbled (`exp(-(spin/width)^2)`), so the policy learns to kill its
   angular rate *before* it can collect approach reward — it stabilizes first,
   then flies in and grabs.
-- **Symmetric grasp gripper.** Each hand is a two-jaw clamp where **both** jaws
-  ride slide joints: open, they retract to a wide ~0.22 m mouth the grapple bar
-  threads through *without bumping the free cargo*; closed, both pinch the bar
-  (capsule-vs-box primitive contact, warp-supported). The grip auto-closes on
-  capture (gripper on the bar + aligned), like an underactuated enveloping
-  gripper. Validated on CPU and warp: the closed jaws hold the cargo through a
-  full tow.
+- **Parallel-jaw gripper on a crosswise bar.** The gripper is two flat pads on
+  opposed slide joints; the cargo carries a **capsule handle bar perpendicular to
+  the gripper's approach** (on two end posts). The robot brings the open gripper
+  around the bar and the pads close in Z to pinch it — a standard parallel-jaw
+  grasp. Contact is restricted to pad-vs-bar, a capsule-vs-box primitive the
+  MJWarp pipeline supports directly (the cargo body is non-colliding, so there is
+  never box-vs-box). The wide pads make the grasp forgiving in approach depth.
+  Validated on CPU and warp: the closed pads hold the cargo through a full tow.
+- **Binary grip action.** The grip open/close is its own **policy action**
+  (action > 0 → close), not a proximity auto-latch — the policy learns *when* to
+  close. A reach reward pulls the gripper to the bar, a grasp bonus rewards
+  closing on it, and a small penalty discourages closing on empty space.
 - **Full 6-DOF control.** The policy commands 3 reaction-wheel torques + 3
   thruster forces (ideal `motor` actuators on the bus free joint, sized for the
   light ~9 kg cube) plus the 2 perching-arm joints. The cargo floats calmly; the
@@ -150,13 +155,13 @@ then auto-closes to pinch it.
 ## Files
 
 - `astrobee_grasp.xml` — MJCF: the ~32 cm cube bus (side propulsion modules,
-  touchscreen face, signal lights) + a 2-DOF perching arm with the symmetric
-  two-jaw gripper + 6 bus `motor` actuators; a free-floating cargo module with a
-  protruding grapple bar. Only the gripper jaws collide with the cargo.
+  touchscreen face, signal lights) + a 2-DOF perching arm with the parallel-jaw
+  pad gripper + 6 bus `motor` actuators; a free-floating cargo module with a
+  crosswise capsule handle bar. Only the bar collides (pad-vs-bar primitive).
 - `astrobee_env.py` — batched `VecEnv` over `mjorbit_warp`: per-world initial
-  tumble/drift, a free-floating cargo to fly to, and a detumble + approach-
-  progress + grasp/hold reward. The grip auto-latches when the aligned gripper
-  reaches the bar.
+  tumble/drift, a free-floating cargo to fly to, and a detumble + reach +
+  grasp/hold reward. A grasp counts when the policy closes the grip with the
+  gripper on the bar and the jaws aligned to it.
 - `astrobee_train.py` / `astrobee_play.py` — PPO training (with `--cargo-dist-
   min/max` and `--init-spin` curriculum knobs) and checkpoint evaluation.
 - `../../scripts/record/produce_astrobee.py` + `record_astrobee.py` — pick a
@@ -185,9 +190,9 @@ pixi run -e rl python scripts/record/record_astrobee.py \
 
 | | |
 |---|---|
-| Observation (34) | arm q/q̇ (4), bus angular + linear velocity (6), gripper→bar vector + bar axis + gripper axis in bus frame (9), cargo relative lin/ang velocity (6), grasped flag (1), previous action (8) |
-| Action (8) | 2 perching-arm joint targets + 3 reaction-wheel torques + 3 thruster forces. The grip is auto (open while approaching, closed once latched), not a policy output. |
-| Reward | detumble (low spin) + (gated on detumble) approach progress + proximity/alignment + grasp + hold bonuses − spin, soft-dock velocity, effort, action-rate |
+| Observation (38) | arm q/q̇ (4), bus angular + linear velocity (6), gripper→bar vector + bar axis + jaw axis + approach axis in bus frame (12), cargo relative lin/ang velocity (6), grasped flag (1), previous action (9) |
+| Action (9) | 2 perching-arm joint targets + 3 reaction-wheel torques + 3 thruster forces + 1 binary grip (action > 0 closes the pads) |
+| Reward | detumble (low spin) + (gated on detumble) approach progress + reach (close to the bar) + alignment + grasp + hold bonuses − spin, soft-dock velocity, closing-on-empty, effort, action-rate |
 | Episode | 60 s, control at 10 Hz (physics 0.01 s × 10 decimation); ends on timeout, cargo lost (gripper too far), or non-finite state |
 | Resets | robot at the origin with a random body-frame tumble + linear drift; cargo floating ahead (random distance/offset), oriented so its bar faces the robot, at rest |
 
@@ -201,10 +206,10 @@ start 1.4 m apart → grasp at ~6 s → held to the end.
 
 ## Notes
 
-- The grip auto-closes on capture rather than being a policy action — precise
-  free-object capture is hard for PPO to discover as a timed discrete action, so
-  the gripper latches when the aligned jaws reach the bar (the wide-open symmetric
-  jaws make this collision-free) and the closing jaws pinch it.
+- The grip is a **binary policy action** (close when action > 0). The handle bar
+  is **perpendicular to the gripper** so the pads close *around* it rather than
+  sliding on axially, and a **reach reward** plus a steep proximity term pull the
+  gripper onto the bar — together these make the grasp tractable to learn.
 - The **distance curriculum matters**: grasping is rare enough at full range that
   a from-scratch run can plateau on a detumble-and-hover local optimum; training
   close first makes grasping common, then the distance is widened.

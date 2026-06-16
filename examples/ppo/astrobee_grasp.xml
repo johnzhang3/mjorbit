@@ -5,11 +5,12 @@
     cargo's grapple bar with its perching-arm gripper.
 
     The cargo is an independent free body: nothing connects it to the robot. The
-    gripper is a symmetric two-jaw clamp -- BOTH jaws ride slide joints (`grip_u`,
-    `grip_l`), so when open they retract to a wide mouth the grapple bar threads
-    through without bumping the free cargo, then both close to pinch the bar with
-    shallow surface contact + friction (no weld, no equality). The bar protrudes
-    toward the robot so the open jaws slide onto it head-on, then close.
+    gripper is a parallel-jaw clamp -- two flat pads on opposed slide joints
+    (`grip_u`, `grip_l`) -- and the cargo carries a crosswise capsule handle bar
+    (perpendicular to the gripper's approach) on two end posts. The robot brings
+    the open gripper around the bar and closes the pads to pinch it (capsule-vs-
+    box, warp-supported; no weld, no equality). The grip is a binary open/close
+    policy action.
 
     Full 6-DOF control: 3 body-frame reaction-wheel torques + 3 world-frame
     thruster forces, ideal `motor` actuators on the bus free joint, sized for the
@@ -87,21 +88,23 @@
               mass="0.3" rgba="0.80 0.82 0.86 1"/>
         <body name="ee" pos="0.16 0 0">
           <joint name="wrist" type="hinge" axis="0 1 0" range="-2.4 2.4"/>
-          <!-- Symmetric two-jaw gripper: BOTH jaws ride slide joints, so when
-               open they retract clear (a wide ~0.22 m mouth the grapple bar
-               threads through without bumping), then both close to pinch the bar
-               (capsule-vs-box, warp-supported). -->
-          <geom name="palm" class="detail" type="box" size="0.022 0.05 0.05"
+          <!-- Parallel-jaw gripper: two flat pads on opposed slide joints that
+               close in Z onto the cargo's crosswise (perpendicular) capsule
+               handle bar (capsule-vs-box, warp-supported). Open, the pads
+               retract clear; closed, they pinch the bar. The pads are wide in X
+               and Y so the bar does not need precise insertion depth -- the
+               policy just brings the gripper to the bar and closes. -->
+          <geom name="palm" class="detail" type="box" size="0.022 0.06 0.055"
                 pos="-0.012 0 0" rgba="0.95 0.66 0.10 1"/>
           <body name="jaw_u" pos="0 0 0">
             <joint name="grip_u" type="slide" axis="0 0 1" range="-0.02 0.06"/>
-            <geom name="upjaw" class="grip" type="capsule"
-                  fromto="0.02 0 0.05 0.15 0 0.05" size="0.016" mass="0.05"/>
+            <geom name="pad_u" class="grip" type="box" size="0.045 0.06 0.008"
+                  pos="0.07 0 0.04" mass="0.05"/>
           </body>
           <body name="jaw_l" pos="0 0 0">
             <joint name="grip_l" type="slide" axis="0 0 1" range="-0.06 0.02"/>
-            <geom name="lowjaw" class="grip" type="capsule"
-                  fromto="0.02 0 -0.05 0.15 0 -0.05" size="0.016" mass="0.05"/>
+            <geom name="pad_l" class="grip" type="box" size="0.045 0.06 0.008"
+                  pos="0.07 0 -0.04" mass="0.05"/>
           </body>
         </body>
       </body>
@@ -114,18 +117,22 @@
          the env so the robot must detumble and fly to it. -->
     <body name="cargo" pos="1.5 0 0">
       <freejoint name="cargo_free"/>
-      <geom name="cargo_body" class="cargo_col" type="box" size="0.12 0.12 0.12"
-            mass="5" rgba="0.62 0.50 0.24 1"/>
+      <!-- The body is non-colliding; only the handle bar collides, so the only
+           contact pair is pad(box)-vs-bar(capsule) -- a warp-supported primitive,
+           and never box-vs-box. -->
+      <geom name="cargo_body" type="box" size="0.12 0.12 0.12" mass="5"
+            contype="0" conaffinity="0" rgba="0.62 0.50 0.24 1"/>
       <geom name="cargo_trim" class="detail" type="box" size="0.122 0.122 0.02"
             pos="0 0 0.10" rgba="0.80 0.66 0.30 1"/>
-      <!-- Grapple bar (the graspable feature): a slender axial box protruding
-           toward the robot (-X) at mid-height, so the open jaws slide onto it
-           head-on and pinch it (capsule-vs-box). A mounting boss anchors it to
-           the body; the robot-facing end is left open for the jaws. -->
-      <geom name="grapple_boss" class="detail" type="cylinder" size="0.045 0.02"
-            pos="-0.125 0 0" zaxis="1 0 0" rgba="0.30 0.32 0.36 1"/>
-      <geom name="grapple_bar" class="cargo_col" type="box" size="0.13 0.018 0.018"
-            pos="-0.20 0 0" rgba="0.85 0.86 0.90 1"/>
+      <!-- Crosswise grab handle (perpendicular to the gripper approach): a
+           capsule bar along the cargo Y axis on two end posts, facing the robot,
+           so the gripper pads close around it. -->
+      <geom name="post_p" class="detail" type="box" pos="-0.16 0.11 0"
+            size="0.045 0.015 0.015" rgba="0.30 0.32 0.36 1"/>
+      <geom name="post_n" class="detail" type="box" pos="-0.16 -0.11 0"
+            size="0.045 0.015 0.015" rgba="0.30 0.32 0.36 1"/>
+      <geom name="grapple_bar" class="cargo_col" type="capsule"
+            fromto="-0.205 -0.12 0 -0.205 0.12 0" size="0.018" rgba="0.85 0.86 0.90 1"/>
     </body>
   </worldbody>
 
