@@ -187,3 +187,29 @@ def test_mjodata_applies_teme_conversion_at_boundary(tmp_path: Path):
     data.reset()
     np.testing.assert_allclose(data.orbit.R_eci, R_expected, rtol=0, atol=1e-9)
     assert data.orbit.t == pytest.approx(t_expected)
+
+
+# ---------------------------------------------------------------------------
+# Warp backend re-exports OrbitInit and rebuilds copies; frame/epoch must survive
+# so the host CPU MjoData resolves them before the device upload (PR #15 review).
+# This needs neither mujoco_warp (the copy is pure Python) nor astropy.
+# ---------------------------------------------------------------------------
+
+
+def test_warp_normalize_orbit_inits_preserves_frame_and_epoch():
+    from mjorbit_warp.data import _normalize_orbit_inits
+
+    orbit = OrbitInit(R_eci=R0, V_eci=V0, t=5.0, frame="TEME", epoch=EPOCH)
+
+    single = _normalize_orbit_inits(orbit, nworld=2)
+    assert len(single) == 2
+    for o in single:
+        assert o.frame == "TEME"
+        assert o.epoch == EPOCH
+        # arrays are still copied, not aliased to the caller's input
+        assert not np.shares_memory(o.R_eci, orbit.R_eci)
+        assert not np.shares_memory(o.V_eci, orbit.V_eci)
+
+    seq = _normalize_orbit_inits([orbit, orbit], nworld=2)
+    assert [o.frame for o in seq] == ["TEME", "TEME"]
+    assert [o.epoch for o in seq] == [EPOCH, EPOCH]
