@@ -41,6 +41,14 @@ pixi run -e rl python scripts/record/produce_hug.py \
     --checkpoint examples/ppo/logs/<run>/model_<it>.pt --out /tmp/hug_traj.npz
 pixi run -e rl python scripts/record/record_truss.py \
     --traj /tmp/hug_traj.npz --out videos/truss_pointing.mp4 --clip-sim-seconds 0
+
+# RL Astrobee detumble & grasp — also needs the warp/GPU `rl` env + a trained
+# checkpoint (examples/ppo astrobee_*). produce_astrobee picks a clean rollout
+# (detumble + fly-in + grasp + hold) and record_astrobee renders it.
+pixi run -e rl python scripts/record/produce_astrobee.py \
+    --checkpoint examples/ppo/logs/<run>/model_<it>.pt --out /tmp/astrobee_traj.npz
+pixi run -e rl python scripts/record/record_astrobee.py \
+    --traj /tmp/astrobee_traj.npz --out videos/astrobee_grasp.mp4
 ```
 
 Common knobs: `--seconds`, `--fps`, `--width/--height`, `--mag`, camera offsets
@@ -54,7 +62,8 @@ trajectory, then `render_traj.py` replays it.
 - `scene.py` — world-scaled single-cluster scene (`SingleScene`) + framing helpers.
 - `render_traj.py` — replay a saved trajectory through `SingleScene` to mp4.
 - `record_docking.py`, `produce_grasp.py` + `record_grasp.py`, `record_banner.py`,
-  `produce_hug.py` + `record_truss.py` — per-scene drivers.
+  `produce_hug.py` + `record_truss.py`, `produce_astrobee.py` + `record_astrobee.py`
+  — per-scene drivers.
 
 ## Not yet covered (paper Fig. example a)
 
