@@ -33,24 +33,30 @@ pixi run python scripts/record/record_docking.py --traj /tmp/dock_traj.npz --out
 # Grasping under gravity gradient (paper example c)
 pixi run python scripts/record/produce_grasp.py --out /tmp/grasp_traj.npz
 pixi run python scripts/record/record_grasp.py --traj /tmp/grasp_traj.npz --out videos/grasping.mp4
+
+# RL truss servicing (paper example d) — needs the warp/GPU `rl` env + a trained
+# checkpoint (examples/ppo). produce_hug composes scripted fly-in + trained
+# hug/stabilize; the spacecraft hugs a large free truss and slews it to Earth.
+pixi run -e rl python scripts/record/produce_hug.py \
+    --checkpoint examples/ppo/logs/<run>/model_<it>.pt --out /tmp/hug_traj.npz
+pixi run -e rl python scripts/record/record_truss.py \
+    --traj /tmp/hug_traj.npz --out videos/truss_pointing.mp4 --clip-sim-seconds 0
 ```
 
 Common knobs: `--seconds`, `--fps`, `--width/--height`, `--mag`, camera offsets
-in the per-scene `record_*.py`. Trajectory clips (`docking`, `grasping`) run the
-controller once to dump a `(qpos, R_eci)` trajectory, then `render_traj.py`
-replays it.
+in the per-scene `record_*.py`. Trajectory clips (`docking`, `grasping`,
+`truss_pointing`) run the controller/policy once to dump a `(qpos, R_eci)`
+trajectory, then `render_traj.py` replays it.
 
 ## Files
 
 - `recorder.py` — `HeadlessRecorder` (Chrome + get_render) and `VideoWriter` (ffmpeg).
 - `scene.py` — world-scaled single-cluster scene (`SingleScene`) + framing helpers.
 - `render_traj.py` — replay a saved trajectory through `SingleScene` to mp4.
-- `record_docking.py`, `produce_grasp.py` + `record_grasp.py`, `record_banner.py` — per-scene drivers.
+- `record_docking.py`, `produce_grasp.py` + `record_grasp.py`, `record_banner.py`,
+  `produce_hug.py` + `record_truss.py` — per-scene drivers.
 
-## Not yet covered (paper Fig. examples a, d)
+## Not yet covered (paper Fig. example a)
 
 - **(a) Multibody attitude control** — no implementation exists on `main` (paper
   `\todo`); needs a small task built first.
-- **(d) RL truss pointing** — `examples/ppo/` lives on the `rl-examples` branch
-  and needs the warp/GPU backend + a trained checkpoint (none committed). Train on
-  a CUDA box, then this harness can render `play.py` output.
