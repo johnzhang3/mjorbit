@@ -522,6 +522,17 @@ std::unique_ptr<MjoModel> MjoModel::FromSpecXml(
   model->model_->opt.gravity[0] = 0.0;
   model->model_->opt.gravity[1] = 0.0;
   model->model_->opt.gravity[2] = 0.0;
+  // mjorbit targets coupled orbital + attitude dynamics. MuJoCo's default
+  // semi-implicit Euler integrator does not conserve angular momentum for
+  // freely tumbling / asymmetric rigid bodies (issue #12). Default to
+  // implicitfast: for the position-only forces of the orbit-following frame it
+  // reduces to semi-implicit Euler (so translational behavior is unchanged),
+  // while preserving the rotation-group structure for rotational dynamics at
+  // negligible extra cost. Explicit implicit / implicitfast / RK4 choices in
+  // the model are preserved.
+  if (model->model_->opt.integrator == mjINT_EULER) {
+    model->model_->opt.integrator = mjINT_IMPLICITFAST;
+  }
   model->central_body_ = orbit.central_body;
   model->use_j2_ = orbit.use_j2;
   model->use_drag_ = orbit.use_drag;
