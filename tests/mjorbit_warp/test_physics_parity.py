@@ -398,6 +398,61 @@ def test_surface_magnetic_and_limited_rw_coupling_matches_cpu_reference():
     _assert_close(warp_data.actuators.rw_momentum, cpu_data.actuators.rw_momentum, atol=1e-8)
 
 
+def test_magnetorquer_command_applies_without_explicit_upload():
+    """Documented public pattern (set cmd, then plain mjo_step/mjo_forward with
+    NO explicit upload) must produce torque on the warp backend, matching the
+    CPU backend. Regression for issue #10: before the command-input auto-sync,
+    warp silently dropped the dipole command (device buffer stayed 0) so this
+    asserted-nonzero torque was 0 and the test failed."""
+    magnetorquers = [
+        mjo_cpu.MagnetorquerSpec(
+            body_name="spacecraft",
+            axis_body=np.array([1.0, 0.0, 0.0]),
+            dipole_limit=10.0,
+        )
+    ]
+    cpu_model, cpu_data, warp_model, warp_data = _make_pair(
+        FREE_BODY_XML,
+        use_magnetic=True,
+        use_gravity_gradient=False,  # isolate the magnetorquer torque
+        magnetorquers=magnetorquers,
+    )
+    bid = cpu_model.body_id("spacecraft")
+
+    # Documented pattern: set the command, then forward — no _upload_warp_inputs.
+    cpu_data.actuators.mtq_dipole_cmd[0] = 10.0
+    warp_data.actuators.mtq_dipole_cmd[0] = 10.0
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+
+    b_world = np.asarray(cpu_data.env.mag_field_eci)
+    assert np.linalg.norm(b_world) > 0.0, "env magnetic field is zero; cannot test MTQ torque"
+    assert np.linalg.norm(warp_data.wrench_buffer[bid, 3:]) > 1e-9, (
+        "warp magnetorquer produced no torque without an explicit upload"
+    )
+    _assert_close(warp_data.wrench_buffer, cpu_data.wrench_buffer, atol=1e-6)
+
+    # Clearing the command must also propagate through the auto-sync.
+    warp_data.actuators.mtq_dipole_cmd[0] = 0.0
+    _forward_and_pull_warp(warp_model, warp_data)
+    np.testing.assert_allclose(warp_data.wrench_buffer[bid, 3:], 0.0, atol=1e-9)
+
+    # End-to-end: plain mjo_step (no upload) must move the body rate in parity
+    # with the CPU backend.
+    cpu_data.actuators.mtq_dipole_cmd[0] = 10.0
+    warp_data.actuators.mtq_dipole_cmd[0] = 10.0
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+    w0 = cpu_data.qvel[3:6].copy()
+    for _ in range(50):
+        mjo_cpu.mjo_step(cpu_model, cpu_data)
+        mjo_warp.mjo_step(warp_model, warp_data)
+    mjo_cpu.mjo_forward(cpu_model, cpu_data)
+    _forward_and_pull_warp(warp_model, warp_data)
+    assert np.linalg.norm(cpu_data.qvel[3:6] - w0) > 1e-9, "CPU body rate did not respond to MTQ"
+    _assert_close(warp_data.qvel, cpu_data.qvel)
+
+
 def test_batched_warp_worlds_match_independent_cpu_runs():
     common: dict[str, Any] = dict(
         mj_timestep=0.01,
@@ -764,6 +819,83 @@ def test_cuda_graph_capture_replay_matches_uncaptured_step():
     np.testing.assert_allclose(
         np.asarray(cap.orbit.R_eci), np.asarray(ref.orbit.R_eci), atol=1e-6, rtol=0.0
     )
+
+
+@pytest.mark.skipif(not _HAS_CUDA, reason="CUDA-graph capture requires a CUDA device")
+def test_cuda_graph_capture_respects_mid_loop_command_uploads():
+    """A captured ``mjo_step`` on an actuator-equipped model must read commands
+    uploaded between ``wp.capture_launch`` calls.
+
+    Codex review of #11 flagged that the eager command auto-sync, if recorded
+    inside the captured graph, could replay the capture-time command on every
+    launch and freeze/drop later uploads. The fix skips that auto-sync during
+    capture (``sync_command_inputs`` is a no-op while the stream is capturing),
+    so the captured step contains no host->device command copy and commands are
+    uploaded explicitly per launch, exactly as for ``ctrl``. The existing graph
+    hot-loop test uses an actuator-free model, so it never exercised this path;
+    this test locks in the contract for ``mtq_dipole_cmd``.
+    """
+    orbit = _orbit_init(400.0)
+    magnetorquers = [
+        mjo_cpu.MagnetorquerSpec(
+            body_name="spacecraft",
+            axis_body=np.array([1.0, 0.0, 0.0]),
+            dipole_limit=500.0,
+        )
+    ]
+    common = dict(
+        mj_timestep=0.01,
+        use_magnetic=True,
+        use_gravity_gradient=False,
+        magnetorquers=magnetorquers,
+    )
+    model = mjo_warp.MjoModel.from_xml_path(FREE_BODY_XML, **common)
+    nworld = 4
+    ref = model.make_data(orbit=_warp_orbit_init(orbit), nworld=nworld)
+    cap = model.make_data(orbit=_warp_orbit_init(orbit), nworld=nworld)
+    bid = model.body_id("spacecraft")
+
+    qpos0 = _normalize_quat([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0])
+    for data in (ref, cap):
+        data.qpos[:] = np.tile(qpos0, (nworld, 1))
+        data.actuators.mtq_dipole_cmd[:] = 0.0  # capture-time command is zero
+        _upload_warp_inputs(model, data)
+        mjo_warp.mjo_forward(model, data)
+
+    for _ in range(3):
+        mjo_warp.mjo_step(model, ref)
+        mjo_warp.mjo_step(model, cap)
+    wp.synchronize()
+
+    with wp.ScopedCapture() as capture:
+        mjo_warp.mjo_step(model, cap)
+    graph = capture.graph
+    wp.synchronize()
+
+    for k in range(10):
+        # Distinct per-world dipole so a frozen/dropped upload is unmistakable.
+        new_cmd = (200.0 + 50.0 * np.arange(nworld) + 10.0 * k).reshape(nworld, 1)
+        ref.actuators.mtq_dipole_cmd[:] = new_cmd
+        mjo_warp.mjo_upload(model, ref, fields=("mtq_dipole_cmd",))
+        mjo_warp.mjo_step(model, ref)
+
+        cap.actuators.mtq_dipole_cmd[:] = new_cmd
+        mjo_warp.mjo_upload(model, cap, fields=("mtq_dipole_cmd",))
+        wp.capture_launch(graph)
+    wp.synchronize()
+
+    mjo_warp.mjo_pull(model, ref)
+    mjo_warp.mjo_pull(model, cap)
+
+    # wrench is the direct signal; qpos/qvel confirm the integrated effect.
+    assert np.linalg.norm(np.asarray(ref.wrench_buffer)[:, bid, 3:]) > 1e-6, (
+        "reference produced no magnetorquer torque"
+    )
+    np.testing.assert_allclose(
+        np.asarray(cap.wrench_buffer), np.asarray(ref.wrench_buffer), atol=1e-6, rtol=0.0
+    )
+    np.testing.assert_allclose(np.asarray(cap.qvel), np.asarray(ref.qvel), atol=1e-5, rtol=0.0)
+    np.testing.assert_allclose(np.asarray(cap.qpos), np.asarray(ref.qpos), atol=1e-5, rtol=0.0)
 
 
 def test_central_body_config_propagates_to_warp_device_core():

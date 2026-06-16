@@ -259,6 +259,72 @@ class TestMagnetorquer:
         _apply_magnetorquers(model, data)
         np.testing.assert_allclose(data.wrench_buffer[1], 0.0)
 
+    def test_mtq_torque_through_production_forward(self):
+        """Production path (mjo_forward), not the reference helper: a dipole
+        command must produce the analytic m x B body torque. Regression for
+        issue #10 — the reference-only unit tests above would pass even if the
+        C++/warp production path applied no torque."""
+        model, data = _make_model_data(
+            use_gravity_gradient=False,  # isolate the magnetorquer torque
+            magnetorquers=[
+                MagnetorquerSpec(
+                    body_name="spacecraft",
+                    axis_body=np.array([1.0, 0.0, 0.0]),
+                    dipole_limit=10.0,
+                )
+            ],
+        )
+        bid = model.body_id("spacecraft")
+
+        # cmd = 0 differential baseline: zero torque through the real path.
+        data.actuators.mtq_dipole_cmd[0] = 0.0
+        mjo_forward(model, data)
+        np.testing.assert_allclose(data.wrench_buffer[bid, 3:], 0.0, atol=1e-18)
+
+        # cmd = limit: torque equals cross(clamp(cmd)*axis, R_body.T @ B).
+        data.actuators.mtq_dipole_cmd[0] = 10.0
+        mjo_forward(model, data)
+        # mjo_forward recomputes the env field from the orbit; read it back.
+        b_world = np.asarray(data.env.mag_field_eci)
+        assert np.linalg.norm(b_world) > 0.0, "env magnetic field is zero; cannot test MTQ torque"
+
+        r_body = data.xmat[bid].reshape(3, 3)
+        dipole_body = 10.0 * np.array([1.0, 0.0, 0.0])
+        expected_world = r_body @ np.cross(dipole_body, r_body.T @ b_world)
+
+        assert np.linalg.norm(data.wrench_buffer[bid, 3:]) > 0.0, "MTQ produced no torque"
+        np.testing.assert_allclose(
+            data.wrench_buffer[bid, 3:], expected_world, rtol=1e-9, atol=1e-18
+        )
+        np.testing.assert_allclose(data.wrench_buffer[bid, :3], 0.0, atol=1e-18)
+
+    def test_mtq_torque_changes_body_rate_through_step(self):
+        """A dipole command applied through mjo_step must change the body's
+        angular rate; cmd = 0 must leave it unchanged."""
+
+        def run(cmd: float) -> np.ndarray:
+            model, data = _make_model_data(
+                use_gravity_gradient=False,
+                magnetorquers=[
+                    MagnetorquerSpec(
+                        body_name="spacecraft",
+                        axis_body=np.array([1.0, 0.0, 0.0]),
+                        dipole_limit=10.0,
+                    )
+                ],
+            )
+            data.actuators.mtq_dipole_cmd[0] = cmd
+            mjo_forward(model, data)
+            w0 = data.qvel[3:6].copy()
+            for _ in range(50):
+                mjo_step(model, data)
+            return data.qvel[3:6] - w0
+
+        dw_zero = run(0.0)
+        dw_max = run(10.0)
+        np.testing.assert_allclose(dw_zero, 0.0, atol=1e-18)
+        assert np.linalg.norm(dw_max) > 1e-9, "body angular rate did not respond to MTQ command"
+
 
 class TestThruster:
     def test_force_at_com(self):

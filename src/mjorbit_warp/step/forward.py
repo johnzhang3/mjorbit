@@ -6,14 +6,19 @@ from .._deps import require_mjwarp
 from ..data import MjoData
 from ..model import MjoModel
 from .pull import mjo_pull
-from .upload import mjo_upload
+from .upload import mjo_upload, sync_command_inputs
 
 
 def mjo_forward(model: MjoModel, data: MjoData, *, sync: bool = False) -> None:
     """Synchronize derived runtime state after direct mutation.
 
-    By default the MJWarp device state is authoritative.  Public NumPy buffers
-    are uploaded and host mirrors are refreshed only when ``sync=True``.
+    By default the MJWarp device state is authoritative; large public NumPy
+    buffers and integrated state are uploaded and host mirrors refreshed only
+    when ``sync=True``.  The cheap actuator *command* inputs
+    (``rw_torque_cmd``, ``mtq_dipole_cmd``, ``thr_force_cmd``) are synced from
+    the public buffers each call (except during CUDA-graph capture), so editing
+    a command and calling ``mjo_forward`` takes effect without an explicit
+    upload, matching the CPU backend (issue #10).
     """
     mjw, _ = require_mjwarp()
     from ..core_gpu import (
@@ -24,6 +29,8 @@ def mjo_forward(model: MjoModel, data: MjoData, *, sync: bool = False) -> None:
 
     if sync:
         mjo_upload(model, data)
+    else:
+        sync_command_inputs(data)
     # Direct mutation may have invalidated the multirate segment endpoints;
     # the next step will rebuild the schedule from current state.
     reset_orbit_schedule(data)

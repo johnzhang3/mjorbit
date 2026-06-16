@@ -18,6 +18,14 @@ _CORE_UPLOAD_FIELDS = frozenset(
     {"orbit", "actuators", "rw_speed", "rw_torque_cmd", "mtq_dipole_cmd", "thr_force_cmd"}
 )
 
+# Pure command-input buffers: device-side inputs the coupling kernel reads each
+# step but never integrates. Unlike ``orbit`` and ``rw_speed`` (which the device
+# advances), these can be re-uploaded from the host every step without
+# clobbering device-authoritative state. ``mjo_step`` / ``mjo_forward`` auto-sync
+# exactly this set so the documented ``set cmd; mjo_step`` pattern produces
+# torque on the warp backend, matching the CPU backend. See issue #10.
+_CORE_COMMAND_FIELDS = frozenset({"rw_torque_cmd", "mtq_dipole_cmd", "thr_force_cmd"})
+
 _PULL_ALIASES = {
     "environment": "env",
     "wrench": "wrench_buffer",

@@ -12,11 +12,56 @@ from ..core_gpu import sync_core_device_from_public
 from ..data import MjoData
 from ..model import MjoModel
 from .field_specs import (
+    _CORE_COMMAND_FIELDS,
     _CORE_UPLOAD_FIELDS,
     _DEVICE_UPLOAD_FIELDS,
     _field_enabled,
     _normalize_upload_fields,
 )
+
+
+def _device_is_capturing(data: MjoData) -> bool:
+    """True when the data's device stream is recording a CUDA graph.
+
+    Recording a host->device command copy inside ``wp.ScopedCapture`` ties the
+    captured hot loop to allocator behavior: depending on the Warp/CUDA version
+    the replayed copy can re-apply the capture-time host values on every
+    ``wp.capture_launch`` and clobber commands uploaded between launches.  We
+    sidestep that entirely by skipping the convenience command auto-sync during
+    capture, leaving the captured step identical to the pre-#10 behavior (no
+    command sync) so the device buffers stay authoritative.
+    """
+    try:
+        device = data.core_data.mtq_dipole_cmd.device
+    except AttributeError:
+        return False
+    if not getattr(device, "is_cuda", False):
+        return False
+    _, wp = require_mjwarp()
+    return bool(wp.get_stream(device).is_capturing)
+
+
+def sync_command_inputs(data: MjoData) -> None:
+    """Push the pure actuator command inputs (``*_cmd``) host->device.
+
+    Called on every eager ``mjo_step`` / ``mjo_forward`` so the documented
+    ``data.actuators.*_cmd = cmd; mjo_step(...)`` pattern produces torque on the
+    warp backend without an explicit upload.  These buffers are device inputs
+    the coupling kernel reads but never integrates, so re-copying them each step
+    is safe — unlike ``orbit`` / ``rw_speed``, which the device advances.
+
+    No-op when the model has no orbit actuators, and while a CUDA graph is being
+    captured: a captured step must not record a host->device copy (it would tie
+    the captured hot loop to allocator behavior), so under capture the device
+    buffers stay authoritative and commands are uploaded explicitly between
+    ``wp.capture_launch`` calls, exactly as for ``ctrl``.
+    """
+    model = data.model
+    if not (len(model.reaction_wheels) or len(model.magnetorquers) or len(model.thrusters)):
+        return
+    if _device_is_capturing(data):
+        return
+    sync_core_device_from_public(data, fields=_CORE_COMMAND_FIELDS)
 
 
 def _as_batched(values: np.ndarray | float, *, nworld: int) -> np.ndarray:
@@ -159,4 +204,5 @@ def mjo_upload(
 
 __all__ = [
     'mjo_upload',
+    'sync_command_inputs',
 ]
