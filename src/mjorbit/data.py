@@ -39,13 +39,16 @@ class MjoData:
     ) -> None:
         if orbit is None:
             orbit = OrbitInit(R_eci=np.zeros(3), V_eci=np.zeros(3), t=0.0)
-        self._initial_orbit = OrbitInit(orbit.R_eci.copy(), orbit.V_eci.copy(), orbit.t)
+        R_eci, V_eci, t = _resolve_canonical_orbit(orbit)
+        # Store the resolved canonical state so reset() replays it directly without
+        # re-running any frame conversion.
+        self._initial_orbit = OrbitInit(R_eci.copy(), V_eci.copy(), t)
         self.model = model
         self._native = _bindings.MjoData(
             model._native,
-            np.asarray(orbit.R_eci, dtype=float).tolist(),
-            np.asarray(orbit.V_eci, dtype=float).tolist(),
-            float(orbit.t),
+            R_eci.tolist(),
+            V_eci.tolist(),
+            float(t),
             rng_seed,
         )
 
@@ -60,13 +63,17 @@ class MjoData:
 
     def reset(self, orbit: OrbitInit | None = None) -> None:
         if orbit is None:
-            orbit = self._initial_orbit
+            # _initial_orbit is already in canonical GCRF — replay it verbatim.
+            R_eci = self._initial_orbit.R_eci
+            V_eci = self._initial_orbit.V_eci
+            t = self._initial_orbit.t
         else:
-            self._initial_orbit = OrbitInit(orbit.R_eci.copy(), orbit.V_eci.copy(), orbit.t)
+            R_eci, V_eci, t = _resolve_canonical_orbit(orbit)
+            self._initial_orbit = OrbitInit(R_eci.copy(), V_eci.copy(), t)
         self._native.reset(
-            np.asarray(orbit.R_eci, dtype=float).tolist(),
-            np.asarray(orbit.V_eci, dtype=float).tolist(),
-            float(orbit.t),
+            np.asarray(R_eci, dtype=float).tolist(),
+            np.asarray(V_eci, dtype=float).tolist(),
+            float(t),
         )
 
     def eci_position_from_world(self, position_world_m: Any) -> np.ndarray:
@@ -177,6 +184,24 @@ class _SensorDataNamespace:
             descriptor.name: self.measure(descriptor.name, noisy=noisy, rng=rng)
             for descriptor in self._data.model.sensors.descriptors
         }
+
+
+def _resolve_canonical_orbit(orbit: OrbitInit) -> tuple[np.ndarray, np.ndarray, float]:
+    """Resolve an OrbitInit to canonical-GCRF ``(R_eci, V_eci, t)``.
+
+    The default (``frame="ECI"``, ``epoch=None``) is returned verbatim and never imports
+    the optional frame-conversion dependency; anything else is delegated to
+    :mod:`mjorbit.frames`.
+    """
+    if getattr(orbit, "frame", "ECI") == "ECI" and getattr(orbit, "epoch", None) is None:
+        return (
+            np.asarray(orbit.R_eci, dtype=float),
+            np.asarray(orbit.V_eci, dtype=float),
+            float(orbit.t),
+        )
+    from mjorbit import frames
+
+    return frames.resolve_orbit_state(orbit)
 
 
 __all__ = ["MjoData"]
