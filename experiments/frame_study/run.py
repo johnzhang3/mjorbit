@@ -31,7 +31,7 @@ MASS = 100.0  # kg
 BOX_HALF_EXTENTS = np.array([0.5, 0.3, 0.2])  # m, matches the prior MuJoCo XML
 OUT_DIR = Path(__file__).with_name("out")
 StudyPrecision = Literal["float64", "float32"]
-Integrator = Literal["euler", "rk4"]
+Integrator = Literal["euler", "rk4", "implicit"]
 
 ORBIT_TIMESTEP = 0.5  # s
 SIM_TIMESTEP = 0.1  # s, body propagator step
@@ -545,11 +545,79 @@ def rk4_step(
     return _renormalize_quat(y_next)
 
 
+def _skew(a: np.ndarray) -> np.ndarray:
+    """3x3 cross-product matrix [a]_x (float64)."""
+    a = np.asarray(a, dtype=np.float64)
+    return np.array(
+        [[0.0, -a[2], a[1]], [a[2], 0.0, -a[0]], [-a[1], a[0], 0.0]],
+        dtype=np.float64,
+    )
+
+
+def implicit_step(
+    y: np.ndarray,
+    t: float,
+    dt: float,
+    mode: FrameMode,
+    chief_at: Callable[[float], OrbitState],
+    length_unit_m: float,
+    inertia_diag: np.ndarray,
+) -> tuple[np.ndarray, float]:
+    """Linearly-implicit (implicit-in-velocity) Euler — matches MuJoCo's
+    ``mjINT_IMPLICIT``.
+
+    The velocity DOFs (translational ``v`` and body ``omega``) are advanced with
+    an implicit treatment of the *velocity-dependent* forces, using the analytic
+    Jacobian ``J = d(accel)/d(vel)``::
+
+        (I - dt J) dvel = dt accel,   vel = [v, omega].
+
+    Two velocity-dependent blocks appear: the LVLH Coriolis acceleration
+    ``-2 omega_L x v`` (translational) with ``dvdot/dv = -2 [omega_L]_x``, and the
+    rotational gyroscopic term ``omegadot = -I^{-1}(omega x I omega)`` with
+    ``domegadot/domega = I^{-1}([I omega]_x - [omega]_x I)``. Positions and the
+    quaternion are then advanced with the new velocities (semi-implicit), exactly
+    as in :func:`euler_step`. For position-only forces (ECI, chief-inertial) the
+    translational block is zero, so the translational update reduces *exactly* to
+    semi-implicit Euler; only the rotational integration changes there.
+    """
+    dtype = y.dtype
+    dt_t = np.asarray(dt, dtype=dtype)
+    dy = state_dot(y, t, mode, chief_at, length_unit_m, inertia_diag)
+    accel = np.concatenate([dy[3:6], dy[10:13]]).astype(np.float64)  # [vdot, omegadot]
+
+    # Block-diagonal Jacobian J = d(accel)/d(vel), vel = [v, omega].
+    inertia = np.asarray(inertia_diag, dtype=np.float64)
+    omega = np.asarray(y[10:13], dtype=np.float64)
+    jac = np.zeros((6, 6), dtype=np.float64)
+    # Rotational gyroscopic block: I^{-1} ([I w]_x - [w]_x I).
+    jac[3:6, 3:6] = np.diag(1.0 / inertia) @ (
+        _skew(inertia * omega) - _skew(omega) @ np.diag(inertia)
+    )
+    # LVLH translational Coriolis block: -2 [omega_L]_x.
+    if mode == FrameMode.LVLH:
+        omega_lvlh = frame_cache(chief_at(t), length_unit_m).omega_lvlh
+        jac[0:3, 0:3] = -2.0 * _skew(omega_lvlh)
+
+    amat = np.eye(6, dtype=np.float64) - float(dt) * jac
+    dvel = np.linalg.solve(amat, float(dt) * accel).astype(dtype)
+
+    y_next = np.empty_like(y)
+    y_next[3:6] = y[3:6] + dvel[0:3]
+    y_next[10:13] = y[10:13] + dvel[3:6]
+    y_next[0:3] = y[0:3] + dt_t * y_next[3:6]
+    qdot_new = quat_kinematic_rhs(y[6:10], y_next[10:13])
+    y_next[6:10] = y[6:10] + dt_t * qdot_new
+    return _renormalize_quat(y_next)
+
+
 def step_function(integrator: Integrator) -> Callable[..., tuple[np.ndarray, float]]:
     if integrator == "euler":
         return euler_step
     if integrator == "rk4":
         return rk4_step
+    if integrator == "implicit":
+        return implicit_step
     raise ValueError(f"Unknown integrator: {integrator}")
 
 
@@ -788,14 +856,17 @@ def run_integrator_study(
     rel_vel_bias_lvlh: np.ndarray,
     orbit_unit_m: float,
 ) -> list[TimeHistory]:
-    """Run the four ECI/local-chief x Euler/RK4 time-history cases."""
+    """Run the ECI/local-chief/LVLH x Euler/implicit/RK4 time-history cases."""
     _, _, _, orbit_period = initial_states(scenario, rel_vel_bias_lvlh, length_unit_m=1.0)
     cases: list[tuple[str, FrameMode, Integrator]] = [
         ("ECI + Euler", FrameMode.ECI, "euler"),
+        ("ECI + implicit", FrameMode.ECI, "implicit"),
         ("ECI + RK4", FrameMode.ECI, "rk4"),
         ("local chief + Euler", FrameMode.CHIEF_INERTIAL, "euler"),
+        ("local chief + implicit", FrameMode.CHIEF_INERTIAL, "implicit"),
         ("local chief + RK4", FrameMode.CHIEF_INERTIAL, "rk4"),
         ("LVLH + Euler", FrameMode.LVLH, "euler"),
+        ("LVLH + implicit", FrameMode.LVLH, "implicit"),
         ("LVLH + RK4", FrameMode.LVLH, "rk4"),
     ]
     return [
@@ -851,7 +922,7 @@ def write_integrator_study(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    colors = {"euler": "tab:blue", "rk4": "tab:orange"}
+    colors = {"euler": "tab:blue", "rk4": "tab:orange", "implicit": "tab:green"}
 
     fig, ax = plt.subplots(figsize=(9.0, 5.2))
     for history in histories:
@@ -948,7 +1019,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--integrator-study",
         action="store_true",
-        help="Run an ECI/local-chief comparison with Euler and RK4, then save error plots.",
+        help="Run an ECI/local-chief/LVLH comparison with Euler, implicit, and RK4, then save error plots.",
     )
     parser.add_argument(
         "--study-orbits",

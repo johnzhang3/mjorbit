@@ -81,6 +81,18 @@ orientation are then updated with the *new* velocity. On Hamiltonian systems thi
 preserves energy on average and produces bounded periodic error rather than the
 secular blow-up of forward Euler. `RK4` is standard explicit RK4.
 
+The `implicit` integrator is **linearly-implicit (implicit-in-velocity) Euler**
+(matches MuJoCo's `mjINT_IMPLICIT` velocity update): the velocity DOFs are
+advanced via `(I - dt J) dvel = dt accel` using the analytic Jacobian
+`J = d(accel)/d(vel)`, then positions/orientation follow with the new velocities.
+For position-only accelerations (ECI, chief-inertial) `J = 0`, so the
+translational update reduces *exactly* to semi-implicit Euler; in the LVLH frame
+the velocity-dependent Coriolis term is treated implicitly. Note this is a
+generic linearly-implicit scheme: it reproduces MuJoCo's translational behavior
+but, unlike MuJoCo's `mjINT_IMPLICIT`, it does not preserve the rotation-group
+structure, so its torque-free attitude `|H|` is only first-order accurate. The
+paper figure reports translation only, so this does not affect it.
+
 ## Run
 
 ```bash

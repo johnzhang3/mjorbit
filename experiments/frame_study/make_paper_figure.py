@@ -10,12 +10,12 @@ import numpy as np
 OUT_DIR = Path(__file__).with_name("out")
 
 CURVES = (
-    ("ECI + Euler", "ECI, Euler", "frameEci", "solid"),
-    ("local chief + Euler", "chief-inertial, Euler", "frameChief", "solid"),
-    ("LVLH + Euler", "LVLH, Euler", "frameLvlh", "solid"),
-    ("ECI + RK4", "ECI, RK4\\hphantom{le}", "frameEci", "densely dashed"),
-    ("local chief + RK4", "chief-inertial, RK4\\hphantom{le}", "frameChief", "densely dashed"),
-    ("LVLH + RK4", "LVLH, RK4\\hphantom{le}", "frameLvlh", "densely dashed"),
+    ("ECI + implicit", "ECI, implicit", "frameEci", "solid"),
+    ("local chief + implicit", "chief-inertial, implicit", "frameChief", "solid"),
+    ("LVLH + implicit", "LVLH, implicit", "frameLvlh", "solid"),
+    ("ECI + RK4", "ECI, RK4\\hphantom{implt}", "frameEci", "densely dashed"),
+    ("local chief + RK4", "chief-inertial, RK4\\hphantom{implt}", "frameChief", "densely dashed"),
+    ("LVLH + RK4", "LVLH, RK4\\hphantom{implt}", "frameLvlh", "densely dashed"),
 )
 
 
@@ -144,7 +144,7 @@ def axis_block(
             [
                 (
                     f"    \\addplot[mark=none, {color_name}, {line_style}, "
-                    "line width=1.2pt] coordinates {"
+                    "line width=2.3pt] coordinates {"
                 ),
                 coordinates_block(x, y),
                 "    };",
@@ -165,7 +165,7 @@ def tikz_document(
             "\\pgfplotsset{",
             "  frameStudyAxis/.style={",
             "    width=\\columnwidth,",
-            "    height=0.58\\columnwidth,",
+            "    height=0.5\\columnwidth,",
             "    xmin=0, xmax=3,",
             "    ymin=1e-9, ymax=1e4,",
             "    ymode=log,",
@@ -183,15 +183,17 @@ def tikz_document(
             "    legend cell align=left,",
             "    legend style={",
             "      font=\\scriptsize,",
-            "      /tikz/every even column/.append style={column sep=0.45cm},",
+            "      /tikz/every even column/.append style={column sep=0.05cm},",
             "      draw=none,",
             "    },",
             "  },",
             "}",
             "\\pgfplotsset{",
-            "  frameEci/.style={color={rgb,255:red,64;green,99;blue,216}},",
-            "  frameChief/.style={color={rgb,255:red,203;green,60;blue,51}},",
-            "  frameLvlh/.style={color={rgb,255:red,56;green,152;blue,38}},",
+            # Match the paper palette: plotMedBlue (008DFF), plotOrange (FF9D3A),
+            # plotPurple (C701FF) so the figure agrees with the caption colors.
+            "  frameEci/.style={color={rgb,255:red,0;green,141;blue,255}},",
+            "  frameChief/.style={color={rgb,255:red,255;green,157;blue,58}},",
+            "  frameLvlh/.style={color={rgb,255:red,199;green,1;blue,255}},",
             "}",
             "\\begin{groupplot}[",
             "  frameStudyAxis,",
