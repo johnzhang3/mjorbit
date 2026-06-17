@@ -124,8 +124,9 @@ class AstrobeeEnvCfg:
     reach_tight_width: float = 0.10
     w_align: float = 1.0  # reward the jaw axis aligned with the bar axis (when near)
     w_grasp: float = 6.0  # bonus while grasped (gripper closed on the bar)
-    w_hold: float = 1.5  # (while grasped) keep the pair quiet
-    hold_width: float = 0.1
+    w_hold: float = 2.0  # (while grasped) reward holding STILL -- low absolute speed
+    hold_width: float = 0.15  # m/s
+    w_brake: float = 1.0  # (while grasped) penalize absolute drift speed -> station-keep
     w_grip_pen: float = 0.3  # discourage closing the grip away from the bar
     w_spin: float = 0.15  # detumble penalty (spin^2)
     w_dock_vel: float = 0.1  # soft-capture: penalize closing speed only near the bar
@@ -449,6 +450,7 @@ class AstrobeeGraspEnv(VecEnv):
             qvel[:, self._cargo_v : self._cargo_v + 3] - qvel[:, self._bus_v : self._bus_v + 3],
             axis=1,
         )
+        bus_speed = np.linalg.norm(qvel[:, self._bus_v : self._bus_v + 3], axis=1)
 
         settle = cfg.w_settle * np.exp(-((spin / cfg.settle_width) ** 2))
         reach = cfg.w_reach * np.exp(-((dist / cfg.reach_width) ** 2)) + cfg.w_reach_tight * np.exp(
@@ -462,9 +464,13 @@ class AstrobeeGraspEnv(VecEnv):
         dock_vel_pen = cfg.w_dock_vel * np.exp(-((dist / cfg.dock_width) ** 2)) * np.minimum(
             rel_vel**2 / 0.04, 25.0
         )
+        # Once grasped, reward holding STILL (low absolute speed) and penalize
+        # drift, so the robot brakes after the catch and station-keeps instead of
+        # coasting off (otherwise the joined assembly drifts away / toward Earth).
         grasp = self._grasped * (
-            cfg.w_grasp + cfg.w_hold * np.exp(-((rel_vel / cfg.hold_width) ** 2))
+            cfg.w_grasp + cfg.w_hold * np.exp(-((bus_speed / cfg.hold_width) ** 2))
         )
+        brake_pen = cfg.w_brake * self._grasped * np.minimum(bus_speed**2, 4.0)
         # Discourage closing the grip away from the bar (flailing the gripper).
         grip_pen = cfg.w_grip_pen * (self._grip_closed & (dist > cfg.capture_radius))
 
@@ -477,6 +483,7 @@ class AstrobeeGraspEnv(VecEnv):
             + grasp
             - cfg.w_spin * np.minimum(spin**2, 4.0)
             - dock_vel_pen
+            - brake_pen
             - grip_pen
             - cfg.w_effort * effort
             - cfg.w_arm_rate * arm_rate
@@ -492,6 +499,9 @@ class AstrobeeGraspEnv(VecEnv):
             "spin": float(np.nanmean(spin)),
             "align": float(np.nanmean(align)),
             "rel_vel": float(np.nanmean(rel_vel)),
+            "grasped_speed": float(
+                np.nansum(bus_speed * self._grasped) / max(self._grasped.sum(), 1)
+            ),
             "failed_frac": float(np.mean(failed)),
         }
         return reward, metrics, failed
