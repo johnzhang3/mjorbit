@@ -46,6 +46,8 @@ def main() -> None:
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
     ap.add_argument("--port", type=int, default=8421)
+    ap.add_argument("--no-label", action="store_true",
+                    help="omit the 'Nx real-time' overlay (e.g. for paper figures)")
     args = ap.parse_args()
 
     d = np.load(args.traj, allow_pickle=True)
@@ -72,7 +74,7 @@ def main() -> None:
         out_path=args.out, camera=camera, mag=args.mag,
         video_seconds=args.seconds, fps=args.fps,
         width=args.width, height=args.height, port=args.port,
-        sim_dt=float(d["dt"]),
+        sim_dt=None if args.no_label else float(d["dt"]),
     )
 
 
