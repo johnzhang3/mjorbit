@@ -6,6 +6,19 @@ are off here). We spin a bus + 2-link arm up to a known L0, let it tumble freely
 (arm servo-held in a fixed pose, no external torque), and track the relative drift
 |L(t) - L0| / |L0| for each of MuJoCo's integrators in TWO regimes:
 
+ISOLATION (why the drift is a pure integrator artifact). We build with
+``make_data(orbit=None)``, i.e. a zero chief radius. The mjorbit plugin's only
+always-on wrench is the central differential-gravity (tidal) term, and its
+Encke relative-acceleration short-circuits to exactly zero when ``R_eci == 0``
+(``encke_point_mass_relative_accel``: ``rc2 == 0`` -> zero accel). Every other
+orbital perturbation is disabled in the ``<mjorbit>`` element below, and the
+model has no orbital actuators, so the net external wrench on the system is
+identically zero. The reported |L-L0| is therefore a purely isolated MuJoCo
+integrator conservation error, not a residual tidal torque about the CoM. (The
+numbers are bit-identical to the same model under a LEO orbit, because the tidal
+term over these ~2 m lever arms is <1e-5% -- but ``orbit=None`` makes the
+isolation exact rather than merely negligible.)
+
   (A) joints free (no limits): the arm sits in a fixed bent pose while the whole
       body tumbles. Euler/implicit/implicitfast drift only mildly (~1.3% over 30 s)
       from the explicitly-integrated gyroscopic term, and RK4 conserves to ~1e-3%.
@@ -64,8 +77,7 @@ from pathlib import Path
 import mujoco
 import numpy as np
 
-from mjorbit import MjoModel, OrbitInit, mjo_forward, mjo_step
-from mjorbit.constants import GM_EARTH, R_EARTH
+from mjorbit import MjoModel, mjo_forward, mjo_step
 
 # Free-floating bus + 2-link arm. All orbital perturbations and the gravity-
 # gradient torque are OFF, so the only torques are internal -> total angular
@@ -108,8 +120,6 @@ _INTEGRATORS = {
     "RK4": mujoco.mjtIntegrator.mjINT_RK4,
 }
 
-R0 = R_EARTH + 400.0
-V0 = float(np.sqrt(GM_EARTH / R0))
 ARM_POSE = [0.6, -1.0]                 # held bent so the body is asymmetric (rad)
 SPIN_BODY = [0.4, 0.6, 0.3]            # initial bus angular velocity (body frame, rad/s)
 LIMIT_RAD = 0.5                        # regime (B) joint range; ARM_POSE violates it
@@ -157,7 +167,11 @@ def simulate(integrator: str, dt: float, joint_limit: float | None = None,
              arm_pose=ARM_POSE, duration: float = 30.0):
     """Free tumble from a known L0; return (times, relative drift |L-L0|/|L0|)."""
     model = build(integrator, dt, joint_limit)
-    data = model.make_data(orbit=OrbitInit(R_eci=[R0, 0, 0], V_eci=[0, V0, 0]))
+    # orbit=None -> R_eci = 0, which makes the central differential-gravity (tidal)
+    # wrench identically zero (the Encke relative-accel short-circuits on a
+    # zero-magnitude chief radius), so the ONLY torques are internal joint forces.
+    # This isolates the MuJoCo integrator with no external torque -- see docstring.
+    data = model.make_data(orbit=None)
     data.qpos[7:9] = arm_pose
     np.copyto(data.ctrl, data.qpos[7:9])     # hold the arm (quasi-rigid tumble)
     data.qvel[3:6] = SPIN_BODY               # spin the bus up
