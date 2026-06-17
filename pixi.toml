@@ -64,6 +64,7 @@ example-free-drift = { cmd = "python examples/free_drift.py", depends-on = ["syn
 example-mppi-arm-reach = { cmd = "python examples/mppi/arm_reach.py", depends-on = ["sync-package"] }
 example-mppi-capture = { cmd = "python examples/mppi/capture_stabilize.py", depends-on = ["sync-package"] }
 example-docking = { cmd = "python examples/docking/main_mppi.py", depends-on = ["sync-package"] }
+example-momentum-integrators = { cmd = "python examples/momentum_conservation_integrators.py", depends-on = ["sync-package"] }
 compare-basilisk-single = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_orbit", depends-on = ["sync-package"] }
 compare-basilisk-hinges = { cmd = "python -m comparisons.basilisk_mujoco.run_articulated_hinges", depends-on = ["sync-package"] }
 compare-basilisk = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_orbit && python -m comparisons.basilisk_mujoco.run_articulated_hinges", depends-on = ["sync-package"] }
