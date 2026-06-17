@@ -250,6 +250,11 @@ def run(target_deg: float, axis: np.ndarray, duration: float, horizon: float,
                 and log["att"][step] < 3.0 and log["rate"][step] < 2.5):
             held = True
             hold_t = float(data.time)
+            if freeze:
+                # Park the arms at their current angles so the position actuators
+                # do not keep driving toward the last (stale) MPPI setpoint during
+                # the open-loop hold, which would add an extra reaction stroke.
+                np.copyto(data.ctrl, data.qpos[7:15])
             print(f"  TARGET reached at t={hold_t:.1f}s (att err={log['att'][step]:.1f} deg, "
                   f"{'freezing arms' if freeze else 'holding actively'})")
         if held and not freeze:  # track how close the arms get to saturating

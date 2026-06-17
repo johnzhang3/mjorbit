@@ -95,8 +95,23 @@ def main() -> None:
     # Log the live run so the same reorient_3dof_plots.png the headless demo makes
     # gets refreshed on exit (Ctrl+C / browser close).
     log = {k: [] for k in ("t", "att", "rate", "armrate", "joints")}
+    # Last sim time seen by control(); kept outside `state` so the Reset-detection
+    # below survives the state re-init it triggers. Start at -inf so the first call
+    # never falsely trips the rewind branch.
+    prev_time = [float("-inf")]
 
     def control(d, _t):
+        # The viewer's Reset button rewinds d.time to 0 (reset_simulation ->
+        # mjo_set_state restores the t=0 snapshot). Detect that rewind and re-seed
+        # the planner/state/log exactly as main() does, so a reset run does not
+        # replay a stale plan or keep the old run's `reached` flag and plot log.
+        if d.time < prev_time[0]:
+            planner.reset(d, nominal_knots=np.tile(np.asarray(d.ctrl), (5, 1)))
+            state["step"] = 0
+            state["reached"] = False
+            for series in log.values():
+                series.clear()
+        prev_time[0] = float(d.time)
         # Active momentum management: MPPI keeps replanning the whole time (never
         # freezes), so after the slew the arms make continuous reactive strokes to
         # hold attitude against the environmental torques.
