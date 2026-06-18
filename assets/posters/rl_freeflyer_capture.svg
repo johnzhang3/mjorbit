@@ -10,8 +10,8 @@
       <stop offset="1" stop-color="#0a1526"/>
     </radialGradient>
     <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0" stop-color="#8c1a1a" stop-opacity="0.55"/>
-      <stop offset="1" stop-color="#8c1a1a" stop-opacity="0"/>
+      <stop offset="0" stop-color="#1a5c8c" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#1a5c8c" stop-opacity="0"/>
     </radialGradient>
   </defs>
   <rect width="1280" height="720" fill="url(#bg)"/>
@@ -26,17 +26,16 @@
   <circle cx="40" cy="900" r="560" fill="none" stroke="#7fc4ff" stroke-opacity="0.25" stroke-width="3"/>
   <!-- orbit arc -->
   <ellipse cx="640" cy="360" rx="500" ry="200" fill="none" stroke="#ffffff" stroke-opacity="0.16" stroke-width="2" stroke-dasharray="6 9"/>
-  <!-- satellite glyph -->
+  <!-- free-flyer glyph -->
   <g transform="translate(1010,250)" opacity="0.9">
-    <rect x="-14" y="-10" width="28" height="20" rx="3" fill="#d8d2c6"/>
-    <rect x="-52" y="-5" width="30" height="10" fill="#3a6ea5"/>
-    <rect x="22" y="-5" width="30" height="10" fill="#3a6ea5"/>
+    <rect x="-16" y="-16" width="32" height="32" rx="4" fill="#d8d2c6"/>
+    <rect x="22" y="-4" width="26" height="8" rx="2" fill="#b07a35"/>
+    <rect x="46" y="-12" width="14" height="24" rx="2" fill="#9a6a2f"/>
   </g>
   <!-- play button -->
   <circle cx="640" cy="330" r="58" fill="rgba(255,255,255,0.10)" stroke="#ffffff" stroke-opacity="0.55" stroke-width="2"/>
   <path d="M620 300 L620 360 L672 330 Z" fill="#ffffff" fill-opacity="0.92"/>
   <!-- glow behind text -->
   <ellipse cx="640" cy="470" rx="420" ry="120" fill="url(#glow)"/>
-  <text x="640" y="468" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="44" fill="#ffffff">(d)&#160;&#160;RL Truss Pointing</text>
-  <text x="640" y="512" text-anchor="middle" font-family="monospace" font-size="20" letter-spacing="3" fill="#ff8f86">PREVIEW&#160;COMING&#160;SOON</text>
+  <text x="640" y="468" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="44" fill="#ffffff">(d)&#160;&#160;RL Free-Flyer Capture</text>
 </svg>

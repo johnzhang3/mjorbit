@@ -190,13 +190,13 @@ mjo_step(model, data)
       </div>
 
       <div class="example">
-        <div class="video-frame" style="background-image:url('assets/posters/rl_truss_pointing.svg')">
+        <div class="video-frame" style="background-image:url('assets/posters/rl_freeflyer_capture.svg')">
           <video muted playsinline loop preload="none">
-            <source src="assets/videos/rl_truss_pointing.mp4" type="video/mp4" />
+            <source src="assets/videos/rl_freeflyer_capture.mp4" type="video/mp4" />
           </video>
         </div>
-        <h4>(d) Reinforcement Learning for Truss Pointing <span class="tag">&middot; GPU / PPO</span></h4>
-        <p>A policy trained with PPO on the GPU backend across many parallel worlds slews a grasped truss to nadir and holds it as the rotating local-vertical frame carries it around the orbit &mdash; learning to swing the payload into the gravity-gradient well rather than fighting the environment.</p>
+        <h4>(d) Reinforcement Learning for Free-Flyer Capture <span class="tag">&middot; GPU / PPO</span></h4>
+        <p>A policy trained with PPO on the GPU backend across 1,024 parallel worlds controls an Astrobee-style free-flyer that detumbles from an initial spin, flies to a free-floating cargo module drifting 1&ndash;2&nbsp;m ahead, and grasps its handle bar with a parallel-jaw gripper, then station-keeps while holding it. Frictional contact between the gripper and the cargo bar is the only coupling between the two free bodies (no weld) &mdash; the arm, reaction-wheel, thruster, and binary-grip commands are learned end to end.</p>
       </div>
 
     </div>
