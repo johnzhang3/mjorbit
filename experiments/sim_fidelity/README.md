@@ -54,8 +54,20 @@ The fair baseline is the honest, skeptic-proof test of the hypothesis: it gives
 vanilla MJWarp every advantage a competent engineer would add (a time-varying
 nadir computed from a Keplerian orbit is trivial and needs no `mjorbit_warp`),
 and removes *only* the coupled dynamics. Our kinematic nadir propagation
-reproduces the real orbit sweep to 4 decimals (0.0324° vs 0.0324° over a 6-step
-rollout), so the fair baseline sees the same reference the evaluator does.
+reproduces the real orbit sweep to 4 decimals (0.0324° drift over a 6-sample
+smoke rollout, identical between `mjwarp_fair` and `mjorbit`), so the fair
+baseline sees essentially the same reference the evaluator does. (It is a pure
+circular Keplerian advance — it omits J2 and chief feedback-acceleration that the
+`mjorbit` eval orbit includes, but those shift nadir by <0.05° over the horizon.)
+
+**Matched reset distribution.** All three truss conditions train with
+`resample_orbit_on_reset=True`, so every episode reset draws a fresh orbit phase
+(hence a fresh initial nadir error). Without this, the frozen-target `naive`
+baseline would re-initialize each world to the *same* misalignment every episode
+and train on a narrower distribution than the others — conflating "frozen
+reference" with "degenerate resets." With it, the *only* differences between
+conditions are the intended ones: coupled dynamics (mjorbit) and whether the
+target moves *within* an episode (fair vs naive).
 
 **Prediction.** Because the dynamics delta is small vs control authority, we
 expect `mjwarp_fair ≈ mjorbit` (small gap) and `mjwarp_naive ≪ mjorbit` (large

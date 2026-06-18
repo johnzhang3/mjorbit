@@ -56,6 +56,17 @@ def latest_ckpt(run_dir: Path) -> Path | None:
     return max(ckpts, key=lambda p: int(p.stem.split("_")[1]))
 
 
+def is_complete(run_dir: Path) -> bool:
+    """A run is resumable-skippable only if it TRAINED TO COMPLETION (sentinel
+    written after sh() returns 0), not merely if some periodic checkpoint exists
+    -- otherwise an interrupted run would be skipped and evaluated undertrained."""
+    return (run_dir / ".complete").exists()
+
+
+def mark_complete(run_dir: Path) -> None:
+    (run_dir / ".complete").write_text("ok\n")
+
+
 def sh(cmd: list[str], log_path: Path) -> None:
     log_path.parent.mkdir(parents=True, exist_ok=True)
     print(f"    $ {' '.join(cmd)}")
@@ -75,18 +86,22 @@ def train_truss(cond: str, seed: int, iters: int, num_envs: int, device: str,
     spec = TRUSS_CONDITIONS[cond]
     run_name = f"fidelity/truss/{cond}/seed{seed}"
     run_dir = PPO / "logs" / run_name
-    ck = latest_ckpt(run_dir)
-    if skip_existing and ck is not None:
+    if skip_existing and is_complete(run_dir):
+        ck = latest_ckpt(run_dir)
         print(f"    [skip] truss/{cond}/seed{seed} already trained -> {ck.name}")
         return ck
+    # --resample-orbit on ALL conditions: identical initial-condition
+    # distribution across backends (only the dynamics / target motion differ).
     cmd = [sys.executable, str(PPO / "train.py"),
            "--num-envs", str(num_envs), "--max-iterations", str(iters),
            "--device", device, "--seed", str(seed),
-           "--backend", spec["backend"], "--run-name", run_name, *spec["extra"]]
+           "--backend", spec["backend"], "--run-name", run_name,
+           "--resample-orbit", *spec["extra"]]
     sh(cmd, RUN_LOGS / f"truss_{cond}_seed{seed}.log")
     ck = latest_ckpt(run_dir)
     if ck is None:
         raise RuntimeError(f"no checkpoint produced in {run_dir}")
+    mark_complete(run_dir)
     return ck
 
 
@@ -98,14 +113,16 @@ def train_astrobee(cond: str, seed: int, iters: int, num_envs: int, device: str,
     close_dir = PPO / "logs" / close_name
     far_dir = PPO / "logs" / far_name
 
-    far_ck = latest_ckpt(far_dir)
-    if skip_existing and far_ck is not None:
+    if skip_existing and is_complete(far_dir):
+        far_ck = latest_ckpt(far_dir)
         print(f"    [skip] astrobee/{cond}/seed{seed} already trained -> far/{far_ck.name}")
         return far_ck
 
     # Stage 1: close-range distance curriculum (grasping must be discoverable).
-    close_ck = latest_ckpt(close_dir)
-    if not (skip_existing and close_ck is not None):
+    if skip_existing and is_complete(close_dir):
+        close_ck = latest_ckpt(close_dir)
+        print(f"    [skip] astrobee/{cond}/seed{seed} stage-close -> {close_ck.name}")
+    else:
         sh([sys.executable, str(PPO / "astrobee_train.py"),
             "--num-envs", str(num_envs), "--max-iterations", str(iters),
             "--device", device, "--seed", str(seed), "--backend", backend,
@@ -113,10 +130,9 @@ def train_astrobee(cond: str, seed: int, iters: int, num_envs: int, device: str,
             "--cargo-dist-min", "0.9", "--cargo-dist-max", "1.1"],
            RUN_LOGS / f"astrobee_{cond}_seed{seed}_close.log")
         close_ck = latest_ckpt(close_dir)
-    else:
-        print(f"    [skip] astrobee/{cond}/seed{seed} stage-close -> {close_ck.name}")
-    if close_ck is None:
-        raise RuntimeError(f"no close checkpoint in {close_dir}")
+        if close_ck is None:
+            raise RuntimeError(f"no close checkpoint in {close_dir}")
+        mark_complete(close_dir)
 
     # Stage 2: resume at full range.
     sh([sys.executable, str(PPO / "astrobee_train.py"),
@@ -128,6 +144,7 @@ def train_astrobee(cond: str, seed: int, iters: int, num_envs: int, device: str,
     far_ck = latest_ckpt(far_dir)
     if far_ck is None:
         raise RuntimeError(f"no far checkpoint in {far_dir}")
+    mark_complete(far_dir)
     return far_ck
 
 

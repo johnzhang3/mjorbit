@@ -81,6 +81,9 @@ def main() -> None:
     parser.add_argument("--frozen-target", action="store_true",
                         help="bare-mjwarp 'naive' baseline: freeze the nadir target "
                              "(no kinematic orbit propagation). Ignored for --backend mjorbit")
+    parser.add_argument("--resample-orbit", action="store_true",
+                        help="re-randomize the orbit phase on every reset so all "
+                             "backends share an identical initial-condition distribution")
     parser.add_argument("--init-offset-min", type=float, default=None,
                         help="curriculum: min initial truss misalignment (rad)")
     parser.add_argument("--init-offset-max", type=float, default=None,
@@ -98,6 +101,7 @@ def main() -> None:
         seed=args.seed,
         backend=args.backend,
         mjwarp_moving_target=not args.frozen_target,
+        resample_orbit_on_reset=args.resample_orbit,
     )
     if args.init_offset_min is not None and args.init_offset_max is not None:
         env_cfg.init_offset_rad = (args.init_offset_min, args.init_offset_max)

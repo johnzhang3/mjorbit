@@ -134,6 +134,13 @@ class TrussEnvCfg:
     # Disable per-world auto-reset on done (the evaluator runs one fixed-horizon
     # episode per world).
     auto_reset: bool = True
+    # Re-randomize the orbit phase (hence the initial nadir-pointing error) on
+    # every episode reset. The base example keeps a world's orbit across resets;
+    # the fidelity study turns this ON for ALL truss conditions so every backend
+    # sees an IDENTICAL initial-condition distribution. Without it, the frozen-
+    # target naive baseline would re-init each world to the same misalignment
+    # every episode and train on a narrower distribution than the others.
+    resample_orbit_on_reset: bool = False
 
     device: str = "cuda"
     seed: int = 0
@@ -161,6 +168,7 @@ class TrussReorientEnv(VecEnv):
         radius = R_EARTH + cfg.altitude_km
         self._orbit_radius = float(radius)
         self._orbit_rate = float(np.sqrt(GM_EARTH / radius**3))
+        self._orbit_speed = float(np.sqrt(GM_EARTH / radius))
 
         self.model = MjoModel.from_xml_path(
             str(_XML_PATH),
@@ -384,10 +392,25 @@ class TrussReorientEnv(VecEnv):
         self._last_actions[idx] = 0.0
         self.episode_length_buf[torch.as_tensor(idx, device=self.device)] = 0
 
+        upload_fields = ["qpos", "qvel", "ctrl", "qacc_warmstart"]
+        if self.cfg.resample_orbit_on_reset:
+            # Fresh circular-orbit phase per reset world -> fresh initial nadir
+            # error, identical distribution across backends. mjorbit advances the
+            # orbit on-device, so it must be re-uploaded; mjwarp reads host orbit.
+            phi = self._rng.uniform(0.0, 2.0 * np.pi, n)
+            zeros = np.zeros(n)
+            self.data.orbit.R_eci[idx] = self._orbit_radius * np.stack(
+                [np.cos(phi), zeros, np.sin(phi)], axis=1
+            )
+            self.data.orbit.V_eci[idx] = self._orbit_speed * np.stack(
+                [-np.sin(phi), zeros, np.cos(phi)], axis=1
+            )
+            if self._backend.kind != MJWARP:
+                upload_fields.append("orbit")
         self._backend.reset_forward(
             self.model,
             self.data,
-            upload_fields=("qpos", "qvel", "ctrl", "qacc_warmstart"),
+            upload_fields=tuple(upload_fields),
         )
 
     # ------------------------------------------------------------------
