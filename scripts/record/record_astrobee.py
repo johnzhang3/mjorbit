@@ -42,6 +42,8 @@ def main() -> None:
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--mag", type=float, default=150000.0)
     ap.add_argument("--distance", type=float, default=80.0)
+    ap.add_argument("--distance-end", type=float, default=None,
+                    help="if set, push the camera in from --distance to this over the clip")
     ap.add_argument("--fov", type=float, default=48.0)
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
@@ -67,6 +69,7 @@ def main() -> None:
         track_body_ids=[bus, cargo],
         offset_rsw=np.array([0.35, 0.30, 0.88]),
         distance=args.distance,
+        distance_end=args.distance_end,
         fov_deg=args.fov,
     )
     render_trajectory(
