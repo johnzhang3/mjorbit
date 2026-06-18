@@ -1,0 +1,235 @@
+<mujoco model="spacecraft_truss_freefly">
+  <!--
+    Bi-manual free-flyer spacecraft (the banner-figure bus) hugging and pointing
+    a FREE-FLOATING truss -- on-orbit servicing by contact. The truss is an
+    independent free body: nothing rigidly connects it to the spacecraft (no
+    weld, no equality, no pivot). The two arms close their capsule jaws on the
+    truss spar and hold it by contact + friction, then slew it toward Earth.
+
+    Each hand is a two-jaw clamp: a fixed lower jaw plus an upper jaw on a slide
+    joint (`grip_*`) that closes onto the spar. A wrist hinge (`wrist_*`) levels
+    the hand so the jaws straddle the spar's top and bottom faces with shallow
+    surface contact (no jamming, no interpenetration) and can open to release.
+    The wrist and grip are auto-driven (wrist = -(shoulder+elbow) to keep the
+    hand level; grip held closed), so the RL policy still commands just 4 arm
+    joints + the 6 bus DOFs.
+
+    The spacecraft has full 6-DOF control: 3 body-frame reaction-wheel torques
+    and 3 world-frame thruster forces, modeled as ideal `motor` actuators on the
+    bus free joint. The RL policy commands these together with the 4 arm joints,
+    so it learns to station-keep / reposition the base while the arms hold the
+    truss.
+
+    Frames follow the mjorbit convention: MuJoCo world is the chief-centered
+    local inertial frame with axes parallel to ECI. The orbit overlay applies
+    differential gravity, gravity-gradient, and aerodynamic wrenches through
+    xfrc_applied, so plain gravity stays disabled here.
+
+    Collision is restricted to the hug surfaces (forearms + jaws, contype/
+    conaffinity 2/4) vs the truss (4/2); everything else is non-colliding. The
+    contacting pairs are capsule-vs-box / capsule-vs-sphere primitives, which the
+    MJWarp collision pipeline supports directly. Units: m, kg.
+  -->
+  <compiler angle="radian"/>
+  <option timestep="0.01" gravity="0 0 0" integrator="implicitfast">
+    <flag contact="enable"/>
+  </option>
+
+  <default>
+    <joint damping="0.5" armature="0.01"/>
+    <geom rgba="0.6 0.6 0.6 1" contype="0" conaffinity="0"/>
+    <default class="detail">
+      <geom contype="0" conaffinity="0" mass="0.01"/>
+    </default>
+    <default class="arm_act">
+      <position kp="80" kv="14" forcerange="-40 40"/>
+    </default>
+    <default class="panel_cell">
+      <geom type="box" size="0.25 0.4 0.005" mass="2"
+            contype="0" conaffinity="0" rgba="0.10 0.14 0.38 1"/>
+    </default>
+    <default class="panel_frame">
+      <geom type="box" size="0.27 0.42 0.002" mass="0.01"
+            contype="0" conaffinity="0" rgba="0.74 0.76 0.80 1"/>
+    </default>
+    <default class="panel_hinge">
+      <joint type="hinge" axis="1 0 0" range="-0.05 3.2"
+             stiffness="2.0" damping="0.3" springref="0"/>
+    </default>
+    <!-- Hug surfaces (forearms + capsule jaws, 2/4) collide only with the truss
+         (4/2); high friction so the closed jaws hold the spar by contact (no
+         weld, no equality -- just a closing grip + surface friction). -->
+    <default class="hug">
+      <geom contype="2" conaffinity="4" condim="3"
+            friction="2.6 0.1 0.002" solref="0.006 1" solimp="0.98 0.999 0.001"
+            rgba="0.85 0.86 0.88 1"/>
+    </default>
+    <default class="truss_col">
+      <geom contype="4" conaffinity="2" condim="3"
+            friction="2.6 0.1 0.002" solref="0.006 1" solimp="0.98 0.999 0.001"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <body name="bus" pos="0 0 0">
+      <freejoint name="base"/>
+      <geom name="bus" type="box" size="0.5 0.3 0.3" mass="300"
+            rgba="0.82 0.64 0.22 1"/>
+      <geom name="radiator_top" class="detail" type="box" size="0.40 0.24 0.012"
+            pos="0 0 0.312" rgba="0.93 0.94 0.96 1"/>
+      <geom name="radiator_bot" class="detail" type="box" size="0.40 0.24 0.012"
+            pos="0 0 -0.312" rgba="0.93 0.94 0.96 1"/>
+      <geom name="star_tracker" class="detail" type="cylinder" size="0.05 0.07"
+            pos="0.30 0 0.36" zaxis="0.3 0 1" rgba="0.15 0.15 0.18 1"/>
+      <geom name="antenna_boom" class="detail" type="cylinder" size="0.02 0.09"
+            pos="0.15 0 -0.40" zaxis="0 0 1" rgba="0.65 0.67 0.70 1"/>
+      <geom name="antenna_dish" class="detail" type="cylinder" size="0.20 0.015"
+            pos="0.15 0 -0.50" zaxis="0 0 1" rgba="0.88 0.89 0.92 1"/>
+      <geom name="antenna_feed" class="detail" type="sphere" size="0.035"
+            pos="0.15 0 -0.56" rgba="0.95 0.62 0.15 1"/>
+      <geom name="nozzle_main" class="detail" type="cylinder" size="0.08 0.06"
+            pos="-0.55 0 -0.20" zaxis="1 0 0" rgba="0.25 0.25 0.28 1"/>
+      <!-- RCS thruster nozzles (cosmetic; the 6-DOF control is via motors). -->
+      <geom name="rcs_pz" class="detail" type="cylinder" size="0.03 0.05"
+            pos="0.45 0 0.30" zaxis="0 0 1" rgba="0.3 0.3 0.33 1"/>
+      <geom name="rcs_nz" class="detail" type="cylinder" size="0.03 0.05"
+            pos="0.45 0 -0.30" zaxis="0 0 1" rgba="0.3 0.3 0.33 1"/>
+
+      <!-- ============ Arm A (+X face) ============ -->
+      <body name="link1_a" pos="0.5 0 0">
+        <joint name="shoulder_a" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+        <geom name="shoulder_housing_a" class="detail" type="cylinder"
+              size="0.06 0.05" zaxis="0 1 0" rgba="0.30 0.31 0.34 1"/>
+        <geom name="upper_a" type="capsule" fromto="0 0 0 0.8 0 0" size="0.04"
+              mass="5" rgba="0.85 0.86 0.88 1"/>
+        <body name="link2_a" pos="0.8 0 0">
+          <joint name="elbow_a" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+          <geom name="elbow_housing_a" class="detail" type="cylinder"
+                size="0.05 0.045" zaxis="0 1 0" rgba="0.30 0.31 0.34 1"/>
+          <geom name="fore_a" class="hug" type="capsule" fromto="0 0 0 0.6 0 0" size="0.035"
+                mass="3"/>
+          <body name="ee_a" pos="0.6 0 0">
+            <joint name="wrist_a" type="hinge" axis="0 1 0" range="-2.2 2.2"/>
+            <!-- Closing two-jaw hand: capsule jaws clamp the truss spar's top &
+                 bottom faces (capsule-vs-box, warp-supported). The lower jaw is
+                 fixed; the upper jaw slides down to clamp (shallow surface
+                 contact, no jamming) and opens to release. -->
+            <geom name="palm_a" class="detail" type="box" size="0.03 0.05 0.11"
+                  pos="-0.02 0 0" rgba="0.95 0.65 0.10 1"/>
+            <geom name="lowjaw_a" class="hug" type="capsule"
+                  fromto="0.02 0 -0.09 0.22 0 -0.09" size="0.03" mass="0.4"/>
+            <body name="jaw_a" pos="0 0 0">
+              <joint name="grip_a" type="slide" axis="0 0 1" range="-0.03 0.12"/>
+              <geom name="upjaw_a" class="hug" type="capsule"
+                    fromto="0.02 0 0.10 0.22 0 0.10" size="0.03" mass="0.4"/>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- ============ Arm B (-X face, mirrored) ============ -->
+      <body name="link1_b" pos="-0.5 0 0">
+        <joint name="shoulder_b" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+        <geom name="shoulder_housing_b" class="detail" type="cylinder"
+              size="0.06 0.05" zaxis="0 1 0" rgba="0.30 0.31 0.34 1"/>
+        <geom name="upper_b" type="capsule" fromto="0 0 0 -0.8 0 0" size="0.04"
+              mass="5" rgba="0.85 0.86 0.88 1"/>
+        <body name="link2_b" pos="-0.8 0 0">
+          <joint name="elbow_b" type="hinge" axis="0 1 0" range="-3.14 3.14"/>
+          <geom name="elbow_housing_b" class="detail" type="cylinder"
+                size="0.05 0.045" zaxis="0 1 0" rgba="0.30 0.31 0.34 1"/>
+          <geom name="fore_b" class="hug" type="capsule" fromto="0 0 0 -0.6 0 0" size="0.035"
+                mass="3"/>
+          <body name="ee_b" pos="-0.6 0 0">
+            <joint name="wrist_b" type="hinge" axis="0 1 0" range="-2.2 2.2"/>
+            <geom name="palm_b" class="detail" type="box" size="0.03 0.05 0.11"
+                  pos="0.02 0 0" rgba="0.95 0.35 0.50 1"/>
+            <geom name="lowjaw_b" class="hug" type="capsule"
+                  fromto="-0.02 0 -0.09 -0.22 0 -0.09" size="0.03" mass="0.4"/>
+            <body name="jaw_b" pos="0 0 0">
+              <joint name="grip_b" type="slide" axis="0 0 1" range="-0.03 0.12"/>
+              <geom name="upjaw_b" class="hug" type="capsule"
+                    fromto="-0.02 0 0.10 -0.22 0 0.10" size="0.03" mass="0.4"/>
+            </body>
+          </body>
+        </body>
+      </body>
+
+      <!-- ============ +Y / -Y solar wings (passive, non-colliding) ======== -->
+      <body name="wp_0" pos="0 0.3 0.16">
+        <joint name="hp_0" class="panel_hinge"/>
+        <geom name="panel_p_0" pos="0 0.4 0" class="panel_cell"/>
+        <geom name="frame_p_0" pos="0 0.4 -0.006" class="panel_frame"/>
+        <body name="wp_1" pos="0 0.8 0">
+          <joint name="hp_1" class="panel_hinge"/>
+          <geom name="panel_p_1" pos="0 0.4 0" class="panel_cell"/>
+          <geom name="frame_p_1" pos="0 0.4 -0.006" class="panel_frame"/>
+        </body>
+      </body>
+      <body name="wn_0" pos="0 -0.3 0.16">
+        <joint name="hn_0" class="panel_hinge"/>
+        <geom name="panel_n_0" pos="0 -0.4 0" class="panel_cell"/>
+        <geom name="frame_n_0" pos="0 -0.4 -0.006" class="panel_frame"/>
+        <body name="wn_1" pos="0 -0.8 0">
+          <joint name="hn_1" class="panel_hinge"/>
+          <geom name="panel_n_1" pos="0 -0.4 0" class="panel_cell"/>
+          <geom name="frame_n_1" pos="0 -0.4 -0.006" class="panel_frame"/>
+        </body>
+      </body>
+    </body>
+
+    <!-- ============ Large free-floating truss (independent body) ============
+         ~6 m long and strongly elongated, so gravity-gradient torque is
+         significant: its stable equilibrium is the long axis along the local
+         vertical (nadir/zenith). NOT attached to the spacecraft -- the two hands
+         close their jaws on the central spar and hold it by contact + friction.
+         Spawned in the env offset from the bus so the spacecraft must fly to
+         it. The spar is a slender box; the capsule jaws clamp its top/bottom
+         faces (capsule-vs-box primitive contact). -->
+    <body name="truss" pos="0 0 1.0">
+      <freejoint name="truss_free"/>
+      <geom name="truss_hub" class="truss_col" type="sphere" size="0.09" mass="0.6"
+            rgba="0.78 0.58 0.22 1"/>
+      <geom name="truss_spar" class="truss_col" type="box" size="2.9 0.07 0.07"
+            mass="4" rgba="0.78 0.58 0.22 1"/>
+      <geom name="truss_end_p" class="truss_col" type="box" pos="2.85 0 0"
+            size="0.05 0.3 0.3" mass="0.4" rgba="0.62 0.46 0.20 1"/>
+      <geom name="truss_end_n" class="truss_col" type="box" pos="-2.85 0 0"
+            size="0.05 0.3 0.3" mass="0.4" rgba="0.62 0.46 0.20 1"/>
+      <!-- Decorative lattice so the spar reads as a truss. -->
+      <geom name="lat_p0" class="detail" type="capsule"
+            fromto="1.0 0 0.08 1.5 0 -0.08" size="0.02" rgba="0.7 0.52 0.2 1"/>
+      <geom name="lat_p1" class="detail" type="capsule"
+            fromto="1.5 0 0.08 2.0 0 -0.08" size="0.02" rgba="0.7 0.52 0.2 1"/>
+      <geom name="lat_p2" class="detail" type="capsule"
+            fromto="2.0 0 0.08 2.5 0 -0.08" size="0.02" rgba="0.7 0.52 0.2 1"/>
+      <geom name="lat_n0" class="detail" type="capsule"
+            fromto="-1.0 0 0.08 -1.5 0 -0.08" size="0.02" rgba="0.7 0.52 0.2 1"/>
+      <geom name="lat_n1" class="detail" type="capsule"
+            fromto="-1.5 0 0.08 -2.0 0 -0.08" size="0.02" rgba="0.7 0.52 0.2 1"/>
+      <geom name="lat_n2" class="detail" type="capsule"
+            fromto="-2.0 0 0.08 -2.5 0 -0.08" size="0.02" rgba="0.7 0.52 0.2 1"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <!-- Arm joints (position-controlled). -->
+    <position name="shoulder_a_pos" class="arm_act" joint="shoulder_a" ctrlrange="-3.14 3.14"/>
+    <position name="elbow_a_pos" class="arm_act" joint="elbow_a" ctrlrange="-3.14 3.14"/>
+    <position name="shoulder_b_pos" class="arm_act" joint="shoulder_b" ctrlrange="-3.14 3.14"/>
+    <position name="elbow_b_pos" class="arm_act" joint="elbow_b" ctrlrange="-3.14 3.14"/>
+    <position name="wrist_a_pos" class="arm_act" joint="wrist_a" ctrlrange="-2.2 2.2"/>
+    <position name="wrist_b_pos" class="arm_act" joint="wrist_b" ctrlrange="-2.2 2.2"/>
+    <position name="grip_a_pos" joint="grip_a" kp="900" kv="40" forcerange="-300 300" ctrlrange="-0.03 0.12"/>
+    <position name="grip_b_pos" joint="grip_b" kp="900" kv="40" forcerange="-300 300" ctrlrange="-0.03 0.12"/>
+    <!-- Bus 6-DOF control: 3 thruster forces (world frame) + 3 reaction-wheel
+         torques (body frame), as ideal motors on the free joint. ctrlrange is
+         the force/torque limit. -->
+    <motor name="thrust_x" joint="base" gear="1 0 0 0 0 0" ctrlrange="-80 80"/>
+    <motor name="thrust_y" joint="base" gear="0 1 0 0 0 0" ctrlrange="-80 80"/>
+    <motor name="thrust_z" joint="base" gear="0 0 1 0 0 0" ctrlrange="-80 80"/>
+    <motor name="rw_x" joint="base" gear="0 0 0 1 0 0" ctrlrange="-40 40"/>
+    <motor name="rw_y" joint="base" gear="0 0 0 0 1 0" ctrlrange="-40 40"/>
+    <motor name="rw_z" joint="base" gear="0 0 0 0 0 1" ctrlrange="-40 40"/>
+  </actuator>
+</mujoco>
