@@ -1,0 +1,157 @@
+<mujoco model="astrobee_grasp_freefly">
+  <!--
+    Astrobee-style free-flyer (NASA's ~32 cm cube ISS robot) that detumbles from
+    an initial disturbance, flies to a free-floating cargo module, and grasps the
+    cargo's grapple bar with its perching-arm gripper.
+
+    The cargo is an independent free body: nothing connects it to the robot. The
+    gripper is a parallel-jaw clamp -- two flat pads on opposed slide joints
+    (`grip_u`, `grip_l`) -- and the cargo carries a crosswise capsule handle bar
+    (perpendicular to the gripper's approach) on two end posts. The robot brings
+    the open gripper around the bar and closes the pads to pinch it (capsule-vs-
+    box, warp-supported; no weld, no equality). The grip is a binary open/close
+    policy action.
+
+    Full 6-DOF control: 3 body-frame reaction-wheel torques + 3 world-frame
+    thruster forces, ideal `motor` actuators on the bus free joint, sized for the
+    light cube. The RL policy commands these + the 2 arm joints; the grip is
+    auto-closed on capture.
+
+    Frames follow the mjorbit convention: MuJoCo world is the chief-centered
+    local inertial frame with axes parallel to ECI. The orbit overlay applies
+    differential gravity, gravity-gradient, and aerodynamic wrenches through
+    xfrc_applied, so plain gravity stays disabled here.
+
+    Collision is restricted to the gripper jaws (contype/conaffinity 2/4) vs the
+    cargo (4/2); every contacting pair is a capsule-vs-box primitive that the
+    MJWarp collision pipeline supports directly. Units: m, kg.
+  -->
+  <compiler angle="radian"/>
+  <option timestep="0.01" gravity="0 0 0" integrator="implicitfast">
+    <flag contact="enable"/>
+  </option>
+
+  <default>
+    <joint damping="0.4" armature="0.005"/>
+    <geom rgba="0.86 0.88 0.92 1" contype="0" conaffinity="0"/>
+    <default class="detail">
+      <geom contype="0" conaffinity="0" mass="0.001"/>
+    </default>
+    <default class="arm_act">
+      <position kp="6.0" kv="1.2" forcerange="-4 4"/>
+    </default>
+    <!-- Gripper jaws (2/4) collide only with the cargo (4/2); high friction so
+         the closed jaws hold the grapple bar by contact. -->
+    <default class="grip">
+      <geom contype="2" conaffinity="4" condim="3"
+            friction="2.6 0.1 0.002" solref="0.006 1" solimp="0.98 0.999 0.001"
+            rgba="0.95 0.72 0.12 1"/>
+    </default>
+    <default class="cargo_col">
+      <geom contype="4" conaffinity="2" condim="3"
+            friction="2.6 0.1 0.002" solref="0.006 1" solimp="0.98 0.999 0.001"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <!-- ============ Astrobee bus: ~32 cm cube, ~9 kg ============ -->
+    <body name="bus" pos="0 0 0">
+      <freejoint name="base"/>
+      <geom name="bus" type="box" size="0.16 0.16 0.16" mass="9"
+            rgba="0.90 0.92 0.96 1"/>
+      <!-- Side propulsion modules (the two impeller bays) on +/-Y. -->
+      <geom name="pmu_p" class="detail" type="box" size="0.10 0.035 0.14"
+            pos="0 0.175 0" rgba="0.20 0.23 0.30 1"/>
+      <geom name="pmu_n" class="detail" type="box" size="0.10 0.035 0.14"
+            pos="0 -0.175 0" rgba="0.20 0.23 0.30 1"/>
+      <geom name="nozzle_p" class="detail" type="cylinder" size="0.05 0.012"
+            pos="0 0.212 0" zaxis="0 1 0" rgba="0.12 0.13 0.16 1"/>
+      <geom name="nozzle_n" class="detail" type="cylinder" size="0.05 0.012"
+            pos="0 -0.212 0" zaxis="0 1 0" rgba="0.12 0.13 0.16 1"/>
+      <!-- Touchscreen / camera face on -X (the "front"). -->
+      <geom name="screen" class="detail" type="box" size="0.006 0.11 0.11"
+            pos="-0.162 0 0.02" rgba="0.05 0.06 0.09 1"/>
+      <geom name="signal_p" class="detail" type="sphere" size="0.02"
+            pos="-0.162 0.09 0.12" rgba="0.10 0.45 0.95 1"/>
+      <geom name="signal_n" class="detail" type="sphere" size="0.02"
+            pos="-0.162 -0.09 0.12" rgba="0.10 0.45 0.95 1"/>
+      <!-- Blue accent stripe. -->
+      <geom name="stripe" class="detail" type="box" size="0.161 0.005 0.03"
+            pos="0 0.16 0.10" rgba="0.10 0.42 0.90 1"/>
+
+      <!-- ============ Perching arm + gripper (on the +X working face) ====== -->
+      <body name="link1" pos="0.16 0 -0.06">
+        <joint name="shoulder" type="hinge" axis="0 1 0" range="-2.2 2.2"/>
+        <geom name="shoulder_housing" class="detail" type="cylinder"
+              size="0.03 0.03" zaxis="0 1 0" rgba="0.28 0.30 0.34 1"/>
+        <geom name="upper" type="capsule" fromto="0 0 0 0.16 0 0" size="0.022"
+              mass="0.3" rgba="0.80 0.82 0.86 1"/>
+        <body name="ee" pos="0.16 0 0">
+          <joint name="wrist" type="hinge" axis="0 1 0" range="-2.4 2.4"/>
+          <!-- Parallel-jaw gripper: two flat pads on opposed slide joints that
+               close in Z onto the cargo's crosswise (perpendicular) capsule
+               handle bar (capsule-vs-box, warp-supported). Open, the pads
+               retract clear; closed, they pinch the bar. The pads are wide in X
+               and Y so the bar does not need precise insertion depth -- the
+               policy just brings the gripper to the bar and closes. -->
+          <geom name="palm" class="detail" type="box" size="0.022 0.06 0.055"
+                pos="-0.012 0 0" rgba="0.95 0.66 0.10 1"/>
+          <body name="jaw_u" pos="0 0 0">
+            <joint name="grip_u" type="slide" axis="0 0 1" range="-0.02 0.06"/>
+            <geom name="pad_u" class="grip" type="box" size="0.045 0.06 0.008"
+                  pos="0.07 0 0.04" mass="0.05"/>
+          </body>
+          <body name="jaw_l" pos="0 0 0">
+            <joint name="grip_l" type="slide" axis="0 0 1" range="-0.06 0.02"/>
+            <geom name="pad_l" class="grip" type="box" size="0.045 0.06 0.008"
+                  pos="0.07 0 -0.04" mass="0.05"/>
+          </body>
+        </body>
+      </body>
+    </body>
+
+    <!-- ============ Free-floating cargo module with a grapple bar ==========
+         An independent free body (no weld/equality). The bar protrudes from the
+         face toward the robot so the open jaws slide onto it head-on and pinch
+         it (capsule-vs-box primitive contact). Spawned offset from the bus in
+         the env so the robot must detumble and fly to it. -->
+    <body name="cargo" pos="1.5 0 0">
+      <freejoint name="cargo_free"/>
+      <!-- The body is non-colliding; only the handle bar collides, so the only
+           contact pair is pad(box)-vs-bar(capsule) -- a warp-supported primitive,
+           and never box-vs-box. -->
+      <geom name="cargo_body" type="box" size="0.12 0.12 0.12" mass="5"
+            contype="0" conaffinity="0" rgba="0.62 0.50 0.24 1"/>
+      <geom name="cargo_trim" class="detail" type="box" size="0.122 0.122 0.02"
+            pos="0 0 0.10" rgba="0.80 0.66 0.30 1"/>
+      <!-- Crosswise grab handle (perpendicular to the gripper approach): a
+           capsule bar along the cargo Y axis on two end posts, facing the robot,
+           so the gripper pads close around it. -->
+      <geom name="post_p" class="detail" type="box" pos="-0.16 0.11 0"
+            size="0.045 0.015 0.015" rgba="0.30 0.32 0.36 1"/>
+      <geom name="post_n" class="detail" type="box" pos="-0.16 -0.11 0"
+            size="0.045 0.015 0.015" rgba="0.30 0.32 0.36 1"/>
+      <geom name="grapple_bar" class="cargo_col" type="capsule"
+            fromto="-0.205 -0.12 0 -0.205 0.12 0" size="0.018" rgba="0.85 0.86 0.90 1"/>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <!-- Arm joints (position-controlled). -->
+    <position name="shoulder_pos" class="arm_act" joint="shoulder" ctrlrange="-2.2 2.2"/>
+    <position name="wrist_pos" class="arm_act" joint="wrist" ctrlrange="-2.4 2.4"/>
+    <position name="grip_u_pos" joint="grip_u" kp="80" kv="6" forcerange="-40 40"
+              ctrlrange="-0.02 0.06"/>
+    <position name="grip_l_pos" joint="grip_l" kp="80" kv="6" forcerange="-40 40"
+              ctrlrange="-0.06 0.02"/>
+    <!-- Bus 6-DOF control: 3 thruster forces (world frame) + 3 reaction-wheel
+         torques (body frame), as ideal motors on the free joint, sized for the
+         ~9 kg cube. ctrlrange is the force/torque limit (N / N*m). -->
+    <motor name="thrust_x" joint="base" gear="1 0 0 0 0 0" ctrlrange="-1.5 1.5"/>
+    <motor name="thrust_y" joint="base" gear="0 1 0 0 0 0" ctrlrange="-1.5 1.5"/>
+    <motor name="thrust_z" joint="base" gear="0 0 1 0 0 0" ctrlrange="-1.5 1.5"/>
+    <motor name="rw_x" joint="base" gear="0 0 0 1 0 0" ctrlrange="-0.15 0.15"/>
+    <motor name="rw_y" joint="base" gear="0 0 0 0 1 0" ctrlrange="-0.15 0.15"/>
+    <motor name="rw_z" joint="base" gear="0 0 0 0 0 1" ctrlrange="-0.15 0.15"/>
+  </actuator>
+</mujoco>
