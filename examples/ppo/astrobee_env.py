@@ -40,18 +40,11 @@ import mjorbit  # noqa: F401
 import numpy as np
 import torch
 from rsl_rl.env import VecEnv
+from sim_backend import SimBackend
 from tensordict import TensorDict
 
 from mjorbit.constants import GM_EARTH, R_EARTH
-from mjorbit_warp import (
-    MjoModel,
-    OrbitInit,
-    SurfaceSpec,
-    mjo_forward,
-    mjo_pull,
-    mjo_step,
-    mjo_upload,
-)
+from mjorbit_warp import MjoModel, OrbitInit, SurfaceSpec
 
 _XML_PATH = Path(__file__).with_name("astrobee_grasp.xml")
 
@@ -142,6 +135,15 @@ class AstrobeeEnvCfg:
     use_srp: bool = False
     use_magnetic: bool = False
 
+    # Physics backend: "mjorbit" (full orbital coupling -- also the eval env) or
+    # "mjwarp" (bare mujoco_warp rigid-body dynamics). This task has no
+    # orbital-frame reference, so there is no "moving target" knob -- the only
+    # difference is the per-step dynamics. See experiments/sim_fidelity.
+    backend: str = "mjorbit"
+    # Disable per-world auto-reset on done (the evaluator runs one fixed-horizon
+    # episode per world).
+    auto_reset: bool = True
+
     device: str = "cuda"
     seed: int = 0
 
@@ -164,6 +166,7 @@ class AstrobeeGraspEnv(VecEnv):
         self.episode_length_buf = torch.zeros(cfg.num_envs, dtype=torch.long, device=cfg.device)
         self._decimation = int(round(decimation))
         self._rng = np.random.default_rng(cfg.seed)
+        self._backend = SimBackend(cfg.backend)
 
         self.model = MjoModel.from_xml_path(
             str(_XML_PATH),
@@ -223,9 +226,7 @@ class AstrobeeGraspEnv(VecEnv):
     def step(self, actions: torch.Tensor) -> tuple[TensorDict, torch.Tensor, torch.Tensor, dict]:
         acts = actions.detach().to("cpu", torch.float64).clamp(-1.0, 1.0).numpy()
         self._apply_ctrl(acts)
-        mjo_upload(self.model, self.data, fields=("ctrl",))
-        for _ in range(self._decimation):
-            mjo_step(self.model, self.data)
+        self._backend.advance(self.model, self.data, self._decimation)
         self._pull()
 
         self.episode_length_buf += 1
@@ -239,7 +240,7 @@ class AstrobeeGraspEnv(VecEnv):
         self._last_actions = acts
 
         done_idx = np.flatnonzero(dones)
-        if done_idx.size:
+        if done_idx.size and self.cfg.auto_reset:
             self._reset_idx(done_idx)
             self._pull()
             self._prev_dist[done_idx] = self._grip_bar_dist()[done_idx]
@@ -279,7 +280,7 @@ class AstrobeeGraspEnv(VecEnv):
     # ------------------------------------------------------------------
 
     def _pull(self) -> None:
-        mjo_pull(
+        self._backend.pull(
             self.model,
             self.data,
             fields=("qpos", "qvel", "xpos", "xmat", "orbit", "qacc_warmstart"),
@@ -339,8 +340,11 @@ class AstrobeeGraspEnv(VecEnv):
         self._last_actions[idx] = 0.0
         self.episode_length_buf[torch.as_tensor(idx, device=self.device)] = 0
 
-        mjo_upload(self.model, self.data, fields=("qpos", "qvel", "ctrl", "qacc_warmstart"))
-        mjo_forward(self.model, self.data)
+        self._backend.reset_forward(
+            self.model,
+            self.data,
+            upload_fields=("qpos", "qvel", "ctrl", "qacc_warmstart"),
+        )
 
     def _aim_quat(self, pos: np.ndarray, att_noise: float, n: int) -> np.ndarray:
         """Quaternion orienting the cargo +x along `pos` (so its -x grapple bar

@@ -44,18 +44,11 @@ import mjorbit  # noqa: F401
 import numpy as np
 import torch
 from rsl_rl.env import VecEnv
+from sim_backend import MJWARP, SimBackend
 from tensordict import TensorDict
 
 from mjorbit.constants import GM_EARTH, R_EARTH
-from mjorbit_warp import (
-    MjoModel,
-    OrbitInit,
-    SurfaceSpec,
-    mjo_forward,
-    mjo_pull,
-    mjo_step,
-    mjo_upload,
-)
+from mjorbit_warp import MjoModel, OrbitInit, SurfaceSpec
 
 _XML_PATH = Path(__file__).with_name("spacecraft_truss.xml")
 
@@ -128,6 +121,20 @@ class TrussEnvCfg:
     use_srp: bool = False
     use_magnetic: bool = False
 
+    # Physics backend: "mjorbit" (full orbital coupling -- also the eval env) or
+    # "mjwarp" (bare mujoco_warp rigid-body dynamics: no gravity gradient / drag /
+    # J2 / non-inertial frame / orbit propagation). See experiments/sim_fidelity.
+    backend: str = "mjorbit"
+    # On the bare backend, advance the nadir reference kinematically (a circular
+    # Keplerian orbit) so the policy still sees a MOVING target -- isolating the
+    # comparison to the orbital DYNAMICS, not the reference signal (the "fair"
+    # baseline). Set False for the "naive" baseline (frozen nadir). Ignored on the
+    # mjorbit backend, which propagates the true orbit.
+    mjwarp_moving_target: bool = True
+    # Disable per-world auto-reset on done (the evaluator runs one fixed-horizon
+    # episode per world).
+    auto_reset: bool = True
+
     device: str = "cuda"
     seed: int = 0
 
@@ -150,6 +157,10 @@ class TrussReorientEnv(VecEnv):
         self.episode_length_buf = torch.zeros(cfg.num_envs, dtype=torch.long, device=cfg.device)
         self._decimation = int(round(decimation))
         self._rng = np.random.default_rng(cfg.seed)
+        self._backend = SimBackend(cfg.backend)
+        radius = R_EARTH + cfg.altitude_km
+        self._orbit_radius = float(radius)
+        self._orbit_rate = float(np.sqrt(GM_EARTH / radius**3))
 
         self.model = MjoModel.from_xml_path(
             str(_XML_PATH),
@@ -209,10 +220,10 @@ class TrussReorientEnv(VecEnv):
     def step(self, actions: torch.Tensor) -> tuple[TensorDict, torch.Tensor, torch.Tensor, dict]:
         acts = actions.detach().to("cpu", torch.float64).clamp(-1.0, 1.0).numpy()
         self._apply_ctrl(acts)
-        mjo_upload(self.model, self.data, fields=("ctrl",))
-        for _ in range(self._decimation):
-            mjo_step(self.model, self.data)
+        self._backend.advance(self.model, self.data, self._decimation)
         self._pull()
+        if self._backend.kind == MJWARP and self.cfg.mjwarp_moving_target:
+            self._propagate_target(self.cfg.control_dt)
 
         self.episode_length_buf += 1
         rewards, metrics, lost = self._compute_reward(acts)
@@ -225,7 +236,7 @@ class TrussReorientEnv(VecEnv):
         self._last_actions = acts
 
         done_idx = np.flatnonzero(dones)
-        if done_idx.size:
+        if done_idx.size and self.cfg.auto_reset:
             self._reset_idx(done_idx)
             self._pull()
             self._prev_align_err[done_idx] = self.truss_align_error()[done_idx]
@@ -268,7 +279,7 @@ class TrussReorientEnv(VecEnv):
     # ------------------------------------------------------------------
 
     def _pull(self) -> None:
-        mjo_pull(
+        self._backend.pull(
             self.model,
             self.data,
             fields=("qpos", "qvel", "xpos", "xmat", "orbit", "qacc_warmstart"),
@@ -314,6 +325,31 @@ class TrussReorientEnv(VecEnv):
         r_eci = np.asarray(self.data.orbit.R_eci)[idx]
         return -r_eci / np.linalg.norm(r_eci, axis=1, keepdims=True)
 
+    def _propagate_target(self, dt: float) -> None:
+        """Advance the nadir reference kinematically on the bare-mjwarp backend.
+
+        ``mujoco_warp`` does not propagate the chief orbit, so without this the
+        nadir target (read from ``data.orbit.R_eci``) would be frozen. A vanilla
+        MuJoCo-Warp user would still feed a time-varying nadir computed from a
+        Keplerian orbit; this rotates the circular orbit in the X-Z plane at the
+        orbit rate so the policy sees that MOVING reference -- WITHOUT any of the
+        orbital dynamics (gravity gradient, drag, J2, non-inertial frame) that
+        only mjorbit_warp provides. The comparison thus isolates the physics, not
+        the reference signal. (On the mjorbit backend the real orbit is propagated
+        inside ``mjo_step`` and this is never called.)
+        """
+        theta = self._orbit_rate * dt
+        c, s = float(np.cos(theta)), float(np.sin(theta))
+        R = np.asarray(self.data.orbit.R_eci, dtype=float)
+        V = np.asarray(self.data.orbit.V_eci, dtype=float)
+        rx, rz = R[:, 0].copy(), R[:, 2].copy()
+        R[:, 0], R[:, 2] = c * rx - s * rz, s * rx + c * rz
+        vx, vz = V[:, 0].copy(), V[:, 2].copy()
+        V[:, 0], V[:, 2] = c * vx - s * vz, s * vx + c * vz
+        R *= self._orbit_radius / np.linalg.norm(R, axis=1, keepdims=True)
+        self.data.orbit.R_eci[:] = R
+        self.data.orbit.V_eci[:] = V
+
     def _reset_idx(self, idx: np.ndarray) -> None:
         n = idx.size
         qpos = np.tile(self._qpos0, (n, 1))
@@ -348,8 +384,11 @@ class TrussReorientEnv(VecEnv):
         self._last_actions[idx] = 0.0
         self.episode_length_buf[torch.as_tensor(idx, device=self.device)] = 0
 
-        mjo_upload(self.model, self.data, fields=("qpos", "qvel", "ctrl", "qacc_warmstart"))
-        mjo_forward(self.model, self.data)
+        self._backend.reset_forward(
+            self.model,
+            self.data,
+            upload_fields=("qpos", "qvel", "ctrl", "qacc_warmstart"),
+        )
 
     # ------------------------------------------------------------------
     # Observations and reward
