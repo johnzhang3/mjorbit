@@ -71,7 +71,7 @@
     <div class="quick-links">
       <a class="disabled" title="Preprint coming soon">[arXiv]</a>
       <a href="https://github.com/johnzhang3/mjorbit" target="_blank" rel="noopener noreferrer">[code]</a>
-      <a class="disabled" title="Video coming soon">[video]</a>
+      <a href="#examples" title="Example scenario videos">[video]</a>
     </div>
 
     <!-- ABSTRACT -->
@@ -154,25 +154,23 @@ mjo_step(model, data)
       <p>
         We demonstrate mjorbit on four on-orbit scenarios that exercise both the low-latency CPU backend for
         real-time control and the GPU backend for large-scale reinforcement learning. Interactive browser demos
-        ship with the code (<code>pixi run viewer</code>); rendered videos of each scenario are coming soon.
+        ship with the code (<code>pixi run viewer</code>); rendered clips of each scenario are shown below (click any to expand).
       </p>
     </div>
     <div class="example-grid">
 
       <div class="example">
         <div class="video-frame" style="background-image:url('assets/posters/attitude_control.svg')">
-          <span class="badge">video coming soon</span>
           <video muted playsinline loop preload="none">
             <source src="assets/videos/attitude_control.mp4" type="video/mp4" />
           </video>
         </div>
         <h4>(a) Multibody Attitude Control <span class="tag">&middot; CPU</span></h4>
-        <p>A multibody spacecraft regulates its attitude under orbital disturbances, using momentum-exchange actuators to reject gravity-gradient and aerodynamic torques while tracking a commanded pointing direction over several orbits.</p>
+        <p>A free-floating bus carries two articulated arms and has <em>no</em> attitude actuators; an MPPI planner moves the eight arm joints to exchange angular momentum and slew the bus through a large 60&deg; reorientation, then keeps replanning to hold attitude against orbital disturbances &mdash; reorienting purely by reaction (a nonholonomic &ldquo;falling-cat&rdquo; maneuver).</p>
       </div>
 
       <div class="example">
         <div class="video-frame" style="background-image:url('assets/posters/autonomous_docking.svg')">
-          <span class="badge">video coming soon</span>
           <video muted playsinline loop preload="none">
             <source src="assets/videos/autonomous_docking.mp4" type="video/mp4" />
           </video>
@@ -183,7 +181,6 @@ mjo_step(model, data)
 
       <div class="example">
         <div class="video-frame" style="background-image:url('assets/posters/grasping_gravity_gradient.svg')">
-          <span class="badge">video coming soon</span>
           <video muted playsinline loop preload="none">
             <source src="assets/videos/grasping_gravity_gradient.mp4" type="video/mp4" />
           </video>
@@ -194,7 +191,6 @@ mjo_step(model, data)
 
       <div class="example">
         <div class="video-frame" style="background-image:url('assets/posters/rl_truss_pointing.svg')">
-          <span class="badge">video coming soon</span>
           <video muted playsinline loop preload="none">
             <source src="assets/videos/rl_truss_pointing.mp4" type="video/mp4" />
           </video>
