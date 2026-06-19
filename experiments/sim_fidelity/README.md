@@ -143,23 +143,63 @@ The backend is a single seam, `examples/ppo/sim_backend.py`, selected by
 
 ## Results
 
-Run `plot_results.py`; the generated [`results/SUMMARY.md`](results/SUMMARY.md)
-and `results/figures/` hold the tables and plots. Headline figures:
+3 seeds/condition, 1024 eval worlds each in full `mjorbit_warp`, identical worlds
+across all policies (every run reports `initial_err = 43.50°`, confirming the
+paired design). Full tables: [`results/SUMMARY.md`](results/SUMMARY.md); figures in
+`results/figures/`.
 
-- `results/figures/truss_success_curve.png` — success rate vs pointing-error
-  threshold, per training backend.
-- `results/figures/truss_align_box.png` — per-world final pointing error.
-- `results/figures/astrobee_success_bars.png` — grasp success by backend.
+**Truss (nadir-pointing).** mjorbit-warp trains the **tightest and most reliable**
+pointer; the bare-mjwarp baselines trail and are noisier (one weak seed each).
+
+| training backend | final err (deg) | success @3° | success @5° | hug kept |
+|---|---|---|---|---|
+| **mjorbit-warp** (full orbital) | **1.50 ± 0.20** | **94.3 ± 0.2%** | 94.5 ± 0.0% | 95.1% |
+| mjwarp fair (bare dyn, moving nadir) | 1.95 ± 0.42 | 80.1 ± 8.5% | 90.3 ± 3.8% | 94.0% |
+| mjwarp naive (bare dyn, frozen nadir) | 1.69 ± 0.54 | 91.1 ± 4.2% | 94.3 ± 0.1% | 94.9% |
+
+**Astrobee (control).** As predicted, **null** — the backend gap (78 vs 70%) is
+swamped by seed variance (the best `mjwarp` seed hit **99.6%**, vs mjorbit's best
+89.7%). No orbital-frame reference → no systematic backend effect.
+
+| training backend | grasp+hold success | final spin (rad/s) |
+|---|---|---|
+| mjorbit-warp | 77.9 ± 11.3% | 0.27 |
+| mjwarp | 70.4 ± 20.7% | 0.23 |
+
+### Reading the result
+- **Hypothesis supported, modestly.** Training in `mjorbit_warp` gives the best
+  pointing on the orbital task — but the win shows up at *tight* tolerance and as
+  *low seed variance* (σ ≈ 0.2% vs 4–9%), not as a large mean-success gap. At ≥5°
+  all three are within a few points. This matches the magnitude prediction:
+  orbital wrenches ≪ control authority at 400 km, so the dynamics gap is real but
+  small; its clearest signature is **reliability** — bare-mjwarp training is a
+  coin-flip on whether a seed lands tight, while the matched-domain mjorbit policy
+  is consistently tight.
+- **The contact/hug skill is backend-invariant** (~95% hug-kept everywhere): it's
+  contact dynamics, not orbital, so the backend doesn't touch it.
+- **Surprising:** `naive` (frozen target) edged out `fair` (moving target) at 3°.
+  The eval nadir sweeps only ~0.065°/s, so a *tight fixed-point* controller
+  (what naive learns) tracks it fine, whereas learning to chase a moving target in
+  free space (fair) trained a looser pointer. So *being tight* mattered more than
+  *seeing target motion* — and only the full-physics, matched-domain policy was
+  reliably both. (n=3; both bare arms are noisy, so read this as a trend.)
+- **Astrobee confirms the design**: where there is no orbital reference, the
+  simulator choice doesn't systematically matter — guarding against a "we made
+  orbital fidelity look important" critique.
+
+Headline figures: `truss_success_curve.png` (success vs threshold),
+`truss_align_box.png` (per-world error), `astrobee_success_bars.png`.
 
 ## Caveats & extensions
 
-- **Regime-dependent.** The fair-baseline gap is expected to be small *because*
-  control authority ≫ orbital wrenches at 400 km with these actuators. The gap
-  would grow under: lower control authority (force the policy to *exploit* GG
+- **Regime-dependent (confirmed small).** The measured fair-baseline gap *is*
+  small, as predicted, because control authority ≫ orbital wrenches at 400 km. The
+  gap should grow under: lower control authority (force the policy to *exploit* GG
   rather than overpower it), lower altitude / larger panels (stronger drag
   torque), longer multi-orbit horizons (GG/tidal effects accumulate), or larger
   inertia asymmetry. These are one-line config changes (`_RW_LIMIT`,
-  `altitude_km`, `episode_length_s`) and make good follow-ups.
+  `altitude_km`, `episode_length_s`) and are the natural follow-up to turn the
+  modest-but-real effect here into a large one.
 - **fp32 orbit clock.** Long device-resident runs (≫ 1 h sim) lose orbit-clock
   accuracy; the 120 s / 60 s horizons here are well within budget.
 - 3 seeds give mean ± std; bump `--seeds` for tighter intervals.
