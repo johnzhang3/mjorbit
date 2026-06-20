@@ -15,13 +15,6 @@ over a few knots (the usual bezier-style MPPI control):
   shared [0, 1] command maps linearly to the finger joint angles (open -> the
   closed-cage joint limits), so one number opens/closes all five fingers.
 
-Cost (lower is better):
-  * be close to the object:   ``dist(grip_center, payload)`` (drives the boom)
-  * boom at zero velocity:    terminal ``arm_slide`` speed penalty
-  * high reward when the object is centered in the gripper **and** the claw is
-    closed:                   negative (reward) term ``centered * phase``
-  * a guard against closing on empty space (high phase while off-target).
-
 Contact is enabled and scoped so the robot collides only with the payload, so
 the closed claw physically grips the cube (friction). Once the cube is centered
 the plant latches the grip shut, freezes the boom, and coasts for a long span:
@@ -146,18 +139,30 @@ def compute_K(model, data) -> tuple[float, np.ndarray]:
 
 def make_grasp_cost(num_timesteps: int):
     """Reach the payload, settle the boom, and reward a centered closed claw."""
-    term = slice(int(0.8 * num_timesteps), None)
+    term = slice(int(0.9 * num_timesteps), None)
 
     def cost_fn(states: np.ndarray, sensors: np.ndarray, controls: np.ndarray) -> np.ndarray:
         dist = grasp_distance(states, sensors)               # (R, T)
         boom_vel = states[:, :, ARM_SLIDE_VEL]               # (R, T)
+        boom_cmd = controls[:, :, EXTEND]                    # (R, T) target ext (m)
         phase = np.clip(controls[:, :, GRIP_PROX], 0.0, 1.0)  # 0 open .. 1 closed
         centered = np.exp(-((dist / CENTER_SCALE) ** 2))     # 1 when centered
         grasp = centered * phase                             # reward only if both
+
+        # Boom acceleration (change in slide velocity per step)
+        boom_accel = np.diff(boom_vel, axis=1)               # (R, T-1)
+
+        # Proximity-gated speed damping: brake as the claw nears the cube 
+        near = np.exp(-((dist / (2.0 * CENTER_SCALE)) ** 2))  # (R, T)
+
+        reached = np.maximum.accumulate(boom_cmd, axis=1)    # (R, T) running max
+        retract = reached - boom_cmd                         # (R, T) >= 0 if pulled back
         return (
             2.0 * np.mean(dist**2, axis=1)                      # approach (drives boom)
             + 8.0 * np.mean(dist[:, term] ** 2, axis=1)         # be centered at the end
-            + 3.0 * np.mean(boom_vel[:, term] ** 2, axis=1)     # boom at zero velocity
+            + 3.0 * np.mean(near * boom_vel**2, axis=1)         # damp speed near the cube
+            + 8.0 * np.mean(retract**2, axis=1)                 # never retract the boom
+            + 1.0 * np.mean(boom_accel**2, axis=1)              # smooth, jitter-free approach
             + 10.0 * np.mean(phase * (1.0 - centered), axis=1)  # stay open off-target
             - 30.0 * np.mean(grasp[:, term], axis=1)            # reward: centered + closed
         )
@@ -255,14 +260,14 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default="/tmp/grasp_claw_traj.npz")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--rollouts", type=int, default=64)
+    ap.add_argument("--rollouts", type=int, default=128)
     ap.add_argument("--horizon", type=float, default=10.0,
                     help="planning horizon (s); the stiff dt=0.01 servos reach "
                     "and grip within a few seconds")
     ap.add_argument("--num-nodes", type=int, default=4)
     ap.add_argument("--replan", type=float, default=2.0)
     ap.add_argument("--max-approach-time", type=float, default=30.0)
-    ap.add_argument("--hold-seconds", type=float, default=3*5560.0,
+    ap.add_argument("--hold-seconds", type=float, default=3.0*5560.0,
                     help="post-grasp passive integration (s): hold the grip closed "
                     "and boom fixed, then coast to watch the gravity gradient librate "
                     "the captured stack (~5560 s is one 400 km orbit)")
