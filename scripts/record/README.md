@@ -33,6 +33,11 @@ pixi run python scripts/record/record_docking.py --traj /tmp/dock_traj.npz --out
 # Grasping under gravity gradient (paper example c)
 pixi run python scripts/record/produce_grasp.py --out /tmp/grasp_traj.npz
 pixi run python scripts/record/record_grasp.py --traj /tmp/grasp_traj.npz --out videos/grasping.mp4
+
+# Grasping under gravity gradient with a claw (paper example c)
+pixi run python scripts/record/produce_grasp_claw.py --out /tmp/grasp_claw_traj.npz
+pixi run python scripts/record/record_grasp_claw.py --traj /tmp/grasp_claw_traj.npz --out videos/grasping_claw.mp4
+
 ```
 
 Common knobs: `--seconds`, `--fps`, `--width/--height`, `--mag`, camera offsets
