@@ -31,11 +31,16 @@
   </default>
 
   <worldbody>
-    <body name="bus" pos="0 0 0" quat="0.707107 0 0 0.707107">
+    <!-- Boom is the body +x axis. Identity quat aligns it with world +x, which is
+         radial/local-vertical for the R_eci=[r,0,0] orbit used by the demo script.
+         That is the STABLE gravity-gradient equilibrium, so the captured stack
+         librates with a bounded amplitude about local vertical instead of being
+         released at the unstable along-track point. -->
+    <body name="bus" pos="0 0 0" quat="1 0 0 0">
       <freejoint name="base"/>
       <!-- Circular (drum) bus: a cylinder whose axis runs along the boom (+x),
            so the boom pokes out of one round face. -->
-      <geom type="cylinder" fromto="-0.7 0 0 0.7 0 0" size="0.45" mass="360"
+      <geom type="cylinder" fromto="-0.7 0 0 0.7 0 0" size="0.45" mass="3000"
             rgba="0.3 0.5 0.9 1"/>
       <!-- Two solar panels: thin flat plates wing out along the bus ±y axis. -->
       <geom type="box" pos="0 1.55 0" size="0.45 1.1 0.02" mass="2"
@@ -46,7 +51,7 @@
       <!-- Fixed outer boom: a larger-diameter housing rigidly attached to the
            bus. The thinner inner boom telescopes through it, so the sliding
            boom always overlaps (and looks connected to) the spacecraft. -->
-      <geom type="capsule" fromto="0.5 0 0 3.5 0 0" size="0.09" mass="1"
+      <geom type="capsule" fromto="0.5 0 0 3.5 0 0" size="0.09" mass="0.1"
             rgba="0.35 0.37 0.45 1"/>
 
       <!-- Telescoping inner boom: one prismatic DoF along the bus +x axis. Its
@@ -55,7 +60,7 @@
            bus-to-payload distance), and the limit gives a little reach margin. -->
       <body name="arm" pos="0.5 0 0">
         <joint name="arm_slide" type="slide" axis="1 0 0" range="0 3.8"/>
-        <geom type="capsule" fromto="-1.0 0 0 2.68 0 0" size="0.06" mass="1"
+        <geom type="capsule" fromto="-1.0 0 0 2.68 0 0" size="0.06" mass="0.1"
               rgba="0.75 0.75 0.78 1"/>
 
         <!-- Wrist / claw hub at the boom tip; ~2.73 m out so the retracted claw
@@ -64,13 +69,13 @@
           <!-- Compact hub + five spokes out to the finger roots: an open grapple
                frame rather than a solid disk capping the cube. The hub backs the
                cube so the fingers grip against it. -->
-          <geom type="cylinder" fromto="-0.05 0 0 0.05 0 0" size="0.10" mass="1"
+          <geom type="cylinder" fromto="-0.05 0 0 0.05 0 0" size="0.10" mass="0.1"
                 rgba="0.9 0.7 0.2 1"/>
-          <geom type="capsule" fromto="0 0 0 0 0.40000 0.00000" size="0.025" mass="0.03" rgba="0.6 0.6 0.6 1"/>
-          <geom type="capsule" fromto="0 0 0 0 0.12361 0.38042" size="0.025" mass="0.03" rgba="0.6 0.6 0.6 1"/>
-          <geom type="capsule" fromto="0 0 0 0 -0.32361 0.23511" size="0.025" mass="0.03" rgba="0.6 0.6 0.6 1"/>
-          <geom type="capsule" fromto="0 0 0 0 -0.32361 -0.23511" size="0.025" mass="0.03" rgba="0.6 0.6 0.6 1"/>
-          <geom type="capsule" fromto="0 0 0 0 0.12361 -0.38042" size="0.025" mass="0.03" rgba="0.6 0.6 0.6 1"/>
+          <geom type="capsule" fromto="0 0 0 0 0.40000 0.00000" size="0.025" mass="0.003" rgba="0.6 0.6 0.6 1"/>
+          <geom type="capsule" fromto="0 0 0 0 0.12361 0.38042" size="0.025" mass="0.003" rgba="0.6 0.6 0.6 1"/>
+          <geom type="capsule" fromto="0 0 0 0 -0.32361 0.23511" size="0.025" mass="0.003" rgba="0.6 0.6 0.6 1"/>
+          <geom type="capsule" fromto="0 0 0 0 -0.32361 -0.23511" size="0.025" mass="0.003" rgba="0.6 0.6 0.6 1"/>
+          <geom type="capsule" fromto="0 0 0 0 0.12361 -0.38042" size="0.025" mass="0.003" rgba="0.6 0.6 0.6 1"/>
 
           <!-- Five fingers on a radius-0.40 ring, 72 deg apart. Each finger body
                is rotated about the boom axis so its local frame is (+x forward,
@@ -131,9 +136,9 @@
       </body>
     </body>
 
-    <body name="payload" pos="0 7.1 0">
+    <body name="payload" pos="7.1 0 0">
       <freejoint name="payload_free"/>
-      <geom type="box" size="0.25 0.25 0.25" mass="6" rgba="0.8 0.3 0.3 1"
+      <geom type="box" size="0.25 0.25 0.25" mass="400" rgba="0.8 0.3 0.3 1"
             contype="2" conaffinity="1"/>
     </body>
   </worldbody>

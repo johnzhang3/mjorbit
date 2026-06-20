@@ -105,6 +105,45 @@ def plant_distance(data) -> float:
     return float(np.linalg.norm(sens[SENS_PAYLOAD_POS] - center))
 
 
+def compute_K(model, data) -> tuple[float, np.ndarray]:
+    """Gravity-gradient elongation ratio ``K = (I_max - I_min) / I_max`` of the
+    whole assembly in its *current* configuration.
+
+    Builds the composite inertia tensor of every body about the system centre of
+    mass via the parallel-axis theorem, using the live data MuJoCo exposes:
+    ``body_inertia`` are each body's principal moments and ``ximat`` is their
+    world orientation (world-from-principal-axes), so
+    ``J_world = R diag(I) Rᵀ``. Body 0 (the world) is skipped.
+
+    K is read straight from the compiled model masses and the current body
+    frames, so editing the payload mass (or any geometry) in the XML changes the
+    returned K automatically. It sets the libration frequency through
+    ``omega_lib = omega0 * sqrt(3 K)``.
+
+    Returns ``(K, principal_moments)`` with the three principal moments ascending
+    (I_min, I_mid, I_max), in MuJoCo SI units (kg·m²).
+    """
+    masses = np.asarray(model.body_mass)[1:]                  # drop world body 0
+    coms = np.asarray(data.xipos)[1:]                         # (nb-1, 3) world COMs
+    inertias = np.asarray(model.body_inertia)[1:]             # (nb-1, 3) principal
+    ximat = np.asarray(data.ximat)[1:].reshape(-1, 3, 3)      # world<-principal
+
+    total_mass = float(masses.sum())
+    com = (masses[:, None] * coms).sum(axis=0) / total_mass
+
+    inertia_tensor = np.zeros((3, 3))
+    for m_i, com_i, principal_i, rot_i in zip(masses, coms, inertias, ximat):
+        j_world = rot_i @ np.diag(principal_i) @ rot_i.T
+        offset = com_i - com
+        inertia_tensor += j_world + m_i * (
+            offset @ offset * np.eye(3) - np.outer(offset, offset)
+        )
+
+    principal = np.linalg.eigvalsh(inertia_tensor)            # ascending
+    i_min, i_max = float(principal[0]), float(principal[-1])
+    return (i_max - i_min) / i_max, principal
+
+
 def make_grasp_cost(num_timesteps: int):
     """Reach the payload, settle the boom, and reward a centered closed claw."""
     term = slice(int(0.8 * num_timesteps), None)
@@ -222,7 +261,7 @@ def main() -> None:
                     "and grip within a few seconds")
     ap.add_argument("--num-nodes", type=int, default=4)
     ap.add_argument("--replan", type=float, default=2.0)
-    ap.add_argument("--max-approach-time", type=float, default=60.0)
+    ap.add_argument("--max-approach-time", type=float, default=30.0)
     ap.add_argument("--hold-seconds", type=float, default=3*5560.0,
                     help="post-grasp passive integration (s): hold the grip closed "
                     "and boom fixed, then coast to watch the gravity gradient librate "
@@ -254,7 +293,8 @@ def main() -> None:
     planner = ClawGraspMppi(
         model, make_grasp_cost(int(np.ceil(args.horizon / dt))),
         horizon=args.horizon, num_nodes=args.num_nodes, num_rollouts=args.rollouts,
-        dt=dt, sigma=[0.7, 0.25], temperature=0.05, noise_ramp=2.5,
+        dt=dt, sigma=[0.7, 0.25], 
+        temperature=0.05, noise_ramp=2.5,
         seed=args.seed, nthread=args.nthread,
     )
     planner.reset(data, boom0=0.0, phase0=0.0)
@@ -308,12 +348,23 @@ def main() -> None:
     if not grasped:
         print("WARN: did not reach a centered grasp; rendering the approach only.")
 
+    # Inertia ratio of the captured stack (boom extended, cube in the claw), read
+    # from the live model masses + body frames -> sets the gravity-gradient
+    # libration. omega_lib = omega0 * sqrt(3 K); small-amplitude period below.
+    K, (i_min, i_mid, i_max) = compute_K(model, data)
+    t_orbit = 2.0 * np.pi / omega
+    t_lib = t_orbit / np.sqrt(3.0 * K)
+    print(f"captured-stack inertia: I_min={i_min:.1f} I_mid={i_mid:.1f} "
+          f"I_max={i_max:.1f} kg·m²")
+    print(f"  K = (I_max-I_min)/I_max = {K:.4f}  ->  small-amplitude libration "
+          f"period {t_lib:.0f} s ({t_lib/t_orbit:.2f} orbit)")
+
     # Post-grasp: freeze the captured state (grip closed, boom fixed) and coast
     # for a long span. The bus+arm+gripped-cube stack is elongated and inertially
     # fixed while local-vertical rotates with the orbit, so the gravity gradient
     # librates it; the grip holds the cube through the swing. Sub-sample so the
     # long passive tail does not dwarf the file.
-    if grasped and args.hold_seconds > 0:
+    if args.hold_seconds > 0:
         n_hold = int(round(args.hold_seconds / dt))
         stride = max(1, n_hold // max(1, args.hold_frames))
         for k in range(n_hold):
