@@ -260,14 +260,14 @@ def main() -> None:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default="/tmp/grasp_claw_traj.npz")
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--rollouts", type=int, default=128)
+    ap.add_argument("--rollouts", type=int, default=256)
     ap.add_argument("--horizon", type=float, default=10.0,
                     help="planning horizon (s); the stiff dt=0.01 servos reach "
                     "and grip within a few seconds")
     ap.add_argument("--num-nodes", type=int, default=4)
     ap.add_argument("--replan", type=float, default=2.0)
     ap.add_argument("--max-approach-time", type=float, default=30.0)
-    ap.add_argument("--hold-seconds", type=float, default=3.0*5560.0,
+    ap.add_argument("--hold-seconds", type=float, default=0.45*5560.0,
                     help="post-grasp passive integration (s): hold the grip closed "
                     "and boom fixed, then coast to watch the gravity gradient librate "
                     "the captured stack (~5560 s is one 400 km orbit)")
@@ -369,9 +369,11 @@ def main() -> None:
     # fixed while local-vertical rotates with the orbit, so the gravity gradient
     # librates it; the grip holds the cube through the swing. Sub-sample so the
     # long passive tail does not dwarf the file.
+    dt_hold = dt  # sim-seconds advanced per *saved* frame during the coast
     if args.hold_seconds > 0:
         n_hold = int(round(args.hold_seconds / dt))
         stride = max(1, n_hold // max(1, args.hold_frames))
+        dt_hold = stride * dt
         for k in range(n_hold):
             data.ctrl[:] = [boom_grasp, 1.0, 1.0]
             mjo_step(model, data)
@@ -383,6 +385,15 @@ def main() -> None:
         print(f"  coasted {args.hold_seconds:.0f} s with grip closed; "
               f"cube still in claw at {held:.3f} m")
 
+    # Per-phase render speedup schedule: each row is [start_frame, dt], the
+    # sim-seconds advanced per *saved* frame from that frame on. The slow
+    # approach steps every dt; the coast is sub-sampled so it advances dt_hold
+    # per frame, so the rendered "N× real-time" caption fast-forwards the swing.
+    sim_dt = np.array(
+        [[0.0, dt]] + ([[float(n_capture), dt_hold]] if args.hold_seconds > 0 else []),
+        dtype=float,
+    )
+
     np.savez(
         args.out,
         qpos=np.asarray(qpos_hist),
@@ -391,6 +402,7 @@ def main() -> None:
         V_eci=V0,
         t_latch=t_latch,
         dt=dt,
+        sim_dt=sim_dt,
         xml_path=str(SPACECRAFT_CAPTURE_CLAW_XML),
         n_capture=n_capture,
     )

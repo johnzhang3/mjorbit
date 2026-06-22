@@ -46,6 +46,9 @@ def main() -> None:
     d = np.load(args.traj, allow_pickle=True)
     qpos, R_eci, V_eci = d["qpos"], d["R_eci"], d["V_eci"]
     t = d["t"] if "t" in d else np.arange(len(qpos)) * float(d["dt"])
+    # Per-phase [[start_frame, dt], ...] speedup schedule (newer trajectories);
+    # fall back to the single constant dt for older files.
+    sim_dt = d["sim_dt"] if "sim_dt" in d else float(d["dt"])
     t_latch = float(d["t_latch"]) if "t_latch" in d else None  # grasp instant, for annotation
     model = MjoModel.from_xml_path(str(d["xml_path"]))
     data = model.make_data()
@@ -103,7 +106,7 @@ def main() -> None:
         out_path=args.out, camera=camera, mag=args.mag,
         video_seconds=args.seconds, fps=args.fps,
         width=args.width, height=args.height, port=args.port,
-        sim_dt=float(d["dt"]),
+        sim_dt=sim_dt,
     )
 
 

@@ -39,10 +39,16 @@ import viser
 from PIL import Image, ImageDraw, ImageFont
 
 _FONT_CANDIDATES = [
+    # macOS
     "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
     "/System/Library/Fonts/Supplemental/Arial.ttf",
     "/System/Library/Fonts/SFNSDisplay.ttf",
     "/Library/Fonts/Arial.ttf",
+    # Linux (DejaVu / Liberation both include U+00D7 "×")
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
 ]
 
 

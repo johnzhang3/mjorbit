@@ -138,7 +138,7 @@
 
     <body name="payload" pos="7.1 0 0">
       <freejoint name="payload_free"/>
-      <geom type="box" size="0.25 0.25 0.25" mass="400" rgba="0.8 0.3 0.3 1"
+      <geom type="box" size="0.25 0.25 0.25" mass="4" rgba="0.8 0.3 0.3 1"
             contype="2" conaffinity="1"/>
     </body>
   </worldbody>
