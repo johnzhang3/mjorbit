@@ -38,7 +38,12 @@ def test_bimanual_assets_remove_joint_limits_and_split_backends(tmp_path):
     assert "shoulder_a" in assets.joint_names
     assert "hn_2" in assets.joint_names
 
+    default_joint = basilisk_root.find("./default/joint")
+    assert default_joint is not None
+    assert default_joint.get("limited") == "false"
     for joint in basilisk_root.iter("joint"):
+        assert "range" not in joint.attrib
+    for joint in mjorbit_root.iter("joint"):
         assert joint.get("limited") == "false"
         assert "range" not in joint.attrib
     for actuator in basilisk_root.iter("position"):

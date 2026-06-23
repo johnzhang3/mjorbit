@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import json
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
@@ -27,30 +28,34 @@ from typing import Any
 
 import numpy as np
 
-from comparisons.basilisk_mujoco.cases import (
-    _basilisk_mrp_to_quat_world_body,
-    _earth_state_msg,
-    _make_basilisk_integrator,
-    _quat_angle_errors,
-    _quat_world_body_to_basilisk_mrp,
-)
-from comparisons.basilisk_mujoco.common import (
-    GM_EARTH,
-    basilisk_mujoco_import_status,
-    make_circular_orbit,
-    sample_steps,
-    write_json,
-)
-from mjorbit import MjoModel, OrbitInit, mjo_forward, mjo_step
-from mjorbit.rollout import mjo_get_state, rollout
-from mjorbit.testdata import SPACECRAFT_BIMANUAL_PANELS_XML
+# Basilisk and the native MuJoCo bindings can collide if mjorbit's bindings load first.
+# Preload Basilisk's MuJoCo module when available; missing Basilisk remains optional.
+try:
+    from Basilisk.simulation import mujoco as _basilisk_mujoco_preload  # noqa: F401
+except Exception:
+    _basilisk_mujoco_preload = None
 
 EXPERIMENT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = EXPERIMENT_DIR.parent.parent
 OUT_DIR = EXPERIMENT_DIR / "out"
+SPACECRAFT_BIMANUAL_PANELS_XML = REPO_ROOT / "src/mjorbit/testdata/spacecraft_bimanual_panels.xml"
 
 BIMANUAL_POSE = np.array([-1.1, -0.9, 1.1, 0.9], dtype=np.float64)
 BODY_ROOT_NAME = "bus"
 ACTUATED_JOINTS = ("shoulder_a", "elbow_a", "shoulder_b", "elbow_b")
+GM_EARTH = 398600.4418
+R_EARTH = 6378.137
+
+
+@dataclass(frozen=True)
+class CircularOrbit:
+    alt_km: float
+    inc_rad: float
+    radius_km: float
+    mean_motion_rad_s: float
+    period_s: float
+    r_eci_km: np.ndarray
+    v_eci_km_s: np.ndarray
 
 
 @dataclass(frozen=True)
@@ -117,7 +122,7 @@ def main() -> None:
     parser.add_argument("--accuracy-dt", type=float, default=0.02)
     parser.add_argument("--accuracy-orbit-dt", type=float, default=0.02)
     parser.add_argument("--accuracy-integrator", default="RK4")
-    parser.add_argument("--basilisk-integrator", default="rkf45")
+    parser.add_argument("--basilisk-integrator", default="default")
     parser.add_argument("--max-samples", type=int, default=800)
     parser.add_argument("--throughput-steps", type=int, default=500)
     parser.add_argument("--throughput-batch", type=int, default=128)
@@ -220,7 +225,7 @@ def write_bimanual_assets(
     metadata = _metadata_from_root(basilisk_root)
     basilisk_xml = out_dir / "bimanual_unlimited_basilisk.xml"
     mjorbit_xml = out_dir / "bimanual_unlimited_mjorbit.xml"
-    _write_xml(basilisk_xml, basilisk_root)
+    _write_basilisk_xml(basilisk_xml, basilisk_root)
     _write_xml(mjorbit_xml, mjorbit_root)
     return ExperimentAssets(
         mjorbit_xml=mjorbit_xml,
@@ -230,6 +235,62 @@ def write_bimanual_assets(
         joint_body_names=metadata["joint_body_names"],
         actuator_names=metadata["actuator_names"],
     )
+
+
+def make_circular_orbit(alt_km: float = 400.0, inc_rad: float | None = None) -> CircularOrbit:
+    if inc_rad is None:
+        inc_rad = np.deg2rad(51.6)
+    radius_km = R_EARTH + alt_km
+    mean_motion = float(np.sqrt(GM_EARTH / radius_km**3))
+    period_s = float(2.0 * np.pi / mean_motion)
+    speed_km_s = float(np.sqrt(GM_EARTH / radius_km))
+    r_eci_km = np.array([radius_km, 0.0, 0.0], dtype=np.float64)
+    v_eci_km_s = np.array(
+        [0.0, speed_km_s * np.cos(inc_rad), speed_km_s * np.sin(inc_rad)],
+        dtype=np.float64,
+    )
+    return CircularOrbit(
+        alt_km=alt_km,
+        inc_rad=inc_rad,
+        radius_km=radius_km,
+        mean_motion_rad_s=mean_motion,
+        period_s=period_s,
+        r_eci_km=r_eci_km,
+        v_eci_km_s=v_eci_km_s,
+    )
+
+
+def sample_steps(n_steps: int, max_samples: int) -> np.ndarray:
+    if n_steps < 0:
+        raise ValueError("n_steps must be non-negative")
+    if max_samples < 2:
+        raise ValueError("max_samples must be at least 2")
+    return np.unique(np.linspace(0, n_steps, min(n_steps + 1, max_samples), dtype=int))
+
+
+def basilisk_mujoco_import_status() -> tuple[bool, str]:
+    try:
+        from Basilisk.simulation import mujoco as _mujoco  # noqa: F401
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
+    return True, "Basilisk.simulation.mujoco import succeeded"
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_jsonable(payload), indent=2, sort_keys=True) + "\n")
+
+
+def _jsonable(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
 
 
 def run_accuracy_experiment(
@@ -297,6 +358,8 @@ def run_mjorbit_cpu_trajectory(
     controls: np.ndarray,
     sample_idx: np.ndarray,
 ) -> Trajectory:
+    from mjorbit import MjoModel, OrbitInit, mjo_forward, mjo_step
+
     orbit = make_circular_orbit(config.alt_km, inc_rad=np.deg2rad(config.inc_deg))
     model = MjoModel.from_xml_path(str(assets.mjorbit_xml), mj_timestep=config.dt_s)
     data = model.make_data(orbit=OrbitInit(orbit.r_eci_km, orbit.v_eci_km_s))
@@ -447,6 +510,9 @@ def benchmark_mjorbit_cpu(
     config: ThroughputConfig,
     controls: np.ndarray,
 ) -> dict[str, Any]:
+    from mjorbit import MjoModel, OrbitInit, mjo_forward
+    from mjorbit.rollout import mjo_get_state, rollout
+
     orbit = make_circular_orbit(config.alt_km)
     model = MjoModel.from_xml_path(str(assets.mjorbit_xml), mj_timestep=config.dt_s)
     data = model.make_data(orbit=OrbitInit(orbit.r_eci_km, orbit.v_eci_km_s))
@@ -638,6 +704,48 @@ def _run_one_basilisk_for_throughput(
     return time.perf_counter() - t0
 
 
+def _earth_state_msg(messaging: Any) -> Any:
+    payload = messaging.SpicePlanetStateMsgPayload()
+    payload.PositionVector = [0.0, 0.0, 0.0]
+    payload.VelocityVector = [0.0, 0.0, 0.0]
+    payload.J20002Pfix = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    payload.J20002Pfix_dot = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]
+    payload.PlanetName = "earth"
+    return messaging.SpicePlanetStateMsg().write(payload)
+
+
+def _normalize_basilisk_integrator_name(name: str) -> str:
+    normalized = name.strip().lower().replace("-", "").replace("_", "")
+    aliases = {
+        "euler": "euler",
+        "rk1": "euler",
+        "rk2": "rk2",
+        "rk4": "rk4",
+        "rkf45": "rkf45",
+        "rk45": "rkf45",
+        "rkf78": "rkf78",
+        "rk78": "rkf78",
+        "default": "default",
+        "native": "default",
+        "none": "default",
+    }
+    if normalized not in aliases:
+        supported = ", ".join(sorted(set(aliases.values())))
+        raise ValueError(f"unsupported Basilisk integrator {name!r}; choose one of {supported}")
+    return aliases[normalized]
+
+
+def _make_basilisk_integrator(sv_integrators: Any, scene: Any, name: str) -> Any:
+    constructors = {
+        "euler": sv_integrators.svIntegratorEuler,
+        "rk2": sv_integrators.svIntegratorRK2,
+        "rk4": sv_integrators.svIntegratorRK4,
+        "rkf45": sv_integrators.svIntegratorRKF45,
+        "rkf78": sv_integrators.svIntegratorRKF78,
+    }
+    return constructors[_normalize_basilisk_integrator_name(name)](scene)
+
+
 def _run_basilisk_bimanual(
     assets: ExperimentAssets,
     *,
@@ -665,7 +773,8 @@ def _run_basilisk_bimanual(
     scene = bsk_mujoco.MJScene.fromFile(str(assets.basilisk_xml))
     scene.ModelTag = "mujocoScene"
     sim.AddModelToTask(task_name, scene)
-    scene.setIntegrator(_make_basilisk_integrator(svIntegrators, scene, integrator_name))
+    if _normalize_basilisk_integrator_name(integrator_name) != "default":
+        scene.setIntegrator(_make_basilisk_integrator(svIntegrators, scene, integrator_name))
 
     body_objects = [scene.getBody(name) for name in assets.body_names]
     root = scene.getBody(BODY_ROOT_NAME)
@@ -675,6 +784,7 @@ def _run_basilisk_bimanual(
     ]
 
     profile_times_ns = np.arange(controls.shape[0], dtype=np.float64) * float(task_dt_ns)
+    interpolators = []
     for idx, actuator_name in enumerate(assets.actuator_names):
         actuator = scene.getSingleActuator(actuator_name)
         interpolator = bsk_mujoco.SingleActuatorInterpolator()
@@ -682,6 +792,7 @@ def _run_basilisk_bimanual(
         interpolator.setDataPoints(np.column_stack((profile_times_ns, controls[:, idx])), 1)
         scene.AddModelToDynamicsTask(interpolator)
         actuator.actuatorInMsg.subscribeTo(interpolator.interpolatedOutMsg)
+        interpolators.append(interpolator)
 
     gravity = NBodyGravity.NBodyGravity()
     gravity.ModelTag = "gravity"
@@ -786,11 +897,13 @@ class _TrajectoryBuilder:
         self.times_s.append(float(np.asarray(data.orbit.t).reshape(-1)[0]))
         self.body_r.append(body_r)
         self.body_v.append(body_v)
-        self.hub_quat.append(np.asarray(data.qpos[..., 3:7], dtype=np.float64).reshape(-1, 4)[0])
+        self.hub_quat.append(
+            np.asarray(data.qpos[..., 3:7], dtype=np.float64).reshape(-1, 4)[0].copy()
+        )
         joint_angles = np.asarray(data.qpos[..., 7:], dtype=np.float64)
         joint_rates = np.asarray(data.qvel[..., 6:], dtype=np.float64)
-        self.joint_angles.append(joint_angles.reshape(-1, model.nq - 7)[0])
-        self.joint_rates.append(joint_rates.reshape(-1, model.nv - 6)[0])
+        self.joint_angles.append(joint_angles.reshape(-1, model.nq - 7)[0].copy())
+        self.joint_rates.append(joint_rates.reshape(-1, model.nv - 6)[0].copy())
 
     def build(self, summary: dict[str, Any]) -> Trajectory:
         return Trajectory(
@@ -1001,6 +1114,16 @@ def _write_xml(path: Path, root: ET.Element) -> None:
     tree.write(path, encoding="unicode", xml_declaration=False)
 
 
+def _write_basilisk_xml(path: Path, root: ET.Element) -> None:
+    _write_xml(path, root)
+    try:
+        import mujoco
+    except Exception:
+        return
+    model = mujoco.MjModel.from_xml_path(str(path))
+    mujoco.mj_saveLastXML(str(path), model)
+
+
 def _normalize_mujoco_integrator(name: str) -> str:
     normalized = name.strip().lower().replace("_", "").replace("-", "")
     aliases = {
@@ -1046,6 +1169,55 @@ def _initial_joint_positions(njoint: int) -> np.ndarray:
     q = np.zeros(njoint, dtype=np.float64)
     q[: min(4, njoint)] = BIMANUAL_POSE[: min(4, njoint)]
     return q
+
+
+def _quat_world_body_to_basilisk_mrp(quat_world_body: np.ndarray) -> np.ndarray:
+    quat = _normalized_quat(quat_world_body)
+    if quat[0] < 0.0:
+        quat = -quat
+    denom = 1.0 + quat[0]
+    if denom <= 1.0e-14:
+        return -quat[1:4]
+    return quat[1:4] / denom
+
+
+def _basilisk_mrp_to_quat_world_body(sigma_bn: np.ndarray) -> np.ndarray:
+    sigma = np.asarray(sigma_bn, dtype=np.float64)
+    if sigma.ndim == 1:
+        sigma = sigma.reshape(1, 3)
+    s2 = np.sum(sigma * sigma, axis=1)
+    quat_world_body = np.column_stack(
+        (
+            (1.0 - s2) / (1.0 + s2),
+            2.0 * sigma[:, 0] / (1.0 + s2),
+            2.0 * sigma[:, 1] / (1.0 + s2),
+            2.0 * sigma[:, 2] / (1.0 + s2),
+        )
+    )
+    return _normalized_quat_rows(quat_world_body)
+
+
+def _quat_angle_errors(q_a: np.ndarray, q_b: np.ndarray) -> np.ndarray:
+    qa = _normalized_quat_rows(q_a)
+    qb = _normalized_quat_rows(q_b)
+    dots = np.abs(np.sum(qa * qb, axis=1))
+    return 2.0 * np.arccos(np.clip(dots, 0.0, 1.0))
+
+
+def _normalized_quat(quat: np.ndarray) -> np.ndarray:
+    q = np.asarray(quat, dtype=np.float64)
+    norm = float(np.linalg.norm(q))
+    if norm <= 0.0:
+        raise ValueError("quaternion must be non-zero")
+    return q / norm
+
+
+def _normalized_quat_rows(quat: np.ndarray) -> np.ndarray:
+    q = np.asarray(quat, dtype=np.float64)
+    norm = np.linalg.norm(q, axis=1)
+    if np.any(norm <= 0.0):
+        raise ValueError("quaternion rows must be non-zero")
+    return q / norm[:, None]
 
 
 def _mjorbit_body_origin_eci_states(
