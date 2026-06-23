@@ -79,6 +79,7 @@ class AccuracyConfig:
     orbit_dt_s: float
     mj_integrator: str
     basilisk_integrator: str
+    basilisk_gravity_mode: str
     seed: int
     max_samples: int
     run_warp: bool
@@ -97,6 +98,7 @@ class ThroughputConfig:
     gpu_worlds: tuple[int, ...]
     run_warp: bool
     basilisk_integrator: str
+    basilisk_gravity_mode: str
 
 
 @dataclass
@@ -123,6 +125,15 @@ def main() -> None:
     parser.add_argument("--accuracy-orbit-dt", type=float, default=0.02)
     parser.add_argument("--accuracy-integrator", default="RK4")
     parser.add_argument("--basilisk-integrator", default="default")
+    parser.add_argument(
+        "--basilisk-gravity-mode",
+        choices=("relative", "absolute"),
+        default="relative",
+        help=(
+            "relative runs Basilisk MJScene in mjorbit's chief-centered inertial frame "
+            "with matched differential gravity; absolute uses Basilisk NBodyGravity in ECI"
+        ),
+    )
     parser.add_argument("--max-samples", type=int, default=800)
     parser.add_argument("--throughput-steps", type=int, default=500)
     parser.add_argument("--throughput-batch", type=int, default=128)
@@ -149,6 +160,7 @@ def main() -> None:
         orbit_dt_s=args.accuracy_orbit_dt,
         mj_integrator=args.accuracy_integrator,
         basilisk_integrator=args.basilisk_integrator,
+        basilisk_gravity_mode=args.basilisk_gravity_mode,
         seed=args.seed,
         max_samples=args.max_samples,
         run_warp=not args.no_warp,
@@ -165,6 +177,7 @@ def main() -> None:
         gpu_worlds=tuple(args.gpu_worlds),
         run_warp=not args.no_warp,
         basilisk_integrator=args.basilisk_integrator,
+        basilisk_gravity_mode=args.basilisk_gravity_mode,
     )
 
     accuracy = run_accuracy_experiment(assets, accuracy_config)
@@ -175,8 +188,10 @@ def main() -> None:
             "Accuracy uses the bimanual spacecraft model with joint limits removed.",
             "mjorbit CPU is double precision; mjorbit-warp uses the MJWarp device precision.",
             "Basilisk uses independent MJScene runs under Python threads for throughput.",
+            "Basilisk accuracy defaults to the same chief-centered local inertial frame "
+            "as mjorbit, with equivalent differential point-mass gravity.",
             "The mjorbit gravity-gradient rigid-body torque is disabled to match Basilisk "
-            "point-mass NBodyGravity applied to each articulated body.",
+            "point-mass gravity applied to each articulated body.",
         ],
         "assets": {
             "mjorbit_xml": str(assets.mjorbit_xml),
@@ -339,6 +354,7 @@ def run_accuracy_experiment(
                 "orbit_dt_s": config.orbit_dt_s,
                 "mjorbit_integrator": config.mj_integrator,
                 "basilisk_integrator": config.basilisk_integrator,
+                "basilisk_gravity_mode": config.basilisk_gravity_mode,
                 "seed": config.seed,
                 "samples": int(sample_idx.size),
             },
@@ -465,6 +481,7 @@ def run_basilisk_trajectory(
             dt_s=config.dt_s,
             controls=controls,
             integrator_name=config.basilisk_integrator,
+            gravity_mode=config.basilisk_gravity_mode,
             record=True,
         )
     except Exception as exc:
@@ -492,6 +509,7 @@ def run_throughput_experiment(
             "orbit_dt_s": config.orbit_dt_s,
             "n_steps": config.n_steps,
             "batch": config.batch,
+            "basilisk_gravity_mode": config.basilisk_gravity_mode,
             "seed": config.seed,
         },
         "mjorbit_cpu": benchmark_mjorbit_cpu(assets, config, controls),
@@ -650,6 +668,7 @@ def benchmark_basilisk_threads(
                         config.dt_s,
                         config.n_steps,
                         config.basilisk_integrator,
+                        config.basilisk_gravity_mode,
                         config.seed + world,
                     )
                     for world in range(config.batch)
@@ -678,6 +697,7 @@ def benchmark_basilisk_threads(
         "available": True,
         "backend": "Basilisk MJScene independent Python threads",
         "integrator": config.basilisk_integrator,
+        "gravity_mode": config.basilisk_gravity_mode,
         "runs": runs,
     }
 
@@ -688,6 +708,7 @@ def _run_one_basilisk_for_throughput(
     dt_s: float,
     n_steps: int,
     integrator_name: str,
+    gravity_mode: str,
     seed: int,
 ) -> float:
     controls = make_random_control_profile(n_steps + 2, len(assets.actuator_names), seed=seed)
@@ -699,9 +720,19 @@ def _run_one_basilisk_for_throughput(
         dt_s=dt_s,
         controls=controls,
         integrator_name=integrator_name,
+        gravity_mode=gravity_mode,
         record=False,
     )
     return time.perf_counter() - t0
+
+
+def _write_basilisk_actuator_commands(
+    messaging: Any,
+    actuator_messages: Sequence[Any],
+    controls: np.ndarray,
+) -> None:
+    for actuator_msg, value in zip(actuator_messages, controls, strict=True):
+        actuator_msg.write(messaging.SingleActuatorMsgPayload(input=float(value)))
 
 
 def _earth_state_msg(messaging: Any) -> Any:
@@ -746,6 +777,104 @@ def _make_basilisk_integrator(sv_integrators: Any, scene: Any, name: str) -> Any
     return constructors[_normalize_basilisk_integrator_name(name)](scene)
 
 
+def _normalize_basilisk_gravity_mode(name: str) -> str:
+    normalized = name.strip().lower().replace("-", "").replace("_", "")
+    aliases = {
+        "relative": "relative",
+        "local": "relative",
+        "differential": "relative",
+        "encke": "relative",
+        "absolute": "absolute",
+        "eci": "absolute",
+        "nbody": "absolute",
+        "full": "absolute",
+    }
+    if normalized not in aliases:
+        supported = ", ".join(sorted(set(aliases.values())))
+        raise ValueError(f"unsupported Basilisk gravity mode {name!r}; choose one of {supported}")
+    return aliases[normalized]
+
+
+def _circular_orbit_state_at_times(
+    times_s: np.ndarray,
+    orbit: CircularOrbit,
+) -> tuple[np.ndarray, np.ndarray]:
+    phase = orbit.mean_motion_rad_s * np.asarray(times_s, dtype=np.float64)
+    c = np.cos(phase)
+    s = np.sin(phase)
+    speed = orbit.mean_motion_rad_s * orbit.radius_km
+    r_eci_km = np.column_stack(
+        (
+            orbit.radius_km * c,
+            orbit.radius_km * s * np.cos(orbit.inc_rad),
+            orbit.radius_km * s * np.sin(orbit.inc_rad),
+        )
+    )
+    v_eci_km_s = np.column_stack(
+        (
+            -speed * s,
+            speed * c * np.cos(orbit.inc_rad),
+            speed * c * np.sin(orbit.inc_rad),
+        )
+    )
+    return r_eci_km, v_eci_km_s
+
+
+def _basilisk_body_masses(xml_path: Path, body_names: Sequence[str]) -> np.ndarray:
+    import mujoco
+
+    model = mujoco.MjModel.from_xml_path(str(xml_path))
+    masses = []
+    for name in body_names:
+        body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, name)
+        if body_id < 0:
+            raise ValueError(f"unknown MuJoCo body {name!r}")
+        masses.append(float(model.body_mass[body_id]))
+    return np.asarray(masses, dtype=np.float64)
+
+
+def _make_relative_gravity_model(
+    *,
+    sys_model: Any,
+    messaging: Any,
+    rbk: Any,
+    body_names: Sequence[str],
+    body_masses: np.ndarray,
+    orbit: CircularOrbit,
+) -> Any:
+    class RelativePointGravity(sys_model.SysModel):
+        def __init__(self) -> None:
+            super().__init__()
+            self.state_readers = [messaging.SCStatesMsgReader() for _ in body_names]
+            self.force_out_msgs = [messaging.ForceAtSiteMsg() for _ in body_names]
+
+        def UpdateState(self, CurrentSimNanos: int) -> None:  # noqa: N802
+            t_s = float(CurrentSimNanos) * 1.0e-9
+            r_ref_km, _ = _circular_orbit_state_at_times(np.asarray([t_s]), orbit)
+            r_ref_m = r_ref_km[0] * 1.0e3
+            ref_norm = float(np.linalg.norm(r_ref_m))
+            g_ref = -GM_EARTH * 1.0e9 * r_ref_m / ref_norm**3
+            for mass, reader, out_msg in zip(
+                body_masses,
+                self.state_readers,
+                self.force_out_msgs,
+                strict=True,
+            ):
+                state = reader()
+                rho_m = np.asarray(state.r_BN_N, dtype=np.float64)
+                r_body_m = r_ref_m + rho_m
+                body_norm = float(np.linalg.norm(r_body_m))
+                g_body = -GM_EARTH * 1.0e9 * r_body_m / body_norm**3
+                force_world = mass * (g_body - g_ref)
+                dcm_site_world = np.asarray(rbk.MRP2C(state.sigma_BN), dtype=np.float64)
+                payload = messaging.ForceAtSiteMsgPayload(
+                    force_S=(dcm_site_world @ force_world).tolist()
+                )
+                out_msg.write(payload, CurrentSimNanos, self.moduleID)
+
+    return RelativePointGravity()
+
+
 def _run_basilisk_bimanual(
     assets: ExperimentAssets,
     *,
@@ -754,15 +883,18 @@ def _run_basilisk_bimanual(
     dt_s: float,
     controls: np.ndarray,
     integrator_name: str,
+    gravity_mode: str,
     record: bool,
 ) -> Trajectory:
-    from Basilisk.architecture import messaging
+    from Basilisk.architecture import messaging, sysModel
     from Basilisk.simulation import NBodyGravity, pointMassGravityModel, svIntegrators
     from Basilisk.simulation import mujoco as bsk_mujoco
+    from Basilisk.utilities import RigidBodyKinematics as rbk
     from Basilisk.utilities import SimulationBaseClass
 
     n_steps = controls.shape[0] - 2
     orbit = make_circular_orbit(alt_km=alt_km, inc_rad=np.deg2rad(inc_deg))
+    gravity_mode_normalized = _normalize_basilisk_gravity_mode(gravity_mode)
     task_dt_ns = max(1, int(round(dt_s * 1.0e9)))
     task_name = "basilisk_bimanual_multibody"
 
@@ -783,48 +915,79 @@ def _run_basilisk_bimanual(
         for body_name, joint_name in zip(assets.joint_body_names, assets.joint_names, strict=True)
     ]
 
-    profile_times_ns = np.arange(controls.shape[0], dtype=np.float64) * float(task_dt_ns)
-    interpolators = []
-    for idx, actuator_name in enumerate(assets.actuator_names):
+    actuator_messages = []
+    for actuator_name in assets.actuator_names:
         actuator = scene.getSingleActuator(actuator_name)
-        interpolator = bsk_mujoco.SingleActuatorInterpolator()
-        interpolator.ModelTag = f"{actuator_name}_random_target"
-        interpolator.setDataPoints(np.column_stack((profile_times_ns, controls[:, idx])), 1)
-        scene.AddModelToDynamicsTask(interpolator)
-        actuator.actuatorInMsg.subscribeTo(interpolator.interpolatedOutMsg)
-        interpolators.append(interpolator)
+        actuator_msg = messaging.SingleActuatorMsg()
+        actuator.actuatorInMsg.subscribeTo(actuator_msg)
+        actuator_messages.append(actuator_msg)
 
-    gravity = NBodyGravity.NBodyGravity()
-    gravity.ModelTag = "gravity"
-    scene.AddModelToDynamicsTask(gravity)
-    earth = pointMassGravityModel.PointMassGravityModel()
-    earth.muBody = GM_EARTH * 1.0e9
-    source = gravity.addGravitySource("earth", earth, isCentralBody=True)
-    source.stateInMsg.subscribeTo(_earth_state_msg(messaging))
-    for name, body in zip(assets.body_names, body_objects, strict=True):
-        gravity.addGravityTarget(name, body)
+    gravity_models = []
+    if gravity_mode_normalized == "absolute":
+        gravity = NBodyGravity.NBodyGravity()
+        gravity.ModelTag = "gravity"
+        scene.AddModelToDynamicsTask(gravity)
+        earth = pointMassGravityModel.PointMassGravityModel()
+        earth.muBody = GM_EARTH * 1.0e9
+        source = gravity.addGravitySource("earth", earth, isCentralBody=True)
+        source.stateInMsg.subscribeTo(_earth_state_msg(messaging))
+        for name, body in zip(assets.body_names, body_objects, strict=True):
+            gravity.addGravityTarget(name, body)
+        gravity_models.append(gravity)
+    else:
+        relative_gravity = _make_relative_gravity_model(
+            sys_model=sysModel,
+            messaging=messaging,
+            rbk=rbk,
+            body_names=assets.body_names,
+            body_masses=_basilisk_body_masses(assets.basilisk_xml, assets.body_names),
+            orbit=orbit,
+        )
+        relative_gravity.ModelTag = "relative_point_gravity"
+        for idx, (name, body) in enumerate(zip(assets.body_names, body_objects, strict=True)):
+            site = body.getCenterOfMass()
+            relative_gravity.state_readers[idx].subscribeTo(site.stateOutMsg)
+            actuator = scene.addForceActuator(f"relative_gravity_{name}", site)
+            actuator.forceInMsg.subscribeTo(relative_gravity.force_out_msgs[idx])
+        scene.AddModelToDynamicsTask(relative_gravity)
+        gravity_models.append(relative_gravity)
 
     body_recorders = []
+    body_com_recorders = []
     joint_recorders = []
     joint_rate_recorders = []
     if record:
-        body_recorders = [body.getCenterOfMass().stateOutMsg.recorder() for body in body_objects]
+        body_recorders = [body.getOrigin().stateOutMsg.recorder() for body in body_objects]
+        body_com_recorders = [
+            body.getCenterOfMass().stateOutMsg.recorder() for body in body_objects
+        ]
         joint_recorders = [joint.stateOutMsg.recorder() for joint in joints]
         joint_rate_recorders = [joint.stateDotOutMsg.recorder() for joint in joints]
-        for recorder in [*body_recorders, *joint_recorders, *joint_rate_recorders]:
+        for recorder in [
+            *body_recorders,
+            *body_com_recorders,
+            *joint_recorders,
+            *joint_rate_recorders,
+        ]:
             sim.AddModelToTask(task_name, recorder)
 
     sim.InitializeSimulation()
-    root.setPosition((orbit.r_eci_km * 1.0e3).tolist())
-    root.setVelocity((orbit.v_eci_km_s * 1.0e3).tolist())
+    if gravity_mode_normalized == "absolute":
+        root.setPosition((orbit.r_eci_km * 1.0e3).tolist())
+        root.setVelocity((orbit.v_eci_km_s * 1.0e3).tolist())
+    else:
+        root.setPosition([0.0, 0.0, 0.0])
+        root.setVelocity([0.0, 0.0, 0.0])
     root.setAttitude(_quat_world_body_to_basilisk_mrp(_initial_quat()).tolist())
     root.setAttitudeRate(_initial_omega().tolist())
     for joint, value in zip(joints, _initial_joint_positions(len(joints)), strict=True):
         joint.setPosition(float(value))
         joint.setVelocity(0.0)
 
-    sim.ConfigureStopTime((n_steps + 1) * task_dt_ns)
-    sim.ExecuteSimulation()
+    for step in range(n_steps):
+        _write_basilisk_actuator_commands(messaging, actuator_messages, controls[step])
+        sim.ConfigureStopTime((step + 1) * task_dt_ns)
+        sim.ExecuteSimulation()
 
     if not record:
         return Trajectory(
@@ -836,20 +999,59 @@ def _run_basilisk_bimanual(
             hub_quat_world_body=np.zeros((0, 4)),
             joint_angles_rad=np.zeros((0, len(assets.joint_names))),
             joint_rates_rad_s=np.zeros((0, len(assets.joint_names))),
-            summary={"available": True, "ran": True, "record": False},
+            summary={
+                "available": True,
+                "ran": True,
+                "record": False,
+                "integrator": integrator_name,
+                "gravity_mode": gravity_mode_normalized,
+            },
         )
 
-    times_s = np.asarray(body_recorders[0].times(), dtype=np.float64) * 1.0e-9
+    times_s_full = np.asarray(body_recorders[0].times(), dtype=np.float64) * 1.0e-9
     final_time_s = n_steps * task_dt_ns * 1.0e-9
-    keep = times_s <= final_time_s + 1.0e-12
-    body_r_eci_km = (
-        np.stack([np.asarray(rec.r_BN_N, dtype=np.float64) for rec in body_recorders], axis=1)
-        * 1.0e-3
+    keep = times_s_full <= final_time_s + 1.0e-12
+    times_s = times_s_full[keep]
+    body_origin_r_m = np.stack(
+        [np.asarray(rec.r_BN_N, dtype=np.float64) for rec in body_recorders],
+        axis=1,
     )[keep]
-    body_v_eci_km_s = (
-        np.stack([np.asarray(rec.v_BN_N, dtype=np.float64) for rec in body_recorders], axis=1)
-        * 1.0e-3
+    body_com_r_m = np.stack(
+        [np.asarray(rec.r_BN_N, dtype=np.float64) for rec in body_com_recorders],
+        axis=1,
     )[keep]
+    body_com_v_m_s = np.stack(
+        [np.asarray(rec.v_BN_N, dtype=np.float64) for rec in body_com_recorders],
+        axis=1,
+    )[keep]
+    body_omega_body_rad_s = np.stack(
+        [np.asarray(rec.omega_BN_B, dtype=np.float64) for rec in body_com_recorders],
+        axis=1,
+    )[keep]
+    body_sigma = np.stack(
+        [np.asarray(rec.sigma_BN, dtype=np.float64) for rec in body_com_recorders],
+        axis=1,
+    )[keep]
+    body_dcm_body_world = np.empty((*body_sigma.shape[:2], 3, 3), dtype=np.float64)
+    for sample_idx in range(body_sigma.shape[0]):
+        for body_idx in range(body_sigma.shape[1]):
+            body_dcm_body_world[sample_idx, body_idx] = rbk.MRP2C(body_sigma[sample_idx, body_idx])
+    body_omega_world_rad_s = np.einsum(
+        "tbij,tbi->tbj",
+        body_dcm_body_world,
+        body_omega_body_rad_s,
+    )
+    body_v_m_s = body_com_v_m_s - np.cross(
+        body_omega_world_rad_s,
+        body_com_r_m - body_origin_r_m,
+    )
+    if gravity_mode_normalized == "absolute":
+        body_r_eci_km = body_origin_r_m * 1.0e-3
+        body_v_eci_km_s = body_v_m_s * 1.0e-3
+    else:
+        r_ref_km, v_ref_km_s = _circular_orbit_state_at_times(times_s, orbit)
+        body_r_eci_km = r_ref_km[:, None, :] + body_origin_r_m * 1.0e-3
+        body_v_eci_km_s = v_ref_km_s[:, None, :] + body_v_m_s * 1.0e-3
     hub_quat = _basilisk_mrp_to_quat_world_body(
         np.asarray(body_recorders[0].sigma_BN, dtype=np.float64)
     )[keep]
@@ -859,7 +1061,6 @@ def _run_basilisk_bimanual(
     joint_rates = np.column_stack(
         [_squeeze_state_column(rec.state) for rec in joint_rate_recorders]
     )[keep]
-    times_s = times_s[keep]
     return Trajectory(
         backend="basilisk",
         precision="float64",
@@ -876,6 +1077,7 @@ def _run_basilisk_bimanual(
             "samples": int(times_s.size),
             "n_steps": n_steps,
             "integrator": integrator_name,
+            "gravity_mode": gravity_mode_normalized,
         },
     )
 
@@ -885,6 +1087,24 @@ class _TrajectoryBuilder:
         self.backend = backend
         self.precision = precision
         self.assets = assets
+        self._measurement_mujoco = None
+        self._measurement_model = None
+        self._measurement_data = None
+        self._measurement_body_ids = None
+        try:
+            import mujoco
+
+            measurement_model = mujoco.MjModel.from_xml_path(str(assets.basilisk_xml))
+            self._measurement_mujoco = mujoco
+            self._measurement_model = measurement_model
+            self._measurement_data = mujoco.MjData(measurement_model)
+            self._measurement_body_ids = tuple(
+                mujoco.mj_name2id(measurement_model, mujoco.mjtObj.mjOBJ_BODY, name)
+                for name in assets.body_names
+            )
+        except Exception:
+            # Fall back to the wrapped arrays if the standalone MuJoCo binding is unavailable.
+            pass
         self.times_s: list[float] = []
         self.body_r: list[np.ndarray] = []
         self.body_v: list[np.ndarray] = []
@@ -893,7 +1113,14 @@ class _TrajectoryBuilder:
         self.joint_rates: list[np.ndarray] = []
 
     def record_from_mjorbit(self, model: Any, data: Any, body_ids: Sequence[int]) -> None:
-        body_r, body_v = _mjorbit_body_origin_eci_states(data, body_ids)
+        body_r, body_v = _mjorbit_body_origin_eci_states(
+            data,
+            body_ids,
+            mujoco_module=self._measurement_mujoco,
+            measurement_model=self._measurement_model,
+            measurement_data=self._measurement_data,
+            measurement_body_ids=self._measurement_body_ids,
+        )
         self.times_s.append(float(np.asarray(data.orbit.t).reshape(-1)[0]))
         self.body_r.append(body_r)
         self.body_v.append(body_v)
@@ -941,6 +1168,18 @@ def compare_trajectories(candidate: Trajectory, reference: Trajectory) -> dict[s
         np.linalg.norm(candidate.body_v_eci_km_s - ref_body_v, axis=2) * 1.0e3,
         axis=1,
     )
+    candidate_rel_r = candidate.body_r_eci_km - candidate.body_r_eci_km[:, :1, :]
+    reference_rel_r = ref_body_r - ref_body_r[:, :1, :]
+    body_relative_position_error_m = np.max(
+        np.linalg.norm(candidate_rel_r - reference_rel_r, axis=2) * 1.0e3,
+        axis=1,
+    )
+    candidate_rel_v = candidate.body_v_eci_km_s - candidate.body_v_eci_km_s[:, :1, :]
+    reference_rel_v = ref_body_v - ref_body_v[:, :1, :]
+    body_relative_velocity_error_m_s = np.max(
+        np.linalg.norm(candidate_rel_v - reference_rel_v, axis=2) * 1.0e3,
+        axis=1,
+    )
     joint_angle_error_rad = np.max(np.abs(candidate.joint_angles_rad - ref_joints), axis=1)
     joint_rate_error_rad_s = np.max(np.abs(candidate.joint_rates_rad_s - ref_rates), axis=1)
     attitude_error_rad = _quat_angle_errors(candidate.hub_quat_world_body, ref_quat)
@@ -948,6 +1187,8 @@ def compare_trajectories(candidate: Trajectory, reference: Trajectory) -> dict[s
         "times_s": candidate.times_s,
         "body_position_error_m": body_position_error_m,
         "body_velocity_error_m_s": body_velocity_error_m_s,
+        "body_relative_position_error_m": body_relative_position_error_m,
+        "body_relative_velocity_error_m_s": body_relative_velocity_error_m_s,
         "joint_angle_error_rad": joint_angle_error_rad,
         "joint_rate_error_rad_s": joint_rate_error_rad_s,
         "hub_attitude_error_rad": attitude_error_rad,
@@ -958,6 +1199,12 @@ def _comparison_summary(value: dict[str, np.ndarray]) -> dict[str, float]:
     return {
         "max_body_position_error_m": float(np.max(value["body_position_error_m"])),
         "max_body_velocity_error_m_s": float(np.max(value["body_velocity_error_m_s"])),
+        "max_body_relative_position_error_m": float(
+            np.max(value["body_relative_position_error_m"])
+        ),
+        "max_body_relative_velocity_error_m_s": float(
+            np.max(value["body_relative_velocity_error_m_s"])
+        ),
         "max_joint_angle_error_rad": float(np.max(value["joint_angle_error_rad"])),
         "max_joint_rate_error_rad_s": float(np.max(value["joint_rate_error_rad_s"])),
         "max_hub_attitude_error_rad": float(np.max(value["hub_attitude_error_rad"])),
@@ -1223,6 +1470,11 @@ def _normalized_quat_rows(quat: np.ndarray) -> np.ndarray:
 def _mjorbit_body_origin_eci_states(
     data: Any,
     body_ids: Sequence[int],
+    *,
+    mujoco_module: Any | None = None,
+    measurement_model: Any | None = None,
+    measurement_data: Any | None = None,
+    measurement_body_ids: Sequence[int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     positions = []
     velocities = []
@@ -1235,15 +1487,40 @@ def _mjorbit_body_origin_eci_states(
         xpos = xpos[0]
         xipos = xipos[0]
         cvel = cvel[0]
-    for body_id in body_ids:
-        origin_world_m = xpos[body_id]
-        com_world_m = xipos[body_id]
-        com_velocity_world_m_s = cvel[body_id, 3:6]
-        omega_world_rad_s = cvel[body_id, 0:3]
-        origin_velocity_world_m_s = com_velocity_world_m_s - np.cross(
-            omega_world_rad_s,
-            com_world_m - origin_world_m,
-        )
+    qpos = np.asarray(data.qpos, dtype=np.float64)
+    qvel = np.asarray(data.qvel, dtype=np.float64)
+    use_body_jacobian = (
+        mujoco_module is not None
+        and measurement_model is not None
+        and measurement_data is not None
+        and measurement_body_ids is not None
+    )
+    if use_body_jacobian:
+        qpos_sample = qpos.reshape(-1, int(measurement_model.nq))[0]
+        qvel_sample = qvel.reshape(-1, int(measurement_model.nv))[0]
+        measurement_data.qpos[:] = qpos_sample
+        measurement_data.qvel[:] = qvel_sample
+        mujoco_module.mj_forward(measurement_model, measurement_data)
+        jacp = np.empty((3, int(measurement_model.nv)), dtype=np.float64)
+        jacr = np.empty((3, int(measurement_model.nv)), dtype=np.float64)
+
+    active_body_ids = measurement_body_ids if use_body_jacobian else body_ids
+    for body_id in active_body_ids:
+        if use_body_jacobian:
+            origin_world_m = np.asarray(measurement_data.xpos[body_id], dtype=np.float64)
+            jacp.fill(0.0)
+            jacr.fill(0.0)
+            mujoco_module.mj_jacBody(measurement_model, measurement_data, jacp, jacr, body_id)
+            origin_velocity_world_m_s = jacp @ qvel_sample
+        else:
+            origin_world_m = xpos[body_id]
+            com_world_m = xipos[body_id]
+            com_velocity_world_m_s = cvel[body_id, 3:6]
+            omega_world_rad_s = cvel[body_id, 0:3]
+            origin_velocity_world_m_s = com_velocity_world_m_s - np.cross(
+                omega_world_rad_s,
+                com_world_m - origin_world_m,
+            )
         positions.append((r0_m + origin_world_m) * 1.0e-3)
         velocities.append((v0_m_s + origin_velocity_world_m_s) * 1.0e-3)
     return np.vstack(positions), np.vstack(velocities)
@@ -1308,11 +1585,11 @@ def maybe_write_figure(
     if comparisons:
         for name, comp in comparisons.items():
             label = _pretty_comparison_label(name)
-            ax.semilogy(comp["times_s"], comp["body_position_error_m"], label=label)
+            ax.semilogy(comp["times_s"], comp["body_relative_position_error_m"], label=label)
     else:
         ax.text(0.5, 0.5, "Basilisk unavailable", ha="center", va="center")
     ax.set_xlabel("time [s]")
-    ax.set_ylabel("max body pos. error [m]")
+    ax.set_ylabel("max rel. body pos. error [m]")
     ax.grid(True, which="both", alpha=0.3)
     if comparisons:
         ax.legend(fontsize=8)
