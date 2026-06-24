@@ -83,6 +83,9 @@ class AccuracyConfig:
     seed: int
     max_samples: int
     run_warp: bool
+    run_basilisk: bool
+    trajectory_dir: Path | None
+    reuse_trajectories: bool
 
 
 @dataclass(frozen=True)
@@ -121,8 +124,8 @@ def main() -> None:
     parser.add_argument("--alt-km", type=float, default=400.0)
     parser.add_argument("--inc-deg", type=float, default=51.6)
     parser.add_argument("--accuracy-duration", type=float, default=30.0)
-    parser.add_argument("--accuracy-dt", type=float, default=0.02)
-    parser.add_argument("--accuracy-orbit-dt", type=float, default=0.02)
+    parser.add_argument("--accuracy-dt", type=float, default=0.01)
+    parser.add_argument("--accuracy-orbit-dt", type=float, default=0.01)
     parser.add_argument("--accuracy-integrator", default="RK4")
     parser.add_argument("--basilisk-integrator", default="default")
     parser.add_argument(
@@ -139,9 +142,40 @@ def main() -> None:
     parser.add_argument("--throughput-batch", type=int, default=128)
     parser.add_argument("--cpu-threads", type=int, nargs="+", default=(1, 2, 4, 8))
     parser.add_argument("--basilisk-threads", type=int, nargs="+", default=(1, 2, 4, 8))
-    parser.add_argument("--gpu-worlds", type=int, nargs="+", default=(1, 64, 256, 1024, 4096))
+    parser.add_argument(
+        "--gpu-worlds",
+        type=int,
+        nargs="+",
+        default=(1, 64, 256, 1024, 4096, 8192, 16384),
+    )
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--no-warp", action="store_true", help="skip mjorbit-warp runs")
+    parser.add_argument(
+        "--skip-basilisk-accuracy",
+        action="store_true",
+        help="skip Basilisk accuracy and compare mjorbit-warp against mjorbit CPU",
+    )
+    parser.add_argument(
+        "--trajectory-dir",
+        type=Path,
+        default=OUT_DIR / "trajectories",
+        help="directory for cached accuracy trajectory .npz files",
+    )
+    parser.add_argument(
+        "--no-save-trajectories",
+        action="store_true",
+        help="do not write accuracy trajectory cache files",
+    )
+    parser.add_argument(
+        "--reuse-trajectories",
+        action="store_true",
+        help="reuse matching cached accuracy trajectories instead of rerunning them",
+    )
+    parser.add_argument(
+        "--skip-throughput",
+        action="store_true",
+        help="skip throughput benchmarks and run only the accuracy experiment",
+    )
     parser.add_argument("--no-figure", action="store_true", help="skip matplotlib figure output")
     args = parser.parse_args()
 
@@ -164,6 +198,9 @@ def main() -> None:
         seed=args.seed,
         max_samples=args.max_samples,
         run_warp=not args.no_warp,
+        run_basilisk=not args.skip_basilisk_accuracy,
+        trajectory_dir=None if args.no_save_trajectories else args.trajectory_dir,
+        reuse_trajectories=args.reuse_trajectories,
     )
     throughput_config = ThroughputConfig(
         alt_km=args.alt_km,
@@ -181,7 +218,11 @@ def main() -> None:
     )
 
     accuracy = run_accuracy_experiment(assets, accuracy_config)
-    throughput = run_throughput_experiment(assets, throughput_config)
+    throughput = (
+        {"skipped": True, "runs": []}
+        if args.skip_throughput
+        else run_throughput_experiment(assets, throughput_config)
+    )
     summary = {
         "case": "basilisk_multibody_bimanual",
         "notes": [
@@ -308,6 +349,80 @@ def _jsonable(value: Any) -> Any:
     return value
 
 
+def save_trajectory_npz(path: Path, trajectory: Trajectory) -> None:
+    """Persist a sampled trajectory for later comparison without rerunning a backend."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(
+        path,
+        backend=np.asarray(trajectory.backend),
+        precision=np.asarray(trajectory.precision),
+        summary_json=np.asarray(json.dumps(_jsonable(trajectory.summary), sort_keys=True)),
+        times_s=trajectory.times_s,
+        body_r_eci_km=trajectory.body_r_eci_km,
+        body_v_eci_km_s=trajectory.body_v_eci_km_s,
+        hub_quat_world_body=trajectory.hub_quat_world_body,
+        joint_angles_rad=trajectory.joint_angles_rad,
+        joint_rates_rad_s=trajectory.joint_rates_rad_s,
+    )
+
+
+def load_trajectory_npz(path: Path) -> Trajectory:
+    """Load a trajectory saved by :func:`save_trajectory_npz`."""
+    with np.load(path, allow_pickle=False) as data:
+        return Trajectory(
+            backend=str(data["backend"].item()),
+            precision=str(data["precision"].item()),
+            times_s=np.asarray(data["times_s"], dtype=np.float64),
+            body_r_eci_km=np.asarray(data["body_r_eci_km"], dtype=np.float64),
+            body_v_eci_km_s=np.asarray(data["body_v_eci_km_s"], dtype=np.float64),
+            hub_quat_world_body=np.asarray(data["hub_quat_world_body"], dtype=np.float64),
+            joint_angles_rad=np.asarray(data["joint_angles_rad"], dtype=np.float64),
+            joint_rates_rad_s=np.asarray(data["joint_rates_rad_s"], dtype=np.float64),
+            summary=json.loads(str(data["summary_json"].item())),
+        )
+
+
+def accuracy_trajectory_path(
+    trajectory_dir: Path,
+    backend: str,
+    config: AccuracyConfig,
+) -> Path:
+    stem = "_".join(
+        (
+            backend,
+            f"alt{_float_token(config.alt_km)}km",
+            f"inc{_float_token(config.inc_deg)}deg",
+            f"dt{_float_token(config.dt_s)}s",
+            f"dur{_float_token(config.duration_s)}s",
+            f"seed{config.seed}",
+            config.mj_integrator.lower(),
+            _normalize_basilisk_gravity_mode(config.basilisk_gravity_mode),
+        )
+    )
+    return trajectory_dir / f"{stem}.npz"
+
+
+def _float_token(value: float) -> str:
+    return f"{value:.9g}".replace("-", "m").replace(".", "p")
+
+
+def _load_cached_trajectory(
+    backend: str,
+    config: AccuracyConfig,
+) -> tuple[Trajectory | None, Path | None]:
+    if config.trajectory_dir is None:
+        return None, None
+    path = accuracy_trajectory_path(config.trajectory_dir, backend, config)
+    if config.reuse_trajectories and path.exists():
+        return load_trajectory_npz(path), path
+    return None, path
+
+
+def _save_cached_trajectory(path: Path | None, trajectory: Trajectory) -> None:
+    if path is not None and trajectory.summary.get("ran", True):
+        save_trajectory_npz(path, trajectory)
+
+
 def run_accuracy_experiment(
     assets: ExperimentAssets,
     config: AccuracyConfig,
@@ -322,20 +437,39 @@ def run_accuracy_experiment(
     )
     sample_idx = sample_steps(n_steps, config.max_samples)
 
-    cpu = run_mjorbit_cpu_trajectory(assets, config, controls, sample_idx)
+    trajectory_files: dict[str, str] = {}
+
+    cpu, cpu_path = _load_cached_trajectory("mjorbit_cpu", config)
+    if cpu is None:
+        cpu = run_mjorbit_cpu_trajectory(assets, config, controls, sample_idx)
+        _save_cached_trajectory(cpu_path, cpu)
+    if cpu_path is not None and cpu_path.exists():
+        trajectory_files["mjorbit_cpu"] = str(cpu_path)
     trajectories: dict[str, Trajectory] = {"mjorbit_cpu": cpu}
 
-    basilisk = run_basilisk_trajectory(assets, config, controls)
-    trajectories["basilisk"] = basilisk
+    basilisk = None
+    if config.run_basilisk:
+        basilisk, basilisk_path = _load_cached_trajectory("basilisk", config)
+        if basilisk is None:
+            basilisk = run_basilisk_trajectory(assets, config, controls)
+            _save_cached_trajectory(basilisk_path, basilisk)
+        if basilisk_path is not None and basilisk_path.exists():
+            trajectory_files["basilisk"] = str(basilisk_path)
+        trajectories["basilisk"] = basilisk
 
     warp = None
     if config.run_warp:
-        warp = run_mjorbit_warp_trajectory(assets, config, controls, sample_idx)
+        warp, warp_path = _load_cached_trajectory("mjorbit_warp", config)
+        if warp is None:
+            warp = run_mjorbit_warp_trajectory(assets, config, controls, sample_idx)
+            _save_cached_trajectory(warp_path, warp)
+        if warp_path is not None and warp_path.exists():
+            trajectory_files["mjorbit_warp"] = str(warp_path)
         if warp is not None:
             trajectories["mjorbit_warp"] = warp
 
     comparisons: dict[str, Any] = {}
-    if basilisk.summary.get("ran"):
+    if basilisk is not None and basilisk.summary.get("ran"):
         comparisons["mjorbit_cpu_vs_basilisk"] = compare_trajectories(cpu, basilisk)
         if warp is not None and warp.summary.get("ran"):
             comparisons["mjorbit_warp_vs_basilisk"] = compare_trajectories(warp, basilisk)
@@ -355,10 +489,13 @@ def run_accuracy_experiment(
                 "mjorbit_integrator": config.mj_integrator,
                 "basilisk_integrator": config.basilisk_integrator,
                 "basilisk_gravity_mode": config.basilisk_gravity_mode,
+                "run_basilisk": config.run_basilisk,
+                "reuse_trajectories": config.reuse_trajectories,
                 "seed": config.seed,
                 "samples": int(sample_idx.size),
             },
-            "basilisk_available": bool(basilisk.summary.get("ran")),
+            "trajectory_files": trajectory_files,
+            "basilisk_available": bool(basilisk is not None and basilisk.summary.get("ran")),
             "backends": {name: traj.summary for name, traj in trajectories.items()},
             "comparisons": {
                 name: _comparison_summary(value)
@@ -1667,9 +1804,12 @@ __all__ = [
     "ACTUATED_JOINTS",
     "BIMANUAL_POSE",
     "ExperimentAssets",
+    "accuracy_trajectory_path",
+    "load_trajectory_npz",
     "make_random_control_batch",
     "make_random_control_profile",
     "make_smooth_random_controls",
+    "save_trajectory_npz",
     "write_bimanual_assets",
 ]
 
