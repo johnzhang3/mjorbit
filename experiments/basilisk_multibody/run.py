@@ -385,13 +385,13 @@ def run_mjorbit_cpu_trajectory(
     body_ids = tuple(model.body_id(name) for name in assets.body_names)
     sample_set = set(int(idx) for idx in sample_idx)
     samples = _TrajectoryBuilder("mjorbit_cpu", "float64", assets)
-    samples.record_from_mjorbit(model, data, body_ids)
+    samples.record_from_mjorbit(model, data, body_ids, time_s=0.0)
     n_steps = controls.shape[0] - 2
     for step in range(1, n_steps + 1):
         data.ctrl[:] = controls[step - 1]
         mjo_step(model, data)
         if step in sample_set:
-            samples.record_from_mjorbit(model, data, body_ids)
+            samples.record_from_mjorbit(model, data, body_ids, time_s=step * config.dt_s)
     return samples.build(
         {
             "available": True,
@@ -439,7 +439,7 @@ def run_mjorbit_warp_trajectory(
         body_ids = tuple(model.body_id(name) for name in assets.body_names)
         sample_set = set(int(idx) for idx in sample_idx)
         samples = _TrajectoryBuilder("mjorbit_warp", "float32", assets)
-        samples.record_from_mjorbit(model, data, body_ids)
+        samples.record_from_mjorbit(model, data, body_ids, time_s=0.0)
         n_steps = controls.shape[0] - 2
         for step in range(1, n_steps + 1):
             data.ctrl[:] = controls[step - 1].astype(np.float32)
@@ -447,7 +447,7 @@ def run_mjorbit_warp_trajectory(
             mjo_warp.mjo_step(model, data)
             if step in sample_set:
                 mjo_warp.mjo_pull(model, data)
-                samples.record_from_mjorbit(model, data, body_ids)
+                samples.record_from_mjorbit(model, data, body_ids, time_s=step * config.dt_s)
         return samples.build(
             {
                 "available": True,
@@ -1112,7 +1112,14 @@ class _TrajectoryBuilder:
         self.joint_angles: list[np.ndarray] = []
         self.joint_rates: list[np.ndarray] = []
 
-    def record_from_mjorbit(self, model: Any, data: Any, body_ids: Sequence[int]) -> None:
+    def record_from_mjorbit(
+        self,
+        model: Any,
+        data: Any,
+        body_ids: Sequence[int],
+        *,
+        time_s: float | None = None,
+    ) -> None:
         body_r, body_v = _mjorbit_body_origin_eci_states(
             data,
             body_ids,
@@ -1121,7 +1128,9 @@ class _TrajectoryBuilder:
             measurement_data=self._measurement_data,
             measurement_body_ids=self._measurement_body_ids,
         )
-        self.times_s.append(float(np.asarray(data.orbit.t).reshape(-1)[0]))
+        if time_s is None:
+            time_s = float(np.asarray(data.orbit.t).reshape(-1)[0])
+        self.times_s.append(float(time_s))
         self.body_r.append(body_r)
         self.body_v.append(body_v)
         self.hub_quat.append(
