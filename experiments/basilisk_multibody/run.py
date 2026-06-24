@@ -1579,7 +1579,7 @@ def maybe_write_figure(
         return None
 
     comparisons = accuracy["comparisons"]
-    fig, axes = plt.subplots(1, 3, figsize=(10.5, 2.8), constrained_layout=True)
+    fig, axes = plt.subplots(1, 2, figsize=(7.2, 2.7), constrained_layout=True)
 
     ax = axes[0]
     if comparisons:
@@ -1595,22 +1595,11 @@ def maybe_write_figure(
         ax.legend(fontsize=8)
 
     ax = axes[1]
-    if comparisons:
-        for name, comp in comparisons.items():
-            label = _pretty_comparison_label(name)
-            ax.semilogy(comp["times_s"], comp["joint_angle_error_rad"], label=label)
-    else:
-        ax.text(0.5, 0.5, "Basilisk unavailable", ha="center", va="center")
-    ax.set_xlabel("time [s]")
-    ax.set_ylabel("max joint error [rad]")
-    ax.grid(True, which="both", alpha=0.3)
-
-    ax = axes[2]
     bars = _throughput_bars(throughput)
     if bars:
         labels = [label for label, _ in bars]
         values = [value for _, value in bars]
-        ax.bar(labels, values, color=["#f58518", "#4c78a8", "#54a24b"][: len(values)])
+        ax.bar(labels, values, color=["#4c78a8", "#f58518", "#54a24b"][: len(values)])
         ax.set_yscale("log")
         ax.tick_params(axis="x", rotation=25)
     else:
@@ -1635,8 +1624,8 @@ def _pretty_comparison_label(name: str) -> str:
 def _throughput_bars(throughput: dict[str, Any]) -> list[tuple[str, float]]:
     bars = []
     for label, key in (
-        ("mjorbit CPU", "mjorbit_cpu"),
         ("Basilisk CPU", "basilisk_threads"),
+        ("mjorbit CPU", "mjorbit_cpu"),
         ("mjorbit GPU", "mjorbit_warp"),
     ):
         runs = throughput.get(key, {}).get("runs", [])
