@@ -191,7 +191,21 @@ class MjoData:
         # TODO(sensors): re-attach a GPU-native sensors namespace here.
         from .core_gpu import make_device_core_data
 
-        self.core_data = make_device_core_data(orbit_inits, nworld=nworld, model=model.host_model)
+        # Build the device orbit state from the host runs, NOT the raw inits: the
+        # CPU MjoData boundary has already resolved a non-canonical frame/epoch
+        # (e.g. frame="TEME"/"ITRF", epoch=...) into canonical GCRF R/V and
+        # seconds-since-J2000 t, and the device never re-runs that conversion.
+        resolved_inits = [
+            OrbitInit(
+                R_eci=np.array(run.orbit.R_eci, dtype=float),
+                V_eci=np.array(run.orbit.V_eci, dtype=float),
+                t=float(run.orbit.t),
+            )
+            for run in self._host_runs
+        ]
+        self.core_data = make_device_core_data(
+            resolved_inits, nworld=nworld, model=model.host_model
+        )
 
         self._pull_from_host()
 

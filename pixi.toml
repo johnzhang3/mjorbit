@@ -60,7 +60,9 @@ default = ["dev", "py312"]
 py311 = ["dev", "py311"]
 py312 = ["dev", "py312"]
 report = ["dev", "py312", "report"]
-warp = ["dev", "py312", "warp"]
+# warp includes the frames feature (pure-Python astropy) so GPU users can feed
+# TLE/TEME or Earth-fixed states directly and the epoch/frame warp tests run.
+warp = ["dev", "py312", "warp", "frames"]
 frames = ["dev", "py312", "frames"]
 rl = ["dev", "py312", "warp", "rl"]
 

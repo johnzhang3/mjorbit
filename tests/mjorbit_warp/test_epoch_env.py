@@ -117,3 +117,38 @@ def test_orbit_upload_reanchors_device_clock(tmp_path: Path):
     mjo_warp.mjo_pull(warp_model, data)
 
     assert data.orbit.t == pytest.approx(T_EPOCH + 0.1, abs=1e-4)
+
+
+def test_device_orbit_initialized_from_resolved_state(tmp_path: Path):
+    """A non-canonical frame/epoch init must reach the DEVICE resolved (#24 review).
+
+    The CPU host shadow resolves frame/epoch at the MjoData boundary, but the
+    device core buffers are built separately — from the raw inits, they would
+    hold the unrotated R/V and the caller's raw t (0 here) instead of the
+    canonical GCRF state and seconds-since-J2000.
+    """
+    pytest.importorskip("astropy")
+    from mjorbit.frames import seconds_since_j2000
+
+    xml = _write_xml(tmp_path)
+    epoch = "2026-04-01T00:00:00"
+    kwargs = dict(
+        R_eci=np.array([R_EARTH + 550.0, 300.0, -800.0]),
+        V_eci=np.array([0.1, 7.4, 0.4]),
+        frame="TEME",
+        epoch=epoch,
+    )
+
+    cpu_model = mjo_cpu.MjoModel.from_xml_path(xml, mj_timestep=0.01)
+    cpu_data = cpu_model.make_data(orbit=mjo_cpu.OrbitInit(**kwargs))
+
+    warp_model = mjo_warp.MjoModel.from_xml_path(xml, mj_timestep=0.01)
+    warp_data = warp_model.make_data(orbit=mjo_warp.OrbitInit(**kwargs))
+    mjo_warp.mjo_pull(warp_model, warp_data)  # read back the DEVICE orbit state
+
+    t_expected = seconds_since_j2000(epoch)
+    assert warp_data.orbit.t == pytest.approx(t_expected, abs=1e-3)
+    # Device R/V are float32 vec3s of the resolved (rotated) state, not the input.
+    np.testing.assert_allclose(warp_data.orbit.R_eci, cpu_data.orbit.R_eci, rtol=1e-6)
+    np.testing.assert_allclose(warp_data.orbit.V_eci, cpu_data.orbit.V_eci, rtol=1e-5)
+    assert not np.allclose(warp_data.orbit.R_eci, kwargs["R_eci"], rtol=1e-7)
