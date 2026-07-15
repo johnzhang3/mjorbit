@@ -39,6 +39,16 @@ mujoco-warp = ">=3.6.0"
 [feature.frames.pypi-dependencies]
 astropy = ">=6.0"
 
+[feature.rl]
+# RL training stacks on the warp backend; torch + rsl-rl are linux-64-only here
+# for the same wheel-availability reasons as the warp feature.
+platforms = ["linux-64"]
+
+[feature.rl.pypi-dependencies]
+# examples/ppo targets the 5.x TensorDict VecEnv API.
+rsl-rl-lib = ">=5.4,<6"
+torch = ">=2.6"
+
 [feature.py311.dependencies]
 python = "3.11.*"
 
@@ -52,6 +62,7 @@ py312 = ["dev", "py312"]
 report = ["dev", "py312", "report"]
 warp = ["dev", "py312", "warp"]
 frames = ["dev", "py312", "frames"]
+rl = ["dev", "py312", "warp", "rl"]
 
 [tasks]
 sync-package = { cmd = "python -m pip install -e . --no-deps --force-reinstall && cmake --install build/cpp --prefix $(python -c 'import sysconfig; print(sysconfig.get_paths()[\"platlib\"])')", depends-on = ["cpp-build"] }
@@ -71,6 +82,9 @@ example-free-drift = { cmd = "python examples/free_drift.py", depends-on = ["syn
 example-mppi-arm-reach = { cmd = "python examples/mppi/arm_reach.py", depends-on = ["sync-package"] }
 example-mppi-capture = { cmd = "python examples/mppi/capture_stabilize.py", depends-on = ["sync-package"] }
 example-docking = { cmd = "python examples/docking/main_mppi.py", depends-on = ["sync-package"] }
+example-reorient = { cmd = "python examples/reorient_mppi_3dof.py", depends-on = ["sync-package"] }
+example-reorient-viewer = { cmd = "python examples/reorient_mppi_3dof_viewer.py", depends-on = ["sync-package"] }
+ppo-truss-train = { cmd = "python examples/ppo/train.py", depends-on = ["sync-package"] }
 compare-basilisk-single = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_orbit", depends-on = ["sync-package"] }
 compare-basilisk-hinges = { cmd = "python -m comparisons.basilisk_mujoco.run_articulated_hinges", depends-on = ["sync-package"] }
 compare-basilisk = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_orbit && python -m comparisons.basilisk_mujoco.run_articulated_hinges", depends-on = ["sync-package"] }

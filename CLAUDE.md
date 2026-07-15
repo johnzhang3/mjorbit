@@ -107,6 +107,8 @@ pixi run viewer            # interactive task viewer (judo-style), or: mjo-viewe
 pixi run example-free-drift
 pixi run example-mppi-arm-reach
 pixi run example-mppi-capture
+pixi run example-reorient            # dual-arm 3-DOF attitude slew by reaction (headless)
+pixi run example-reorient-viewer     # same, live in the browser viewer
 pixi run python examples/arm_reach.py
 pixi run iss-hw2
 ```
