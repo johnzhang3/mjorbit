@@ -34,12 +34,16 @@ build/
 
 /ISS/
 /Testing/
+MUJOCO_LOG.TXT
 build-tsan/
 .claude/scheduled_tasks.lock
-comparisons/basilisk_mujoco/out/
 experiments/cross_track_collision/out/
 experiments/frame_study/out/
 experiments/basilisk_multibody/out/
+experiments/mppi_fidelity/out/
+
+# Rendered video clips (regenerate with scripts/record)
+/videos/
 
 # PPO training logs/checkpoints
 examples/ppo/logs/

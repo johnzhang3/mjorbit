@@ -24,8 +24,9 @@ backend by import path.
 - `src/mjorbit_warp/` contains the optional MJWarp runtime, sync wrappers, and step API.
 - `src/viewer/` contains the browser viewer integration and the `mjo-viewer` task app
   (`pixi run viewer`); built-in tasks live in `src/viewer/tasks/`.
-- `examples/` contains small runnable demos of the public API.
-- `ISS/` is a separate top-level workspace for homework analysis, plots, and report material.
+- `examples/` contains paper example scenarios and small runnable demos of the public API.
+- `experiments/` contains the paper figure generators.
+- `scripts/record/` contains the headless viewer renderer for paper clips/stills.
 - `tests/mjorbit/` mirrors the production package; shared setup lives in `_helpers.py`.
 - `tests/mjorbit_warp/` holds MJWarp tests; guard them with `pytest.importorskip`.
 
@@ -34,7 +35,7 @@ Use `pixi` for environment management and command execution.
 
 - `pixi install`: install the default Python 3.12 dev environment and editable package.
 - `pixi install -e py311`: install the Python 3.11 dev environment.
-- `pixi install -e report`: add report/analysis dependencies for `ISS/`.
+- `pixi install -e report`: add report/analysis plotting dependencies.
 - `pixi install -e warp`: add MJWarp and Warp for the GPU backend.
 - `pixi run test`: run the full test suite.
 - `pixi run test-api`: run the public API tests.
@@ -43,7 +44,6 @@ Use `pixi` for environment management and command execution.
 - `pixi run typecheck`: run static type checks.
 - `pixi run cpp-test`: configure, build, and test the native C++ plugin.
 - `pixi run example-free-drift`: run a minimal API example.
-- `pixi run iss-hw2`: run an ISS analysis script.
 
 ## Coding Style & Naming Conventions
 Follow existing Python style: 4-space indentation, explicit type hints, and small focused
@@ -71,8 +71,8 @@ subsystem you change. Prefer deterministic numeric assertions with `numpy.testin
 If you touch the runtime API, stepping, sensors, or coupling code, update
 `tests/mjorbit/test_api_model_data.py` and the relevant subsystem tests. Run
 `pixi run test` before submitting. If you touch warp code, add or update guarded tests in
-`tests/mjorbit_warp/` as well. If you touch `ISS/` analysis scripts, run the affected
-script directly and keep generated plots or PDFs intentional.
+`tests/mjorbit_warp/` as well. If you touch `experiments/` analysis scripts, run the
+affected script directly and keep generated plots or figures intentional.
 
 ## Commit & Pull Request Guidelines
 Use short imperative commit subjects such as `Add reaction wheel saturation test`. Keep
@@ -81,16 +81,14 @@ and any remaining issues.
 
 Link the related issue when available. Include screenshots or short recordings for viewer
 changes, and include plot diffs or artifact notes when the change intentionally updates
-material under `ISS/`.
+paper figure material under `experiments/`.
 
 ## Environment Notes
 Target Python `>=3.11,<3.13` as defined in `pyproject.toml`. MuJoCo and viewer support are
 required runtime dependencies for the CPU backend. MJWarp remains an optional extra, and
-viewer support plus the `ISS/` workspace remain CPU-only for now.
+viewer support remains CPU-only for now.
 
 Do not commit generated caches such as `__pycache__/`, `.pytest_cache/`, or `.ruff_cache/`.
-Treat `ISS/` plots, PDFs, and saved data as intentional analysis artifacts rather than
-incidental byproducts.
 
 ## MuJoCo / Orbit Frame Conventions
 

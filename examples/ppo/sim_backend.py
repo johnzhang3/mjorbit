@@ -1,8 +1,7 @@
 """Pluggable physics backend for the PPO examples.
 
-The fidelity study (``experiments/sim_fidelity``) compares training a policy under
-bare **MuJoCo Warp** rigid-body dynamics against training it under the full
-**mjorbit_warp** orbital coupling, then evaluating BOTH policies in the full
+Training can run under bare **MuJoCo Warp** rigid-body dynamics or under the full
+**mjorbit_warp** orbital coupling, with either policy evaluated in the full
 mjorbit_warp environment. For that comparison to be meaningful the two backends
 must expose an *identical* observation / action / reward interface -- only the
 per-step dynamics may differ. This module is the single seam where they diverge,

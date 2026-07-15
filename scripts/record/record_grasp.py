@@ -12,8 +12,8 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-import matplotlib.pyplot as plt
 
+import matplotlib.pyplot as plt
 import numpy as np
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +39,7 @@ def main() -> None:
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
     ap.add_argument("--port", type=int, default=8410)
+    ap.add_argument("--plot", action="store_true", help="show a sanity-check plot before rendering")
     args = ap.parse_args()
 
     d = np.load(args.traj, allow_pickle=True)
@@ -72,26 +73,26 @@ def main() -> None:
                 )
                 k += 1
 
-    # quickly plot the position and quaternion to sanity check
-    fig, axs = plt.subplots(2, 1, sharex=True)
-    axs[0].plot(t, qpos[:, :3])
-    add_markers(axs[0])
-    axs[0].set_title("position (km)")
-    axs[0].legend(loc="upper right")
-    axs[1].plot(t, qpos[:, 3:7])
-    add_markers(axs[1])
-    axs[1].set_title("quaternion")
-    axs[1].set_xlabel("time (s)")
-    plt.show()
+    if args.plot:
+        # quickly plot the position and quaternion to sanity check
+        _, axs = plt.subplots(2, 1, sharex=True)
+        axs[0].plot(t, qpos[:, :3])
+        add_markers(axs[0])
+        axs[0].set_title("position (km)")
+        axs[0].legend(loc="upper right")
+        axs[1].plot(t, qpos[:, 3:7])
+        add_markers(axs[1])
+        axs[1].set_title("quaternion")
+        axs[1].set_xlabel("time (s)")
+        plt.show()
 
-
-    # render_trajectory(
-    #     model=model, data=data, qpos=qpos, R_eci=R_eci, V_eci=V_eci,
-    #     out_path=args.out, camera=camera, mag=args.mag,
-    #     video_seconds=args.seconds, fps=args.fps,
-    #     width=args.width, height=args.height, port=args.port,
-    #     sim_dt=float(d["dt"]),
-    # )
+    render_trajectory(
+        model=model, data=data, qpos=qpos, R_eci=R_eci, V_eci=V_eci,
+        out_path=args.out, camera=camera, mag=args.mag,
+        video_seconds=args.seconds, fps=args.fps,
+        width=args.width, height=args.height, port=args.port,
+        sim_dt=float(d["dt"]),
+    )
 
 
 if __name__ == "__main__":

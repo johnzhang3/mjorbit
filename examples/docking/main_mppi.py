@@ -204,7 +204,9 @@ def main() -> None:
     ps.add_argument("--w-pos", type=float, default=1.0, help="running port-separation weight")
     ps.add_argument("--w-term-pos", type=float, default=60.0, help="terminal port separation")
     ps.add_argument("--w-vel", type=float, default=8.0, help="running linear-rate (damping)")
-    ps.add_argument("--w-term-vel", type=float, default=500.0, help="terminal linear-rate (braking)")
+    ps.add_argument(
+        "--w-term-vel", type=float, default=500.0, help="terminal linear-rate (braking)"
+    )
     # Orientation. The attitude weights are large because in the default aligned
     # dock the attitude error is ~0, so they cost nothing there; they earn their
     # keep on a commanded slew, pulling the last few degrees in against the

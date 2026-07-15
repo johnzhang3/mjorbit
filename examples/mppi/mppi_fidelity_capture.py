@@ -241,7 +241,8 @@ def stabilize(backend: str, latched_state, model_plant, R0, V0, omega, dt, args)
         pitches[step] = plant_pitch(data)
         times[step] = float(data.time)
         if step % log_every == 0:
-            print(f"    [{backend:11s}] t={data.time:7.0f}s  pitch={np.rad2deg(pitches[step]):+7.1f} deg")
+            pitch_deg = np.rad2deg(pitches[step])
+            print(f"    [{backend:11s}] t={data.time:7.0f}s  pitch={pitch_deg:+7.1f} deg")
 
     abs_deg = np.rad2deg(np.abs(pitches))
     err_deg = np.minimum(abs_deg, 180.0 - abs_deg)  # angle to nearest vertical
@@ -322,13 +323,15 @@ def main() -> None:
         print(f"--- phase B: stabilize with planner='{backend}' (executed on mjorbit) ---")
         summary, stab_t, stab_pitch = stabilize(backend, latched_stk, model_stk,
                                                  R0, V0, omega, dt, args)
-        stab_err = np.minimum(np.rad2deg(np.abs(stab_pitch)), 180.0 - np.rad2deg(np.abs(stab_pitch)))
+        stab_abs_deg = np.rad2deg(np.abs(stab_pitch))
+        stab_err = np.minimum(stab_abs_deg, 180.0 - stab_abs_deg)
         # full grasp+stabilize timeline (the grasp prefix is the same for all conditions)
         t_full = np.concatenate([cap_t, stab_t])
         err_full = np.concatenate([cap_err, stab_err])
         results[backend] = {"summary": summary, **pack(t_full, err_full)}
         print(f"  => {backend}: last-window max {summary['last_window_max_deg']:.1f} / "
-              f"mean {summary['last_window_mean_deg']:.1f} deg, winding {summary['winding_deg']:.0f} deg, "
+              f"mean {summary['last_window_mean_deg']:.1f} deg, "
+              f"winding {summary['winding_deg']:.0f} deg, "
               f"{'STABILIZED' if summary['stabilized'] else 'FAILED'}\n")
 
     out = {"meta": {"alt_km": alt_km, "dt": dt, "horizon_b": args.horizon_b,
