@@ -1,0 +1,190 @@
+<mujoco model="spacecraft_capture">
+  <compiler angle="radian"/>
+  <!-- Free-floating bus carrying a long, telescoping (slide-joint) boom that
+       ends in a 5-finger claw, for the capture-and-stabilize MPPI demo.
+       The boom is two beams: a fixed larger-diameter housing rigidly attached
+       to the bus, and a thinner inner boom that telescopes through it along +x
+       to reach the free-floating payload. The claw starts at the bus-payload
+       midpoint, so reaching the cube takes ~3.55 m of extension (half the gap).
+       The claw has 5 evenly spaced fingers (72 deg apart around the boom axis)
+       on a 0.40 m ring; each finger has two sections (proximal + distal) joined
+       by two hinges that curl inward (no hyper-extension). The fingers close
+       around the 0.5 m payload cube and grip it: contact is enabled and scoped
+       so the robot collides only with the payload (contype/conaffinity below),
+       so the closed claw physically retains the cube via friction.
+       The timestep is 0.01 s — fine enough for realistic boom/grip servos and
+       stable contact; the MPPI still rolls out the long orbital horizon.
+       Units: meters, kg (MuJoCo SI). -->
+  <option timestep="0.01" gravity="0 0 0" integrator="RK4"/>
+
+  <default>
+    <joint damping="50" armature="0.5"/>
+    <!-- Robot geoms collide only with the payload: contype 1 / conaffinity 2
+         never matches another robot geom (so no finger self-collision or
+         arm/bus jitter), but does match the payload's contype 2 / conaffinity 1.
+         Soft-ish contacts (solref timeconst >= 2*dt) stay stable. -->
+    <geom contype="1" conaffinity="2" solref="0.02 1" friction="1.5 0.05 0.001"/>
+    <default class="finger">
+      <joint damping="2" armature="0.02"/>
+      <geom rgba="0.85 0.85 0.2 1"/>
+    </default>
+  </default>
+
+  <worldbody>
+    <!-- Boom is the body +x axis. Identity quat aligns it with world +x, which is
+         radial/local-vertical for the R_eci=[r,0,0] orbit used by the demo script.
+         That is the STABLE gravity-gradient equilibrium, so the captured stack
+         librates with a bounded amplitude about local vertical instead of being
+         released at the unstable along-track point. -->
+    <body name="bus" pos="0 0 0" quat="1 0 0 0">
+      <freejoint name="base"/>
+      <!-- Circular (drum) bus: a cylinder whose axis runs along the boom (+x),
+           so the boom pokes out of one round face. -->
+      <geom type="cylinder" fromto="-0.7 0 0 0.7 0 0" size="0.45" mass="3000"
+            rgba="0.3 0.5 0.9 1"/>
+      <!-- Two solar panels: thin flat plates wing out along the bus ±y axis. -->
+      <geom type="box" pos="0 1.55 0" size="0.45 1.1 0.02" mass="2"
+            rgba="0.1 0.15 0.45 1"/>
+      <geom type="box" pos="0 -1.55 0" size="0.45 1.1 0.02" mass="2"
+            rgba="0.1 0.15 0.45 1"/>
+
+      <!-- Fixed outer boom: a larger-diameter housing rigidly attached to the
+           bus. The thinner inner boom telescopes through it, so the sliding
+           boom always overlaps (and looks connected to) the spacecraft. -->
+      <geom type="capsule" fromto="0.5 0 0 3.5 0 0" size="0.09" mass="0.1"
+            rgba="0.35 0.37 0.45 1"/>
+
+      <!-- Telescoping inner boom: one prismatic DoF along the bus +x axis. Its
+           tail starts tucked in the bus and recedes into the housing as it
+           extends; ~3.55 m of travel is needed to reach the payload (half the
+           bus-to-payload distance), and the limit gives a little reach margin. -->
+      <body name="arm" pos="0.5 0 0">
+        <joint name="arm_slide" type="slide" axis="1 0 0" range="0 3.8"/>
+        <geom type="capsule" fromto="-1.0 0 0 2.68 0 0" size="0.06" mass="0.1"
+              rgba="0.75 0.75 0.78 1"/>
+
+        <!-- Wrist / claw hub at the boom tip; ~2.73 m out so the retracted claw
+             sits at the bus-payload midpoint. -->
+        <body name="ee" pos="2.73 0 0">
+          <!-- Compact hub + five spokes out to the finger roots: an open grapple
+               frame rather than a solid disk capping the cube. The hub backs the
+               cube so the fingers grip against it. -->
+          <geom type="cylinder" fromto="-0.05 0 0 0.05 0 0" size="0.10" mass="0.1"
+                rgba="0.9 0.7 0.2 1"/>
+          <geom type="capsule" fromto="0 0 0 0 0.40000 0.00000" size="0.025" mass="0.003" rgba="0.6 0.6 0.6 1"/>
+          <geom type="capsule" fromto="0 0 0 0 0.12361 0.38042" size="0.025" mass="0.003" rgba="0.6 0.6 0.6 1"/>
+          <geom type="capsule" fromto="0 0 0 0 -0.32361 0.23511" size="0.025" mass="0.003" rgba="0.6 0.6 0.6 1"/>
+          <geom type="capsule" fromto="0 0 0 0 -0.32361 -0.23511" size="0.025" mass="0.003" rgba="0.6 0.6 0.6 1"/>
+          <geom type="capsule" fromto="0 0 0 0 0.12361 -0.38042" size="0.025" mass="0.003" rgba="0.6 0.6 0.6 1"/>
+
+          <!-- Five fingers on a radius-0.40 ring, 72 deg apart. Each finger body
+               is rotated about the boom axis so its local frame is (+x forward,
+               +y radial-out, +z tangent); the hinges curl it inward (toward the
+               axis) about -z, wrapping the cube. -->
+
+          <!-- finger 0: 0 deg -->
+          <body name="f0_prox" pos="0 0.40000 0.00000" axisangle="1 0 0 0.00000" childclass="finger">
+            <joint name="f0_prox" type="hinge" axis="0 0 -1" range="0 1.1"/>
+            <geom type="capsule" fromto="0 0 0 0.55 0 0" size="0.04"/>
+            <body name="f0_dist" pos="0.55 0 0">
+              <joint name="f0_dist" type="hinge" axis="0 0 -1" range="0 1.9"/>
+              <geom type="capsule" fromto="0 0 0 0.35 0 0" size="0.035"/>
+            </body>
+          </body>
+
+          <!-- finger 1: 72 deg -->
+          <body name="f1_prox" pos="0 0.12361 0.38042" axisangle="1 0 0 1.25664" childclass="finger">
+            <joint name="f1_prox" type="hinge" axis="0 0 -1" range="0 1.1"/>
+            <geom type="capsule" fromto="0 0 0 0.55 0 0" size="0.04"/>
+            <body name="f1_dist" pos="0.55 0 0">
+              <joint name="f1_dist" type="hinge" axis="0 0 -1" range="0 1.9"/>
+              <geom type="capsule" fromto="0 0 0 0.35 0 0" size="0.035"/>
+            </body>
+          </body>
+
+          <!-- finger 2: 144 deg -->
+          <body name="f2_prox" pos="0 -0.32361 0.23511" axisangle="1 0 0 2.51327" childclass="finger">
+            <joint name="f2_prox" type="hinge" axis="0 0 -1" range="0 1.1"/>
+            <geom type="capsule" fromto="0 0 0 0.55 0 0" size="0.04"/>
+            <body name="f2_dist" pos="0.55 0 0">
+              <joint name="f2_dist" type="hinge" axis="0 0 -1" range="0 1.9"/>
+              <geom type="capsule" fromto="0 0 0 0.35 0 0" size="0.035"/>
+            </body>
+          </body>
+
+          <!-- finger 3: 216 deg -->
+          <body name="f3_prox" pos="0 -0.32361 -0.23511" axisangle="1 0 0 3.76991" childclass="finger">
+            <joint name="f3_prox" type="hinge" axis="0 0 -1" range="0 1.1"/>
+            <geom type="capsule" fromto="0 0 0 0.55 0 0" size="0.04"/>
+            <body name="f3_dist" pos="0.55 0 0">
+              <joint name="f3_dist" type="hinge" axis="0 0 -1" range="0 1.9"/>
+              <geom type="capsule" fromto="0 0 0 0.35 0 0" size="0.035"/>
+            </body>
+          </body>
+
+          <!-- finger 4: 288 deg -->
+          <body name="f4_prox" pos="0 0.12361 -0.38042" axisangle="1 0 0 5.02655" childclass="finger">
+            <joint name="f4_prox" type="hinge" axis="0 0 -1" range="0 1.1"/>
+            <geom type="capsule" fromto="0 0 0 0.55 0 0" size="0.04"/>
+            <body name="f4_dist" pos="0.55 0 0">
+              <joint name="f4_dist" type="hinge" axis="0 0 -1" range="0 1.9"/>
+              <geom type="capsule" fromto="0 0 0 0.35 0 0" size="0.035"/>
+            </body>
+          </body>
+
+        </body>
+      </body>
+    </body>
+
+    <body name="payload" pos="7.1 0 0">
+      <freejoint name="payload_free"/>
+      <geom type="box" size="0.25 0.25 0.25" mass="4" rgba="0.8 0.3 0.3 1"
+            contype="2" conaffinity="1"/>
+    </body>
+  </worldbody>
+
+  <!-- Normalized grip phase: each tendon's length runs 0 (fully open) to 1
+       (fully closed) because coef = 1 / (5 fingers * closed joint angle), i.e.
+       1/(5*1.1) for the proximal row and 1/(5*1.9) for the distal row. A single
+       [0,1] command then closes all five fingers together. With contact on, the
+       fingers stop on the cube before the limit and the servos press to grip. -->
+  <tendon>
+    <fixed name="grip_prox">
+      <joint joint="f0_prox" coef="0.18182"/>
+      <joint joint="f1_prox" coef="0.18182"/>
+      <joint joint="f2_prox" coef="0.18182"/>
+      <joint joint="f3_prox" coef="0.18182"/>
+      <joint joint="f4_prox" coef="0.18182"/>
+    </fixed>
+    <fixed name="grip_dist">
+      <joint joint="f0_dist" coef="0.10526"/>
+      <joint joint="f1_dist" coef="0.10526"/>
+      <joint joint="f2_dist" coef="0.10526"/>
+      <joint joint="f3_dist" coef="0.10526"/>
+      <joint joint="f4_dist" coef="0.10526"/>
+    </fixed>
+  </tendon>
+
+  <actuator>
+    <!-- Realistic stiff servos (fine at dt=0.01). -->
+    <!-- Telescoping reach. -->
+    <position name="extend" joint="arm_slide" kp="2000" kv="600" ctrlrange="0 3.8"
+              forcerange="-300 300"/>
+    <!-- Claw phase: 0 = fully open, 1 = closed/gripping. Both rows take the same
+         [0,1] phase; contact limits how far the fingers actually travel. -->
+    <position name="grip_prox" tendon="grip_prox" kp="300" kv="40" ctrlrange="0 1"/>
+    <position name="grip_dist" tendon="grip_dist" kp="300" kv="40" ctrlrange="0 1"/>
+  </actuator>
+
+  <sensor>
+    <framepos name="ee_pos" objtype="body" objname="ee"/>
+    <framequat name="ee_quat" objtype="body" objname="ee"/>
+    <framelinvel name="ee_linvel" objtype="body" objname="ee"/>
+    <framepos name="payload_pos" objtype="body" objname="payload"/>
+    <framelinvel name="payload_linvel" objtype="body" objname="payload"/>
+  </sensor>
+
+  <mjorbit use_j2="false" use_drag="false" use_srp="false" use_magnetic="false"
+           use_gravity_gradient="true">
+  </mjorbit>
+</mujoco>

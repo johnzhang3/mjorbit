@@ -39,7 +39,7 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--rollouts", type=int, default=64)
     ap.add_argument("--max-capture-time", type=float, default=900.0)
-    ap.add_argument("--hold-seconds", type=float, default=120.0,
+    ap.add_argument("--hold-seconds", type=float, default=50000.0,
                     help="post-latch passive hold to show the captured stack")
     args = ap.parse_args()
 
@@ -78,6 +78,7 @@ def main() -> None:
 
     qpos_hist: list[np.ndarray] = []
     R_hist: list[np.ndarray] = []
+    t_hist: list[float] = []
     replan_every = max(1, int(round(10.0 / dt)))
     n_max = int(round(args.max_capture_time / dt))
     latched = False
@@ -88,6 +89,7 @@ def main() -> None:
         mjo_step(model_cap, data)
         qpos_hist.append(np.asarray(data.qpos).copy())
         R_hist.append(np.asarray(data.orbit.R_eci).copy())
+        t_hist.append(float(data.time))
         dist, relspeed = cs.grasp_error(np.asarray(data.sensordata))
         if dist < 0.30 and relspeed < 0.04:
             latched = True
@@ -106,16 +108,19 @@ def main() -> None:
         mjo_set_state(model_stk, data_b, state)
         np.copyto(data_b.ctrl, np.asarray(data_b.qpos[7:9]))
         mjo_forward(model_stk, data_b)
-        for _ in range(int(round(args.hold_seconds / dt))):
+        for k in range(int(round(args.hold_seconds / dt))):
             mjo_step(model_stk, data_b)
             qpos_hist.append(np.asarray(data_b.qpos).copy())
             R_hist.append(np.asarray(data_b.orbit.R_eci).copy())
+            t_hist.append(t_latch + (k + 1) * dt)
 
     np.savez(
         args.out,
         qpos=np.asarray(qpos_hist),
         R_eci=np.asarray(R_hist),
+        t=np.asarray(t_hist),
         V_eci=V0,
+        t_latch=t_latch,
         dt=dt,
         xml_path=str(SPACECRAFT_CAPTURE_XML),
         n_capture=n_capture,

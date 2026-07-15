@@ -37,6 +37,10 @@ pixi run python scripts/record/record_docking.py --traj /tmp/dock_traj.npz --out
 pixi run python scripts/record/produce_grasp.py --out /tmp/grasp_traj.npz
 pixi run python scripts/record/record_grasp.py --traj /tmp/grasp_traj.npz --out videos/grasping.mp4
 
+# Grasping under gravity gradient with a claw (paper example c)
+pixi run python scripts/record/produce_grasp_claw.py --out /tmp/grasp_claw_traj.npz
+pixi run python scripts/record/record_grasp_claw.py --traj /tmp/grasp_claw_traj.npz --out videos/grasping_claw.mp4
+
 # RL truss servicing (paper example d) — needs the warp/GPU `rl` env + a trained
 # checkpoint (examples/ppo). produce_hug composes scripted fly-in + trained
 # hug/stabilize; the spacecraft hugs a large free truss and slews it to Earth.

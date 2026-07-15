@@ -52,8 +52,8 @@
   <equality>
     <!-- Compliant grasp: relpose puts the payload centre 0.6 m beyond the end
          effector along its x-axis; soft solref pulls in gently over ~4 s. -->
-    <weld name="grasp" body1="ee" body2="payload" relpose="0.6 0 0 1 0 0 0"
-          active="false" solref="4 1"/>
+    <weld name="grasp" body1="ee" body2="payload" relpose="0.6 0 0 1 0 0 0" active="false" solref="4 1"/>
+    <!-- <connect name="ball_joint_grasp" body1="ee" body2="payload" anchor="0 0 0" active="false" /> -->
   </equality>
 
   <sensor>
