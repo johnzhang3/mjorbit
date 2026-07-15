@@ -33,6 +33,9 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--run-name", type=str, default=None)
     parser.add_argument("--resume", type=str, default=None, help="checkpoint .pt to resume from")
+    parser.add_argument("--backend", type=str, default="mjorbit",
+                        choices=["mjorbit", "mjwarp"],
+                        help="physics backend to TRAIN in (evaluation is always mjorbit)")
     parser.add_argument("--init-spin", type=float, default=None,
                         help="curriculum: max initial body-frame spin per axis (rad/s)")
     parser.add_argument("--cargo-dist-min", type=float, default=None,
@@ -46,7 +49,8 @@ def main() -> None:
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
-    env_cfg = AstrobeeEnvCfg(num_envs=args.num_envs, device=args.device, seed=args.seed)
+    env_cfg = AstrobeeEnvCfg(num_envs=args.num_envs, device=args.device, seed=args.seed,
+                             backend=args.backend)
     if args.init_spin is not None:
         env_cfg.init_spin_max = args.init_spin
     lo, hi = env_cfg.cargo_dist

@@ -75,6 +75,15 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--run-name", type=str, default=None)
     parser.add_argument("--resume", type=str, default=None, help="checkpoint .pt to resume from")
+    parser.add_argument("--backend", type=str, default="mjorbit",
+                        choices=["mjorbit", "mjwarp"],
+                        help="physics backend to TRAIN in (evaluation is always mjorbit)")
+    parser.add_argument("--frozen-target", action="store_true",
+                        help="bare-mjwarp 'naive' baseline: freeze the nadir target "
+                             "(no kinematic orbit propagation). Ignored for --backend mjorbit")
+    parser.add_argument("--resample-orbit", action="store_true",
+                        help="re-randomize the orbit phase on every reset so all "
+                             "backends share an identical initial-condition distribution")
     parser.add_argument("--init-offset-min", type=float, default=None,
                         help="curriculum: min initial truss misalignment (rad)")
     parser.add_argument("--init-offset-max", type=float, default=None,
@@ -86,7 +95,14 @@ def main() -> None:
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed_all(args.seed)
 
-    env_cfg = TrussEnvCfg(num_envs=args.num_envs, device=args.device, seed=args.seed)
+    env_cfg = TrussEnvCfg(
+        num_envs=args.num_envs,
+        device=args.device,
+        seed=args.seed,
+        backend=args.backend,
+        mjwarp_moving_target=not args.frozen_target,
+        resample_orbit_on_reset=args.resample_orbit,
+    )
     if args.init_offset_min is not None and args.init_offset_max is not None:
         env_cfg.init_offset_rad = (args.init_offset_min, args.init_offset_max)
     env = TrussReorientEnv(env_cfg)
