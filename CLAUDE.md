@@ -155,6 +155,12 @@ energy/momentum non-conservation.
   `mjo_forward(model, data)`.
 - Advance the simulation with `mjo_step(model, data)`. MuJoCo controls come from `data.ctrl`,
   and orbital actuators come from `data.actuators.*_cmd`.
+- The default MuJoCo-side integrator is `implicitfast`, not MuJoCo's stock semi-implicit
+  Euler: model compilation upgrades an unspecified (or explicitly Euler) `opt.integrator` to
+  `implicitfast`, because Euler does not conserve angular momentum for tumbling/asymmetric
+  bodies (issue #12). For the orbit-following frame's position-only forces `implicitfast`
+  matches semi-implicit Euler, so translational behavior is unchanged. Explicit `implicit` /
+  `implicitfast` / `RK4` choices are preserved; set `model.opt.integrator` to override.
 - On the warp backend the device is authoritative: `mjo_step`/`mjo_forward` auto-sync the
   actuator command inputs (`*_cmd`) but not `qpos`/`qvel`/`ctrl`/`orbit`/`rw_speed`. After
   editing those, call `mjo_upload(...)` (or pass `sync=True`); call `mjo_pull(...)` before

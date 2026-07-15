@@ -39,6 +39,14 @@ def _compile_raw_mujoco_model(raw_xml: str, *, mj_timestep: float | None) -> muj
     if mj_timestep is not None:
         model.opt.timestep = float(mj_timestep)
     model.opt.gravity[:] = 0.0
+    # Mirror MjoModel::FromSpecXml (runtime_model.cc): this device model is
+    # compiled straight from the raw XML and uploaded to MJWarp, bypassing the
+    # C++ host-compile post-processing. Without re-applying the integrator
+    # default here, the device would silently run MuJoCo's stock Euler while the
+    # CPU host reports implicitfast, breaking the angular-momentum fix and
+    # CPU/Warp parity for unspecified/Euler models (issue #12).
+    if model.opt.integrator == mujoco.mjtIntegrator.mjINT_EULER:
+        model.opt.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
     return model
 
 @dataclass
