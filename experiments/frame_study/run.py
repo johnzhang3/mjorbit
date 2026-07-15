@@ -1019,7 +1019,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--integrator-study",
         action="store_true",
-        help="Run an ECI/local-chief/LVLH comparison with Euler, implicit, and RK4, then save error plots.",
+        help=(
+            "Run an ECI/local-chief/LVLH comparison with Euler, implicit, and RK4, "
+            "then save error plots."
+        ),
     )
     parser.add_argument(
         "--study-orbits",

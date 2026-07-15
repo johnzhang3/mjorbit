@@ -126,12 +126,23 @@ def _compile_model(xml_path: str, *, mj_timestep: float) -> MjoModel:
 
 
 def _set_body_pose(xml: str, body: str, pos: np.ndarray, quat: np.ndarray) -> str:
-    """Rewrite the pos/quat of a named body's opening tag (sets the free-joint qpos0)."""
+    """Rewrite the pos/quat of a named body's opening tag (sets the free-joint qpos0).
+
+    Comments are matched first and passed through untouched, so a commented-out
+    copy of the body tag cannot steal the (single) replacement — otherwise the
+    real body keeps its standoff qpos0 and the latch weld snaps the craft back.
+    """
+    done = [False]
+
     def repl(match: "re.Match[str]") -> str:
-        tag = re.sub(r'pos="[^"]*"', f'pos="{pos[0]} {pos[1]} {pos[2]}"', match.group(0))
+        if match.group(1) is not None or done[0]:  # comment, or already replaced
+            return match.group(0)
+        done[0] = True
+        tag = re.sub(r'pos="[^"]*"', f'pos="{pos[0]} {pos[1]} {pos[2]}"', match.group(2))
         return re.sub(r'quat="[^"]*"', f'quat="{quat[0]} {quat[1]} {quat[2]} {quat[3]}"', tag)
 
-    return re.sub(rf'<body name="{body}"[^>]*?>', repl, xml, count=1)
+    pattern = rf'(<!--.*?-->)|(<body name="{body}"[^>]*?>)'
+    return re.sub(pattern, repl, xml, flags=re.DOTALL)
 
 
 def _compile_latched(xml_path: str, *, qpos: np.ndarray, mj_timestep: float) -> MjoModel:
@@ -171,7 +182,7 @@ def attitude_error_deg(quat: np.ndarray, target_quat: np.ndarray) -> float:
 
 def main() -> None:
     ps = argparse.ArgumentParser(description=__doc__)
-    ps.add_argument("--duration", type=float, default=120.0, help="closed-loop sim time (s)")
+    ps.add_argument("--duration", type=float, default=150.0, help="closed-loop sim time (s)")
     ps.add_argument("--horizon", type=float, default=3.5, help="MPPI planning horizon (s)")
     ps.add_argument("--num-rollouts", type=int, default=128, help="MPPI samples per replan")
     ps.add_argument("--num-nodes", type=int, default=4, help="spline knots over the horizon")
@@ -192,8 +203,10 @@ def main() -> None:
     # Position (docking-port separation).
     ps.add_argument("--w-pos", type=float, default=1.0, help="running port-separation weight")
     ps.add_argument("--w-term-pos", type=float, default=60.0, help="terminal port separation")
-    ps.add_argument("--w-vel", type=float, default=1.0, help="running linear-rate (damping)")
-    ps.add_argument("--w-term-vel", type=float, default=40.0, help="terminal linear-rate (braking)")
+    ps.add_argument("--w-vel", type=float, default=8.0, help="running linear-rate (damping)")
+    ps.add_argument(
+        "--w-term-vel", type=float, default=500.0, help="terminal linear-rate (braking)"
+    )
     # Orientation. The attitude weights are large because in the default aligned
     # dock the attitude error is ~0, so they cost nothing there; they earn their
     # keep on a commanded slew, pulling the last few degrees in against the

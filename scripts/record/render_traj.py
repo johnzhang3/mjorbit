@@ -32,6 +32,38 @@ class CameraConfig:
     offset_end: np.ndarray | None = None  # optional offset slew over the clip
 
 
+def _frame_labels(idx: np.ndarray, fps: float, sim_dt) -> list[str] | None:
+    """Per-rendered-frame ``"N× real-time"`` captions.
+
+    Source frames are resampled uniformly onto ``idx`` for rendering, so each
+    rendered frame advances ``density = (idx[-1] - idx[0]) / (len(idx) - 1)``
+    source frames, i.e. ``density * fps`` source frames per real second. The
+    shown speedup at a frame is therefore ``dt * density * fps`` for whichever
+    ``dt`` applies at that source frame.
+
+    ``sim_dt`` selects the caption:
+
+    * ``None`` — no caption (returns ``None``);
+    * scalar ``float`` — one constant speedup for the whole clip;
+    * ``[[start_frame, dt], ...]`` — a piecewise schedule: source frames in
+      ``[start_k, start_{k+1})`` advance ``dt_k`` sim-seconds each, so the
+      caption steps at each phase boundary (e.g. a slow grasp shown at ~3×
+      followed by a fast-forward coast shown at a few hundred ×).
+    """
+    if sim_dt is None:
+        return None
+    n_render = len(idx)
+    density = (int(idx[-1]) - int(idx[0])) / max(1, n_render - 1)
+    sched = np.atleast_2d(np.asarray(sim_dt, dtype=float))
+    if sched.shape[1] == 2:  # [[start_frame, dt], ...] schedule
+        order = np.argsort(sched[:, 0])
+        starts, dts = sched[order, 0], sched[order, 1]
+    else:  # scalar dt -> a single segment starting at frame 0
+        starts, dts = np.array([0.0]), np.ravel(sched).astype(float)[:1]
+    seg = np.clip(np.searchsorted(starts, idx, side="right") - 1, 0, None)
+    return [speedup_label(float(dts[k]) * density * fps, 1.0) for k in seg]
+
+
 def render_trajectory(
     *,
     model,
@@ -49,14 +81,12 @@ def render_trajectory(
     height: int = 720,
     port: int = 8400,
     warmup: float = 9.0,
-    sim_dt: float | None = None,
+    sim_dt: float | np.ndarray | None = None,
 ) -> None:
     n_src = len(qpos)
     n_frames = max(2, int(round(video_seconds * fps)))
     idx = np.unique(np.linspace(0, n_src - 1, n_frames).astype(int))
-    label = None
-    if sim_dt is not None:
-        label = speedup_label(n_src * float(sim_dt), len(idx) / fps)
+    labels = _frame_labels(idx, fps, sim_dt)
 
     server = viser.ViserServer(host="127.0.0.1", port=port)
     scene = SingleScene(server, model, data, mag=mag, world=world,
@@ -77,8 +107,8 @@ def render_trajectory(
                 )
                 pos, look = scene.camera_pose(distance=dist, target=target, offset_rsw=off)
                 frame = rec.render(position=pos, look_at=look, fov_deg=camera.fov_deg)
-                if label is not None:
-                    frame = annotate(frame, label)
+                if labels is not None:
+                    frame = annotate(frame, labels[f])
                 vid.add(frame)
         print(f"wrote {out_path}  ({len(idx)} frames, {len(idx)/fps:.1f}s @ {fps}fps)")
     finally:

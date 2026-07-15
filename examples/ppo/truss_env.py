@@ -123,7 +123,7 @@ class TrussEnvCfg:
 
     # Physics backend: "mjorbit" (full orbital coupling -- also the eval env) or
     # "mjwarp" (bare mujoco_warp rigid-body dynamics: no gravity gradient / drag /
-    # J2 / non-inertial frame / orbit propagation). See experiments/sim_fidelity.
+    # J2 / non-inertial frame / orbit propagation).
     backend: str = "mjorbit"
     # On the bare backend, advance the nadir reference kinematically (a circular
     # Keplerian orbit) so the policy still sees a MOVING target -- isolating the

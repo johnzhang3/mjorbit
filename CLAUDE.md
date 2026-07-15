@@ -81,8 +81,11 @@ dependency installed via the `frames` extra (`pixi install -e frames`); the defa
 - `src/mjorbit_warp/` — optional MJWarp backend, host/device sync, and batched runtime API
 - `src/viewer/` — browser viewer integration (`mjo-viewer` task app, framing, textured Earth)
 - `src/viewer/tasks/` — viewer task registry and built-in tasks
-- `examples/` — lightweight demos of the public API
-- `ISS/` — separate homework/report analysis workspace and artifacts
+- `examples/` — paper example scenarios and lightweight demos of the public API
+- `examples/ppo/` — GPU RL training examples on the warp backend
+- `experiments/` — paper figure generators (frame study, cross-track collision,
+  MPPI fidelity, Basilisk multibody comparison)
+- `scripts/record/` — headless viewer renderer for paper clips/stills
 - `tests/mjorbit/` — unit and integration tests
 - `tests/mjorbit_warp/` — guarded MJWarp tests
 
@@ -109,8 +112,8 @@ pixi run example-mppi-arm-reach
 pixi run example-mppi-capture
 pixi run example-reorient            # dual-arm 3-DOF attitude slew by reaction (headless)
 pixi run example-reorient-viewer     # same, live in the browser viewer
+pixi run example-docking
 pixi run python examples/arm_reach.py
-pixi run iss-hw2
 ```
 
 ## Units
@@ -184,8 +187,8 @@ energy/momentum non-conservation.
   orbit clock (`orbit_t`): per-step rounding grows past ~1 h of sim time, so time-keyed
   environment models (sun vector, eclipse, magnetic field) lose timing accuracy on very long
   device-resident runs (~tens of seconds per sim-hour, worst case).
-- Keep lightweight demos in `examples/`. Keep ISS homework/report analysis and generated
-  artifacts in `ISS/`. The `src/viewer/` module itself stays backend-agnostic (no warp
-  imports); warp-driven visualization lives in examples (e.g.
+- Keep paper example scenarios and lightweight demos in `examples/`, and paper figure
+  generators in `experiments/`. The `src/viewer/` module itself stays backend-agnostic
+  (no warp imports); warp-driven visualization lives in examples (e.g.
   `examples/banner_viewer_gpu.py` feeds the instanced fleet renderer from
-  `mjorbit_warp`). The `ISS/` workspace remains CPU-only.
+  `mjorbit_warp`).

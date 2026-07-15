@@ -47,7 +47,13 @@
     <!-- Placed so its docking port sits ~2.4 m from the ISS port along the
          approach (-x) axis, +x face pointing toward the ISS. -->
 
-    <body name="soyuz" pos="0.0 53.033833 -1.37365" quat="0.7071 0 0 -0.7071">
+    <!-- Aligned-start variant: same pos with quat 0.7071 0 0 -0.7071 (Soyuz port
+         face-to-face with the ISS port, pure-translation dock). The tilted quat
+         below adds a slew. NOTE: do not write the alternative as a literal
+         <body ...> tag in a comment — the latch recompile (_set_body_pose in
+         main_mppi.py) regex-matches the first soyuz body tag, and a commented one
+         steals the match, leaving the real body frozen at its standoff pose. -->
+    <body name="soyuz" pos="0.0 55.033833 -1.37365" quat="0.606 0.214 0 -0.766">
       <!-- CoM placed at the docking port (5.2267, 0.2358, -0.067) m in the
            body/mesh frame, coincident with soyuz_dock_port below. Putting the
            mass center on the port makes the controlled point the port itself,

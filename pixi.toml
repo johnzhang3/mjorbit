@@ -70,7 +70,6 @@ test = { cmd = "pytest -q", depends-on = ["sync-package"] }
 test-api = { cmd = "pytest tests/mjorbit/test_api_model_data.py -q", depends-on = ["sync-package"] }
 test-warp = { cmd = "pytest tests/mjorbit_warp -q", depends-on = ["sync-package"] }
 test-frames = { cmd = "pytest tests/mjorbit/test_frames.py -q", depends-on = ["sync-package"] }
-bench-capture-arm = { cmd = "python benchmarks/capture_arm.py", depends-on = ["sync-package"] }
 lint = "ruff check ."
 typecheck = "pyright --pythonpath $(python -c 'import sys; print(sys.executable)')"
 typecheck-warp = "pyright -p pyrightconfig-warp.json --pythonpath $(python -c 'import sys; print(sys.executable)')"
@@ -82,21 +81,10 @@ example-free-drift = { cmd = "python examples/free_drift.py", depends-on = ["syn
 example-mppi-arm-reach = { cmd = "python examples/mppi/arm_reach.py", depends-on = ["sync-package"] }
 example-mppi-capture = { cmd = "python examples/mppi/capture_stabilize.py", depends-on = ["sync-package"] }
 example-docking = { cmd = "python examples/docking/main_mppi.py", depends-on = ["sync-package"] }
-example-momentum-integrators = { cmd = "python examples/momentum_conservation_integrators.py", depends-on = ["sync-package"] }
 example-reorient = { cmd = "python examples/reorient_mppi_3dof.py", depends-on = ["sync-package"] }
 example-reorient-viewer = { cmd = "python examples/reorient_mppi_3dof_viewer.py", depends-on = ["sync-package"] }
 ppo-truss-train = { cmd = "python examples/ppo/train.py", depends-on = ["sync-package"] }
-compare-basilisk-single = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_orbit", depends-on = ["sync-package"] }
-compare-basilisk-hinges = { cmd = "python -m comparisons.basilisk_mujoco.run_articulated_hinges", depends-on = ["sync-package"] }
-compare-basilisk = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_orbit && python -m comparisons.basilisk_mujoco.run_articulated_hinges", depends-on = ["sync-package"] }
-compare-basilisk-integrators = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_integrator_sweep", depends-on = ["sync-package"] }
-compare-basilisk-matched-dt = { cmd = "python -m comparisons.basilisk_mujoco.run_single_body_matched_dt", depends-on = ["sync-package"] }
-compare-basilisk-two-arm = { cmd = "python -m comparisons.basilisk_mujoco.run_two_arm_free_drift", depends-on = ["sync-package"] }
-diagnose-basilisk-two-arm = { cmd = "python -m comparisons.basilisk_mujoco.diagnose_two_arm_joint_mismatch", depends-on = ["sync-package"] }
-compare-two-arm-eci-frame = { cmd = "python -m comparisons.basilisk_mujoco.run_two_arm_eci_frame_check", depends-on = ["sync-package"] }
-benchmark-basilisk-rollouts = { cmd = "python -m comparisons.basilisk_mujoco.benchmark_parallel_rollouts", depends-on = ["sync-package"] }
 basilisk-multibody-experiment = { cmd = "python experiments/basilisk_multibody/run.py", depends-on = ["sync-package"] }
-iss-hw2 = { cmd = "python ISS/hw2/spacecraft_dynamics.py", depends-on = ["sync-package"] }
 cpp-configure = "cmake -S src/cpp -B build/cpp -DPython_EXECUTABLE=$(python -c 'import sys; print(sys.executable)') -DCMAKE_BUILD_TYPE=Release"
 cpp-build = { cmd = "cmake --build build/cpp -j", depends-on = ["cpp-configure"] }
 cpp-test = { cmd = "ctest --test-dir build/cpp --output-on-failure", depends-on = ["cpp-build"] }

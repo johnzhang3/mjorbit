@@ -138,7 +138,7 @@ class AstrobeeEnvCfg:
     # Physics backend: "mjorbit" (full orbital coupling -- also the eval env) or
     # "mjwarp" (bare mujoco_warp rigid-body dynamics). This task has no
     # orbital-frame reference, so there is no "moving target" knob -- the only
-    # difference is the per-step dynamics. See experiments/sim_fidelity.
+    # difference is the per-step dynamics.
     backend: str = "mjorbit"
     # Disable per-world auto-reset on done (the evaluator runs one fixed-horizon
     # episode per world).
