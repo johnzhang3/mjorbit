@@ -52,9 +52,18 @@ def _normalize_orbit_inits(
     *,
     nworld: int,
 ) -> list[OrbitInit]:
+    # Preserve frame/epoch so a non-canonical input (e.g. frame="TEME") is resolved by
+    # the host CPU MjoData (float64) before the device upload — dropping them here would
+    # silently treat the state as canonical ECI and ignore the epoch.
     if isinstance(orbit, OrbitInit):
         return [
-            OrbitInit(R_eci=orbit.R_eci.copy(), V_eci=orbit.V_eci.copy(), t=orbit.t)
+            OrbitInit(
+                R_eci=orbit.R_eci.copy(),
+                V_eci=orbit.V_eci.copy(),
+                t=orbit.t,
+                frame=orbit.frame,
+                epoch=orbit.epoch,
+            )
             for _ in range(nworld)
         ]
 
@@ -63,7 +72,13 @@ def _normalize_orbit_inits(
         raise ValueError(f"Expected {nworld} orbit initializations, got {len(orbit_list)}")
 
     return [
-        OrbitInit(R_eci=init.R_eci.copy(), V_eci=init.V_eci.copy(), t=init.t)
+        OrbitInit(
+            R_eci=init.R_eci.copy(),
+            V_eci=init.V_eci.copy(),
+            t=init.t,
+            frame=init.frame,
+            epoch=init.epoch,
+        )
         for init in orbit_list
     ]
 

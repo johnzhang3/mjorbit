@@ -39,3 +39,6 @@ build-tsan/
 comparisons/basilisk_mujoco/out/
 experiments/cross_track_collision/out/
 experiments/frame_study/out/
+
+# PPO training logs/checkpoints
+examples/ppo/logs/

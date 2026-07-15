@@ -10,11 +10,33 @@ import numpy as np
 
 @dataclass
 class OrbitInit:
-    """Initial chief orbit state in ECI (km, km/s)."""
+    """Initial chief orbit state (km, km/s).
+
+    By default ``R_eci``/``V_eci`` are interpreted directly as mjorbit's canonical
+    Earth-centered inertial frame — **GCRF** (J2000-aligned axes), with ``t`` measured
+    as seconds since the J2000.0 epoch. Set ``frame`` (and ``epoch``) to supply state in
+    another standard realization (e.g. ``"TEME"`` from a TLE/SGP4 propagation); it is
+    rotated into the canonical frame at construction via :mod:`mjorbit.frames`, which
+    requires the optional ``frames`` extra (``pip install 'mjorbit[frames]'``).
+
+    Args:
+        R_eci: position, shape (3,), km, in ``frame``.
+        V_eci: velocity, shape (3,), km/s, in ``frame``.
+        t: simulation clock, s. Interpreted as seconds since J2000.0 by the environment
+            models. When ``epoch`` is given it is overridden by the epoch's J2000 offset.
+        frame: input frame name (case-insensitive). See
+            :data:`mjorbit.frames.SUPPORTED_FRAMES`. ``"ECI"`` (the default) means
+            "already canonical" and performs no conversion.
+        epoch: absolute time of the state, anchoring the canonical ``t`` to real wall
+            time (ISO-UTC string, ``datetime``, or ``astropy.time.Time``). ``None``
+            keeps the relative ``t`` semantics. Required for epoch-dependent frames.
+    """
 
     R_eci: np.ndarray  # shape (3,) km
     V_eci: np.ndarray  # shape (3,) km/s
     t: float = 0.0  # s
+    frame: str = "ECI"
+    epoch: Optional[object] = None
 
     def __post_init__(self) -> None:
         self.R_eci = np.asarray(self.R_eci, dtype=float)

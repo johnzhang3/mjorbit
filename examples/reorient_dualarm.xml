@@ -1,0 +1,89 @@
+<mujoco model="reorient_dualarm">
+  <compiler angle="radian"/>
+  <!-- Free-floating bus + TWO arms for full 3-DOF reorientation by reaction.
+       Each arm has a 3-DOF shoulder (stacked hinges about x, y, z) plus an
+       elbow, so arm motion can exchange angular momentum about ALL three bus
+       axes -> the bus can be reoriented to an arbitrary target attitude, not
+       just pitch. The two arms sit on opposite (+x / -x) faces and together
+       give redundant 3-axis authority. No bus actuator: the only way to turn
+       the bus is to move the arms (nonholonomic "falling cat" reorientation
+       from zero net momentum). Arm inertia is comparable to the bus so the
+       coupling per stroke is large and clearly visible.
+       Units: meters, kg (MuJoCo SI). -->
+  <option timestep="0.01" gravity="0 0 0" integrator="RK4"/>
+
+  <default>
+    <joint damping="0.5" armature="0.05"/>
+    <position kp="18" kv="12" ctrlrange="-3.14 3.14"/>
+  </default>
+
+  <worldbody>
+    <body name="bus" pos="0 0 0">
+      <freejoint name="base"/>
+      <geom type="box" size="0.4 0.4 0.4" mass="40" rgba="0.3 0.5 0.9 1"/>
+
+      <!-- Arm A on the +x face: 3-DOF shoulder (x,y,z) + elbow -->
+      <body name="A_link1" pos="0.4 0 0">
+        <joint name="A_sx" type="hinge" axis="1 0 0"/>
+        <joint name="A_sy" type="hinge" axis="0 1 0"/>
+        <joint name="A_sz" type="hinge" axis="0 0 1"/>
+        <geom type="capsule" fromto="0 0 0 1.0 0 0" size="0.05" mass="8"
+              rgba="0.85 0.7 0.2 1"/>
+        <body name="A_link2" pos="1.0 0 0">
+          <joint name="A_elbow" type="hinge" axis="0 1 0"/>
+          <geom type="capsule" fromto="0 0 0 1.0 0 0" size="0.04" mass="8"
+                rgba="0.9 0.5 0.2 1"/>
+          <body name="A_ee" pos="1.0 0 0">
+            <geom type="sphere" size="0.09" mass="4" rgba="0.9 0.3 0.3 1"/>
+          </body>
+        </body>
+      </body>
+
+      <!-- Arm B on the -x face: mirror of arm A -->
+      <body name="B_link1" pos="-0.4 0 0">
+        <joint name="B_sx" type="hinge" axis="1 0 0"/>
+        <joint name="B_sy" type="hinge" axis="0 1 0"/>
+        <joint name="B_sz" type="hinge" axis="0 0 1"/>
+        <geom type="capsule" fromto="0 0 0 -1.0 0 0" size="0.05" mass="8"
+              rgba="0.2 0.7 0.85 1"/>
+        <body name="B_link2" pos="-1.0 0 0">
+          <joint name="B_elbow" type="hinge" axis="0 1 0"/>
+          <geom type="capsule" fromto="0 0 0 -1.0 0 0" size="0.04" mass="8"
+                rgba="0.2 0.5 0.9 1"/>
+          <body name="B_ee" pos="-1.0 0 0">
+            <geom type="sphere" size="0.09" mass="4" rgba="0.3 0.3 0.9 1"/>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <position name="A_sx"    joint="A_sx"/>
+    <position name="A_sy"    joint="A_sy"/>
+    <position name="A_sz"    joint="A_sz"/>
+    <position name="A_elbow" joint="A_elbow"/>
+    <position name="B_sx"    joint="B_sx"/>
+    <position name="B_sy"    joint="B_sy"/>
+    <position name="B_sz"    joint="B_sz"/>
+    <position name="B_elbow" joint="B_elbow"/>
+  </actuator>
+
+  <!-- Orbital perturbations ON. Drag/SRP act on the six bus faces (flat plates,
+       area 0.64 m^2 = the 0.8 m cube faces, cop at each face centre); the
+       built-in exponential atmosphere + analytic Sun/eclipse models supply
+       density and the Sun vector. The residual magnetic dipole on the bus gives
+       a magnetic torque tau = m x B against the built-in tilted-dipole field.
+       NOTE: at LEO over a ~minute slew these environmental torques (~1e-5..1e-4
+       N*m) are tiny next to the arm reaction torques, so they are modelled but
+       not dominant here; J2 mainly perturbs the chief orbit. -->
+  <mjorbit use_j2="true" use_drag="true" use_srp="true" use_magnetic="true">
+    <surface name="face_px" body="bus" cop="0.4 0 0"  normal="1 0 0"  area="0.64"/>
+    <surface name="face_nx" body="bus" cop="-0.4 0 0" normal="-1 0 0" area="0.64"/>
+    <surface name="face_py" body="bus" cop="0 0.4 0"  normal="0 1 0"  area="0.64"/>
+    <surface name="face_ny" body="bus" cop="0 -0.4 0" normal="0 -1 0" area="0.64"/>
+    <surface name="face_pz" body="bus" cop="0 0 0.4"  normal="0 0 1"  area="0.64"/>
+    <surface name="face_nz" body="bus" cop="0 0 -0.4" normal="0 0 -1" area="0.64"/>
+    <magnetic_body name="bus_dipole" body="bus" dipole="0.5 0.2 0.1"/>
+  </mjorbit>
+</mujoco>

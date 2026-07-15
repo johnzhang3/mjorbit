@@ -57,6 +57,16 @@ inertial offsets in SI units, with axes parallel to ECI. Root free-joint `qpos`/
 `xpos`, `xmat`, `cvel`, and `xfrc_applied` should be interpreted in that local world frame,
 not as absolute ECI state and not as LVLH state.
 
+The canonical ECI realization is **GCRF** (J2000-aligned axes; ICRS/astropy `GCRS`), and
+`OrbitInit.t` is **seconds since J2000.0** — the frame and clock the bundled solar
+ephemeris/environment models already assume. To pass an initial state in another standard
+realization, set `OrbitInit(frame=..., epoch=...)`; `mjorbit.frames` rotates it into the
+canonical frame at construction (e.g. `frame="TEME"` for a TLE/SGP4 state) and, when
+`epoch` is given, anchors `t` to that absolute time. This uses `astropy`, an optional
+dependency installed via the `frames` extra (`pixi install -e frames`); the default path
+(`frame="ECI"`, `epoch=None`) is untouched and imports nothing. Earth-fixed inputs
+(ITRF/ECEF) and threading the epoch into the C++ environment models are deferred (issue #14).
+
 ## Project Layout
 
 - `src/mjorbit/` — CPU reference backend
@@ -82,6 +92,7 @@ not as absolute ECI state and not as LVLH state.
 pixi install
 pixi install -e report
 pixi install -e warp
+pixi install -e frames
 pixi run test
 pixi run test-warp
 pixi run lint
@@ -96,6 +107,8 @@ pixi run viewer            # interactive task viewer (judo-style), or: mjo-viewe
 pixi run example-free-drift
 pixi run example-mppi-arm-reach
 pixi run example-mppi-capture
+pixi run example-reorient            # dual-arm 3-DOF attitude slew by reaction (headless)
+pixi run example-reorient-viewer     # same, live in the browser viewer
 pixi run python examples/arm_reach.py
 pixi run iss-hw2
 ```
@@ -153,6 +166,12 @@ energy/momentum non-conservation.
   `mjo_forward(model, data)`.
 - Advance the simulation with `mjo_step(model, data)`. MuJoCo controls come from `data.ctrl`,
   and orbital actuators come from `data.actuators.*_cmd`.
+- The default MuJoCo-side integrator is `implicitfast`, not MuJoCo's stock semi-implicit
+  Euler: model compilation upgrades an unspecified (or explicitly Euler) `opt.integrator` to
+  `implicitfast`, because Euler does not conserve angular momentum for tumbling/asymmetric
+  bodies (issue #12). For the orbit-following frame's position-only forces `implicitfast`
+  matches semi-implicit Euler, so translational behavior is unchanged. Explicit `implicit` /
+  `implicitfast` / `RK4` choices are preserved; set `model.opt.integrator` to override.
 - On the warp backend the device is authoritative: `mjo_step`/`mjo_forward` auto-sync the
   actuator command inputs (`*_cmd`) but not `qpos`/`qvel`/`ctrl`/`orbit`/`rw_speed`. After
   editing those, call `mjo_upload(...)` (or pass `sync=True`); call `mjo_pull(...)` before
