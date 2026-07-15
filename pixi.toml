@@ -34,6 +34,11 @@ platforms = ["linux-64"]
 [feature.warp.pypi-dependencies]
 mujoco-warp = ">=3.6.0"
 
+# astropy is pure-Python (+ numpy/scipy/pyerfa wheels) and cross-platform, so unlike
+# `feature.warp` the frames extra needs no `platforms` restriction.
+[feature.frames.pypi-dependencies]
+astropy = ">=6.0"
+
 [feature.rl]
 # RL training stacks on the warp backend; torch + rsl-rl are linux-64-only here
 # for the same wheel-availability reasons as the warp feature.
@@ -56,6 +61,7 @@ py311 = ["dev", "py311"]
 py312 = ["dev", "py312"]
 report = ["dev", "py312", "report"]
 warp = ["dev", "py312", "warp"]
+frames = ["dev", "py312", "frames"]
 rl = ["dev", "py312", "warp", "rl"]
 
 [tasks]
@@ -63,6 +69,7 @@ sync-package = { cmd = "python -m pip install -e . --no-deps --force-reinstall &
 test = { cmd = "pytest -q", depends-on = ["sync-package"] }
 test-api = { cmd = "pytest tests/mjorbit/test_api_model_data.py -q", depends-on = ["sync-package"] }
 test-warp = { cmd = "pytest tests/mjorbit_warp -q", depends-on = ["sync-package"] }
+test-frames = { cmd = "pytest tests/mjorbit/test_frames.py -q", depends-on = ["sync-package"] }
 bench-capture-arm = { cmd = "python benchmarks/capture_arm.py", depends-on = ["sync-package"] }
 lint = "ruff check ."
 typecheck = "pyright --pythonpath $(python -c 'import sys; print(sys.executable)')"
