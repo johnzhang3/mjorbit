@@ -57,6 +57,10 @@ def _copy_f64_1d(dest: Any, values: np.ndarray | float, nworld: int) -> None:
     wp.copy(dest, wp.array(_world_scalar(values, nworld), dtype=wp.float32))
 
 
+def _copy_f64_1d_exact(dest: Any, values: np.ndarray | float, nworld: int) -> None:
+    wp.copy(dest, wp.array(_world_scalar(values, nworld), dtype=wp.float64))
+
+
 def _copy_f64_2d(dest: Any, values: np.ndarray, nworld: int, width: int) -> None:
     if width == 0:
         return
@@ -76,7 +80,15 @@ def sync_core_device_from_public(data: Any, fields: frozenset[str] | None = None
     if fields is None or "orbit" in fields or "core" in fields:
         _copy_vec3d(core.orbit_R_eci, data.orbit.R_eci, data.nworld)
         _copy_vec3d(core.orbit_V_eci, data.orbit.V_eci, data.nworld)
-        _copy_f64_1d(core.orbit_t, data.orbit.t, data.nworld)
+        # Re-anchor the split device clock: the host's absolute t becomes the
+        # float64 anchor and the float32 relative clock restarts at zero, so an
+        # epoch-scale t (~1e9 s since J2000) never lands in a float32.
+        _copy_f64_1d_exact(core.orbit_t0, data.orbit.t, data.nworld)
+        core.orbit_t.zero_()
+        # The segment bookkeeping stores times on the (just re-anchored) relative
+        # clock, and an orbit upload invalidates the endpoints anyway: force the
+        # step kernel's lazy schedule re-init from the uploaded state.
+        core.orbit_segment_duration.zero_()
 
     if _sync_field_enabled(fields, "rw_speed"):
         _copy_f64_2d(
@@ -120,7 +132,7 @@ def pull_core_device_to_public(data: Any, fields: frozenset[str] | None = None) 
     if _pull_field_enabled(fields, "orbit"):
         orbit_R = core.orbit_R_eci.numpy()
         orbit_V = core.orbit_V_eci.numpy()
-        orbit_t = core.orbit_t.numpy()
+        orbit_t = core.orbit_t0.numpy() + core.orbit_t.numpy().astype(np.float64)
         if data.nworld == 1:
             np.copyto(data.orbit.R_eci, orbit_R[0])
             np.copyto(data.orbit.V_eci, orbit_V[0])

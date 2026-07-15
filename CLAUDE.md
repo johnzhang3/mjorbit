@@ -61,11 +61,15 @@ The canonical ECI realization is **GCRF** (J2000-aligned axes; ICRS/astropy `GCR
 `OrbitInit.t` is **seconds since J2000.0** — the frame and clock the bundled solar
 ephemeris/environment models already assume. To pass an initial state in another standard
 realization, set `OrbitInit(frame=..., epoch=...)`; `mjorbit.frames` rotates it into the
-canonical frame at construction (e.g. `frame="TEME"` for a TLE/SGP4 state) and, when
-`epoch` is given, anchors `t` to that absolute time. This uses `astropy`, an optional
-dependency installed via the `frames` extra (`pixi install -e frames`); the default path
-(`frame="ECI"`, `epoch=None`) is untouched and imports nothing. Earth-fixed inputs
-(ITRF/ECEF) and threading the epoch into the C++ environment models are deferred (issue #14).
+canonical frame at construction (e.g. `frame="TEME"` for a TLE/SGP4 state, or
+`frame="ITRF"`/`"ECEF"` for an Earth-fixed state — the ω×r velocity term is applied
+explicitly) and, when `epoch` is given, anchors `t` to that absolute time. This uses
+`astropy`, an optional dependency installed via the `frames` extra
+(`pixi install -e frames`); the default path (`frame="ECI"`, `epoch=None`) is untouched
+and imports nothing. The environment models consume `t`: the central-body `magnetic_axis`
+is body-fixed (ECEF components) and co-rotates about the spin axis with the Earth
+Rotation Angle phase, so a tilted dipole tracks Earth rotation (the default axis is
+parallel to the spin axis, making the default field time-independent).
 
 ## Project Layout
 
@@ -183,10 +187,13 @@ energy/momentum non-conservation.
 - `data.sensordata` is the canonical forward/step-updated sensor buffer. Stochastic sampling
   lives behind `data.sensors`.
 - Keep warp-specific implementation under `src/mjorbit_warp/`. Preserve MuJoCo frame
-  conventions exactly across both backends. The warp device core is float32, including the
-  orbit clock (`orbit_t`): per-step rounding grows past ~1 h of sim time, so time-keyed
-  environment models (sun vector, eclipse, magnetic field) lose timing accuracy on very long
-  device-resident runs (~tens of seconds per sim-hour, worst case).
+  conventions exactly across both backends. The warp device core is float32, but the orbit
+  clock is split: a float64 per-world anchor (`orbit_t0`, set from the host `t` at
+  build/upload) plus a float32 relative clock (`orbit_t`, restarts at 0 on every orbit
+  upload), and the time-keyed environment models (sun vector, co-rotating dipole) evaluate
+  their angles in float64. Epoch-anchored absolute times (~1e9 s since J2000) therefore
+  keep full precision; only per-step float32 rounding of the relative clock remains, which
+  is negligible below multi-day device-resident runs.
 - Keep paper example scenarios and lightweight demos in `examples/`, and paper figure
   generators in `experiments/`. The `src/viewer/` module itself stays backend-agnostic
   (no warp imports); warp-driven visualization lives in examples (e.g.

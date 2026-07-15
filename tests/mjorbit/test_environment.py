@@ -1,6 +1,7 @@
 """Phase 2 validation: environment models (sun, eclipse, magnetic field, atmosphere)."""
 
 import numpy as np
+import pytest
 
 from mjorbit.constants import B0_EARTH, OMEGA_EARTH, R_EARTH
 from tests.mjorbit.reference.orbit.environment import (
@@ -143,3 +144,87 @@ class TestEnvironmentCache:
         assert 0.0 <= ec.eclipse <= 1.0
         assert ec.atm_density > 0
         assert np.all(np.isfinite(ec.mag_field_eci))
+
+
+class TestMagneticAxisCoRotation:
+    """The dipole axis is Earth-fixed and co-rotates (issue #23)."""
+
+    def test_default_aligned_axis_is_time_independent(self):
+        from tests.mjorbit.reference.orbit.environment import magnetic_axis_eci
+
+        for t in [0.0, 3600.0, 8.3e8]:
+            np.testing.assert_allclose(
+                magnetic_axis_eci(t), np.array([0.0, 0.0, -1.0]), atol=1e-15
+            )
+
+    def test_tilted_axis_rotates_about_spin_axis(self):
+        from mjorbit.constants import ERA_J2000
+        from tests.mjorbit.reference.orbit.environment import magnetic_axis_eci
+
+        axis_ecef = np.array([np.sin(0.2), 0.0, -np.cos(0.2)])  # ~11.5 deg tilt
+
+        # At t* with theta(t*) = 2*pi the ECEF axis coincides with its ECI image.
+        t_star = (2.0 * np.pi - ERA_J2000) / OMEGA_EARTH
+        np.testing.assert_allclose(magnetic_axis_eci(t_star, axis_ecef), axis_ecef, atol=1e-12)
+
+        # A quarter sidereal turn later the equatorial component has moved to +y,
+        # the polar component is unchanged, and the axis is still unit length.
+        quarter = 0.5 * np.pi / OMEGA_EARTH
+        m = magnetic_axis_eci(t_star + quarter, axis_ecef)
+        np.testing.assert_allclose(
+            m, [0.0, np.sin(0.2), -np.cos(0.2)], atol=1e-9
+        )
+        assert np.linalg.norm(m) == pytest.approx(1.0)
+
+    def test_dipole_field_uses_rotated_axis(self):
+        from tests.mjorbit.reference.orbit.environment import magnetic_axis_eci
+
+        axis_ecef = np.array([1.0, 0.0, 0.0])
+        R = np.array([R_EARTH + 500.0, 2000.0, -1500.0])
+        t = 1.23e4
+        m_hat = magnetic_axis_eci(t, axis_ecef)
+        r = np.linalg.norm(R)
+        r_hat = R / r
+        expected = (
+            B0_EARTH * (R_EARTH / r) ** 3 * (3.0 * np.dot(m_hat, r_hat) * r_hat - m_hat)
+        )
+        np.testing.assert_allclose(dipole_field_eci(R, t, axis_ecef), expected, atol=1e-20)
+
+
+class TestProductionDipoleCoRotation:
+    """The C++ environment cache co-rotates a tilted central-body dipole."""
+
+    @staticmethod
+    def _make_data(t: float):
+        from pathlib import Path
+
+        from mjorbit import MjoSpec, OrbitInit
+        from mjorbit.testdata import FREE_BODY_XML
+
+        text = Path(FREE_BODY_XML).read_text()
+        block = """
+  <mjorbit plugin_body="spacecraft" use_j2="false" use_drag="false" use_srp="false">
+    <central_body magnetic_axis="0.3 0 -1"/>
+  </mjorbit>
+"""
+        spec = MjoSpec.from_xml_string(text.replace("</mujoco>", block + "</mujoco>"))
+        model = spec.compile(mj_timestep=0.01)
+        R = np.array([R_EARTH + 550.0, 300.0, -800.0])
+        V = np.array([0.1, 7.4, 0.4])
+        return model.make_data(orbit=OrbitInit(R_eci=R, V_eci=V, t=t)), R
+
+    def test_mag_field_matches_reference_and_rotates(self):
+        from tests.mjorbit.reference.orbit.environment import dipole_field_eci as ref_dipole
+
+        axis_ecef = np.array([0.3, 0.0, -1.0])
+        fields = {}
+        for t in (0.0, 3.0e4):
+            data, R = self._make_data(t)
+            np.testing.assert_allclose(
+                data.env.mag_field_eci, ref_dipole(R, t, axis_ecef), rtol=1e-12
+            )
+            fields[t] = np.asarray(data.env.mag_field_eci).copy()
+
+        # The tilted dipole actually moved between the two epochs.
+        delta = np.linalg.norm(fields[0.0] - fields[3.0e4])
+        assert delta > 1e-3 * np.linalg.norm(fields[0.0])

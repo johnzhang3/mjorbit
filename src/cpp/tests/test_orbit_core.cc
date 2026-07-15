@@ -186,6 +186,34 @@ void test_dipole_B() {
   expect_rel_near(norm3(B_pole) / norm3(B_equator), 2.0, 1e-12, "dipole pole/equator ratio");
 }
 
+void test_magnetic_axis_corotation() {
+  mjorbit::CentralBodySpecNative body;
+  body.magnetic_axis = {1.0, 0.0, 0.0};  // equatorial, body-fixed (ECEF)
+
+  // theta(t*) = 2*pi: the ECI direction coincides with the ECEF components.
+  const double omega_mag = norm3(body.omega.data());
+  const double t_star = (2.0 * kPi - mjorbit::kEraJ2000) / omega_mag;
+  double m_hat[3];
+  mjorbit::magnetic_axis_eci(t_star, m_hat, body);
+  expect_near(m_hat[0], 1.0, 1e-12, "corotation full turn x");
+  expect_near(m_hat[1], 0.0, 1e-12, "corotation full turn y");
+
+  // A quarter turn later the equatorial axis points along +y.
+  mjorbit::magnetic_axis_eci(t_star + 0.5 * kPi / omega_mag, m_hat, body);
+  expect_near(m_hat[0], 0.0, 1e-9, "corotation quarter turn x");
+  expect_near(m_hat[1], 1.0, 1e-9, "corotation quarter turn y");
+
+  // The default axis is parallel to the spin axis: time-independent.
+  mjorbit::CentralBodySpecNative aligned;
+  double m0[3];
+  double m1[3];
+  mjorbit::magnetic_axis_eci(0.0, m0, aligned);
+  mjorbit::magnetic_axis_eci(8.3e8, m1, aligned);
+  expect_near(m0[2], -1.0, 1e-15, "aligned axis direction");
+  expect_near(m1[2], -1.0, 1e-15, "aligned axis time-independent");
+  expect_near(m0[0] - m1[0], 0.0, 1e-15, "aligned axis x drift");
+}
+
 void test_keplerian_roundtrip() {
   std::mt19937_64 rng(12345);
   std::uniform_real_distribution<double> a_dist(mjorbit::kREarth + 300.0, mjorbit::kREarth + 5000.0);
@@ -233,6 +261,7 @@ int main() {
       {"lvlh", test_lvlh},
       {"eclipse", test_eclipse},
       {"dipole_B", test_dipole_B},
+      {"magnetic_axis_corotation", test_magnetic_axis_corotation},
       {"keplerian_roundtrip", test_keplerian_roundtrip},
   };
 

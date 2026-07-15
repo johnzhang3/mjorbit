@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from mjorbit import MjoData, MjoModel, OrbitInit, frames
+from mjorbit.constants import R_EARTH
 from mjorbit.data import _resolve_canonical_orbit
 from mjorbit.testdata import FREE_BODY_XML
 
@@ -146,6 +147,69 @@ def test_teme_round_trip_through_astropy_recovers_input():
     V_back = back.differentials["s"].d_xyz.to_value(u.km / u.s)
     np.testing.assert_allclose(R_back, R0, atol=1e-6)
     np.testing.assert_allclose(V_back, V0, atol=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# ITRF/ECEF -> GCRF (requires astropy): position via astropy, velocity with the
+# explicit omega x r Earth-rotation term (issue #23)
+# ---------------------------------------------------------------------------
+
+
+def test_earth_fixed_frame_requires_epoch():
+    for frame in ("ITRF", "ECEF", "ITRS"):
+        orbit = OrbitInit(R_eci=R0, V_eci=V0, frame=frame)  # no epoch
+        with pytest.raises(ValueError, match="epoch-dependent"):
+            frames.resolve_orbit_state(orbit)
+
+
+def test_earth_fixed_point_gains_the_earth_rotation_velocity():
+    pytest.importorskip("astropy")
+    # A point at rest in ITRF moves at |omega x r| in the inertial frame — the
+    # ~0.46 km/s-class term that a bare matrix transform of the velocity drops.
+    r_itrf = np.array([R_EARTH + 400.0, 0.0, 0.0])
+    orbit = OrbitInit(R_eci=r_itrf, V_eci=np.zeros(3), frame="ITRF", epoch=EPOCH)
+    R, V, t = frames.resolve_orbit_state(orbit)
+
+    omega = 7.292115146706979e-5
+    expected_speed = omega * np.linalg.norm(r_itrf[:2])
+    assert np.linalg.norm(R) == pytest.approx(np.linalg.norm(r_itrf), rel=1e-9)
+    assert np.linalg.norm(V) == pytest.approx(expected_speed, rel=1e-4)
+    # The inertial velocity of an Earth-fixed point is horizontal: v . r = 0.
+    assert abs(np.dot(V, R)) / (np.linalg.norm(V) * np.linalg.norm(R)) < 1e-4
+    assert t == pytest.approx(frames.seconds_since_j2000(EPOCH))
+
+
+def test_earth_fixed_velocity_matches_astropy_finite_difference():
+    pytest.importorskip("astropy")
+    from astropy import units as u
+    from astropy.coordinates import GCRS, ITRS, CartesianRepresentation
+    from astropy.time import Time
+
+    # Ground truth: an inertially-moving point (R0, V0) in GCRF, expressed in ITRS
+    # at epoch +/- delta by astropy (positions only); the ITRS velocity is the
+    # central difference. Feeding that ITRS state back through resolve_orbit_state
+    # must recover the original GCRF state, omega x r term and all.
+    epoch_time = Time(EPOCH)
+    delta = 0.5  # s
+
+    def itrs_pos(r_gcrf: np.ndarray, at) -> np.ndarray:
+        rep = CartesianRepresentation(r_gcrf * u.km)
+        out = GCRS(rep, obstime=at).transform_to(ITRS(obstime=at)).cartesian
+        return np.asarray(out.xyz.to_value(u.km), dtype=float)
+
+    t_minus = epoch_time - delta * u.s
+    t_plus = epoch_time + delta * u.s
+    r_itrs = itrs_pos(R0, epoch_time)
+    v_itrs = (itrs_pos(R0 + V0 * delta, t_plus) - itrs_pos(R0 - V0 * delta, t_minus)) / (
+        2.0 * delta
+    )
+
+    orbit = OrbitInit(R_eci=r_itrs, V_eci=v_itrs, frame="ITRF", epoch=epoch_time)
+    R, V, _ = frames.resolve_orbit_state(orbit)
+    np.testing.assert_allclose(R, R0, atol=1e-6)
+    # mm/s-level agreement: bounded by the finite-difference step and the neglected
+    # polar-motion rate, both far below the 0.46 km/s term under test.
+    np.testing.assert_allclose(V, V0, atol=1e-6)
 
 
 # ---------------------------------------------------------------------------

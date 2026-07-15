@@ -11,6 +11,8 @@ inline constexpr double kGmEarth    = 398600.4418;    // km^3/s^2
 inline constexpr double kREarth     = 6378.137;       // km
 inline constexpr double kJ2Earth    = 1.08262668e-3;
 inline constexpr double kOmegaEarth = 7.292115e-5;    // rad/s
+// Earth Rotation Angle at J2000.0 (rad): 2*pi * 0.7790572732640 (IERS 2010).
+inline constexpr double kEraJ2000 = 4.894961212823756;
 
 // Sun
 inline constexpr double kGmSun = 1.32712440018e11;    // km^3/s^2

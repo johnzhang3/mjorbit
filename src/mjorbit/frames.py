@@ -1,7 +1,9 @@
 # pyright: reportAttributeAccessIssue=false, reportOperatorIssue=false
-# (astropy's runtime attributes — Representation.xyz, Differential.d_xyz, Time
-# arithmetic — are not described by its type stubs; the behavior is exercised by
-# tests/mjorbit/test_frames.py.)
+# pyright: reportMissingImports=false
+# (astropy is an optional dependency absent from the default typecheck env, and its
+# runtime attributes — Representation.xyz, Differential.d_xyz, Time arithmetic — are
+# not described by its type stubs; the behavior is exercised by
+# tests/mjorbit/test_frames.py under the `frames` environment.)
 
 """Standard inertial-frame conversions for orbit initial conditions.
 
@@ -46,13 +48,21 @@ _CANONICAL_ALIASES = frozenset({"ECI", "GCRF", "GCRS", "ICRF", "J2000", "EME2000
 # TEME (the SGP4/TLE output frame) is inertial-to-inertial relative to GCRF: the net
 # rotation rate is only precession/nutation level, so the rotated velocity is recovered
 # to ~0.05 mm/s (astropy correctly includes that small frame-rate term and does NOT
-# inject Earth rotation). Earth-fixed frames (ITRF/ECEF) are intentionally *not* here:
-# astropy's matrix transform would omit the ~0.46 km/s omega x r term for a true
-# Earth-fixed velocity, so supporting them correctly is deferred (see issue #14).
+# inject Earth rotation).
 _ROTATING_FRAMES = frozenset({"TEME"})
 
+# Earth-fixed frames. Positions rotate through astropy's ITRS->GCRS transform; the
+# velocity is handled explicitly as v_gcrf = M(t) @ (v_itrf + omega_earth x r_itrf),
+# because astropy's matrix transform of a differential would omit the ~0.46 km/s
+# omega x r term of a truly Earth-fixed velocity. Neglected: the polar-motion rate
+# and LOD variation of |omega| (sub-mm/s at LEO).
+_EARTH_FIXED_FRAMES = frozenset({"ITRF", "ITRS", "ECEF"})
+
+# IERS nominal Earth rotation rate (rad/s), the omega of the omega x r term above.
+_OMEGA_EARTH_ITRS = 7.292115146706979e-5
+
 #: Input frames accepted by :func:`resolve_orbit_state`.
-SUPPORTED_FRAMES = _CANONICAL_ALIASES | _ROTATING_FRAMES
+SUPPORTED_FRAMES = _CANONICAL_ALIASES | _ROTATING_FRAMES | _EARTH_FIXED_FRAMES
 
 
 def _require_astropy() -> None:
@@ -111,6 +121,35 @@ def _rotate_into_gcrf(
     return R_out, V_out
 
 
+def _earth_fixed_into_gcrf(
+    R_km: np.ndarray, V_kms: np.ndarray, epoch_time
+) -> tuple[np.ndarray, np.ndarray]:
+    """Convert a truly Earth-fixed (ITRS/ECEF) state into GCRF at ``epoch_time``.
+
+    The position rotates through astropy's rigorous ITRS->GCRS chain (polar motion,
+    Earth rotation angle, precession-nutation). The velocity of an Earth-fixed point
+    seen from the inertial frame is ``M(t) @ (v_itrs + omega x r_itrs)``; applying the
+    rotation matrix alone would drop the ~0.46 km/s Earth-rotation term.
+    """
+    _require_astropy()
+    from astropy import units as u
+    from astropy.coordinates import GCRS, ITRS, CartesianRepresentation
+
+    r_itrs = np.asarray(R_km, dtype=float)
+    v_itrs = np.asarray(V_kms, dtype=float)
+
+    # GCRF-from-ITRS rotation matrix at the epoch: transform the ITRS basis vectors
+    # (positions only); column j of the result is M @ e_j.
+    basis = CartesianRepresentation(np.eye(3) * u.km)
+    gcrf_basis = ITRS(basis, obstime=epoch_time).transform_to(GCRS(obstime=epoch_time))
+    M = np.asarray(gcrf_basis.cartesian.xyz.to_value(u.km), dtype=float)
+
+    omega = np.array([0.0, 0.0, _OMEGA_EARTH_ITRS])
+    R_out = M @ r_itrs
+    V_out = M @ (v_itrs + np.cross(omega, r_itrs))
+    return R_out, V_out
+
+
 def resolve_orbit_state(orbit) -> tuple[np.ndarray, np.ndarray, float]:
     """Resolve an :class:`~mjorbit.config.OrbitInit` to canonical GCRF state.
 
@@ -128,15 +167,20 @@ def resolve_orbit_state(orbit) -> tuple[np.ndarray, np.ndarray, float]:
             f"{sorted(SUPPORTED_FRAMES)}."
         )
 
-    if frame in _ROTATING_FRAMES:
+    if frame in _ROTATING_FRAMES or frame in _EARTH_FIXED_FRAMES:
         if orbit.epoch is None:
             raise ValueError(
                 f"frame={orbit.frame!r} is epoch-dependent; supply an absolute time via "
                 "OrbitInit(epoch=...) (ISO-UTC string, datetime, or astropy Time)."
             )
-        R_eci, V_eci = _rotate_into_gcrf(
-            orbit.R_eci, orbit.V_eci, frame, _as_time(orbit.epoch)
-        )
+        if frame in _EARTH_FIXED_FRAMES:
+            R_eci, V_eci = _earth_fixed_into_gcrf(
+                orbit.R_eci, orbit.V_eci, _as_time(orbit.epoch)
+            )
+        else:
+            R_eci, V_eci = _rotate_into_gcrf(
+                orbit.R_eci, orbit.V_eci, frame, _as_time(orbit.epoch)
+            )
     else:
         R_eci = np.asarray(orbit.R_eci, dtype=float)
         V_eci = np.asarray(orbit.V_eci, dtype=float)
