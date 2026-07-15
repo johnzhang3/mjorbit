@@ -13,7 +13,6 @@ import argparse
 import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -75,6 +74,9 @@ def main() -> None:
 
     if args.plot:
         # quickly plot the position and quaternion to sanity check
+        # (matplotlib comes from the optional report env; only needed here)
+        import matplotlib.pyplot as plt
+
         _, axs = plt.subplots(2, 1, sharex=True)
         axs[0].plot(t, qpos[:, :3])
         add_markers(axs[0])

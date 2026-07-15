@@ -95,11 +95,15 @@ before reading public buffers back on the host.
 
 ## Units and Frames
 
-All physics quantities use km, s, kg, rad, T (torques in kg·km²/s²; forces in
-kN). MuJoCo's internal SI state is converted at the boundary. The MuJoCo
-`world` frame is a chief-centered local inertial frame with axes parallel to
-ECI; the absolute orbit lives in `data.orbit`, and LVLH quantities are derived
-via the `data.frame` helpers. See `CLAUDE.md` for the full frame conventions.
+Orbit-side quantities — `OrbitInit`, `data.orbit`, environment caches, and the
+orbital actuator commands (`data.actuators.*_cmd`) — use km, s, kg, rad, T
+(torques in kg·km²/s²; forces in kN). The MuJoCo-facing buffers (`qpos`,
+`qvel`, `ctrl`, `xfrc_applied`, ...) and XML models stay in MuJoCo's native SI
+units (m, s, kg); conversions between the two happen inside the step at the
+MuJoCo boundary. The MuJoCo `world` frame is a chief-centered local inertial
+frame (SI offsets from the chief) with axes parallel to ECI; the absolute
+orbit lives in `data.orbit`, and LVLH quantities are derived via the
+`data.frame` helpers. See `CLAUDE.md` for the full frame conventions.
 
 ## Interactive Viewer
 
