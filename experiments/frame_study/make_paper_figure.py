@@ -189,11 +189,11 @@ def tikz_document(
             "  },",
             "}",
             "\\pgfplotsset{",
-            # Match the paper palette: plotMedBlue (008DFF), plotOrange (FF9D3A),
-            # plotPurple (C701FF) so the figure agrees with the caption colors.
-            "  frameEci/.style={color={rgb,255:red,0;green,141;blue,255}},",
-            "  frameChief/.style={color={rgb,255:red,255;green,157;blue,58}},",
-            "  frameLvlh/.style={color={rgb,255:red,199;green,1;blue,255}},",
+            # Match the paper palette: ECI plotRed (D83034), OF plotDarkBlue (003A7D),
+            # LVLH gray (black!55 ~ 737373) so the figure agrees with the caption colors.
+            "  frameEci/.style={color={rgb,255:red,216;green,48;blue,52}},",
+            "  frameChief/.style={color={rgb,255:red,0;green,58;blue,125}},",
+            "  frameLvlh/.style={color={rgb,255:red,115;green,115;blue,115}},",
             "}",
             "\\begin{groupplot}[",
             "  frameStudyAxis,",
