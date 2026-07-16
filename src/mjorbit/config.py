@@ -15,9 +15,11 @@ class OrbitInit:
     By default ``R_eci``/``V_eci`` are interpreted directly as mjorbit's canonical
     Earth-centered inertial frame — **GCRF** (J2000-aligned axes), with ``t`` measured
     as seconds since the J2000.0 epoch. Set ``frame`` (and ``epoch``) to supply state in
-    another standard realization (e.g. ``"TEME"`` from a TLE/SGP4 propagation); it is
-    rotated into the canonical frame at construction via :mod:`mjorbit.frames`, which
-    requires the optional ``frames`` extra (``pip install 'mjorbit[frames]'``).
+    another standard realization (e.g. ``"TEME"`` from a TLE/SGP4 propagation, or an
+    Earth-fixed ``"ITRF"``/``"ECEF"`` state — the ω×r velocity term is applied
+    explicitly); it is rotated into the canonical frame at construction via
+    :mod:`mjorbit.frames`, which requires the optional ``frames`` extra
+    (``pip install 'mjorbit[frames]'``).
 
     Args:
         R_eci: position, shape (3,), km, in ``frame``.

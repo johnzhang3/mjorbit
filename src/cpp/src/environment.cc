@@ -51,13 +51,46 @@ double eclipse_factor(
   return 1.0;
 }
 
-void dipole_field_eci(const double R_eci[3], double /*t*/, double out_B_eci[3]) {
-  dipole_field_eci(R_eci, 0.0, out_B_eci, CentralBodySpecNative{});
+void magnetic_axis_eci(
+    double t, double out_m_hat[3], const CentralBodySpecNative& central_body) {
+  double m_hat[3] = {
+      central_body.magnetic_axis[0],
+      central_body.magnetic_axis[1],
+      central_body.magnetic_axis[2],
+  };
+  detail::normalize3(m_hat, m_hat);
+
+  // magnetic_axis is body-fixed (ECEF components): co-rotate it about the spin
+  // axis by theta(t) = ERA_J2000 + |omega| * t, t in seconds since J2000.0. With
+  // the default axis parallel to the spin axis this is a no-op. Uses the Earth
+  // Rotation Angle phase; UT1-vs-TT and polar motion (< 0.3 deg combined) are
+  // below the fidelity of the centered-dipole model.
+  const double omega_mag = detail::norm3(central_body.omega.data());
+  if (omega_mag == 0.0) {
+    detail::copy3(m_hat, out_m_hat);
+    return;
+  }
+  double omega_hat[3];
+  detail::normalize3(central_body.omega.data(), omega_hat);
+  const double theta = kEraJ2000 + omega_mag * t;
+  const double c = std::cos(theta);
+  const double s = std::sin(theta);
+  // Rodrigues rotation of m_hat about omega_hat by theta.
+  double cross[3];
+  detail::cross3(omega_hat, m_hat, cross);
+  const double dot = detail::dot3(omega_hat, m_hat);
+  for (int i = 0; i < 3; ++i) {
+    out_m_hat[i] = m_hat[i] * c + cross[i] * s + omega_hat[i] * dot * (1.0 - c);
+  }
+}
+
+void dipole_field_eci(const double R_eci[3], double t, double out_B_eci[3]) {
+  dipole_field_eci(R_eci, t, out_B_eci, CentralBodySpecNative{});
 }
 
 void dipole_field_eci(
     const double R_eci[3],
-    double /*t*/,
+    double t,
     double out_B_eci[3],
     const CentralBodySpecNative& central_body) {
   const double r = detail::norm3(R_eci);
@@ -68,12 +101,8 @@ void dipole_field_eci(
 
   double r_hat[3];
   detail::normalize3(R_eci, r_hat);
-  double m_hat[3] = {
-      central_body.magnetic_axis[0],
-      central_body.magnetic_axis[1],
-      central_body.magnetic_axis[2],
-  };
-  detail::normalize3(m_hat, m_hat);
+  double m_hat[3];
+  magnetic_axis_eci(t, m_hat, central_body);
   const double factor = central_body.magnetic_b0 * std::pow(central_body.radius / r, 3);
   const double dot = detail::dot3(m_hat, r_hat);
   for (int i = 0; i < 3; ++i) {

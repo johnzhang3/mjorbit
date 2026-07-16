@@ -14,6 +14,7 @@ from .environment import (
     _atm_density,
     _dipole_field_eci,
     _eclipse_factor,
+    _magnetic_axis_eci,
     _sun_vector_eci,
 )
 from .frame import _frame_from_orbit
@@ -29,9 +30,12 @@ def _refresh_core(
     radius_km: wp.float32,
     magnetic_b0: wp.float32,
     magnetic_axis: wp.vec3,
+    spin_axis: wp.vec3,
+    omega_mag: wp.float64,
     orbit_R_eci: wp.array(dtype=wp.vec3),
     orbit_V_eci: wp.array(dtype=wp.vec3),
     orbit_t: wp.array(dtype=wp.float32),
+    orbit_t0: wp.array(dtype=wp.float64),
     frame_C_LI: wp.array(dtype=wp.mat33),
     frame_C_IL: wp.array(dtype=wp.mat33),
     frame_omega_lvlh: wp.array(dtype=wp.vec3),
@@ -45,14 +49,17 @@ def _refresh_core(
     R = orbit_R_eci[world_id]
     V = orbit_V_eci[world_id]
     C_LI, C_IL, omega_lvlh, omega_dot_lvlh = _frame_from_orbit(R, V, use_j2)
-    sun_hat = _sun_vector_eci(orbit_t[world_id])
+    # Absolute time (s since J2000) = float64 anchor + float32 device-relative clock.
+    t_abs = orbit_t0[world_id] + wp.float64(orbit_t[world_id])
+    sun_hat = _sun_vector_eci(t_abs)
+    m_hat_eci = _magnetic_axis_eci(t_abs, magnetic_axis, spin_axis, omega_mag)
     frame_C_LI[world_id] = C_LI
     frame_C_IL[world_id] = C_IL
     frame_omega_lvlh[world_id] = omega_lvlh
     frame_omega_dot_lvlh[world_id] = omega_dot_lvlh
     env_sun_vector_eci[world_id] = sun_hat
     env_eclipse[world_id] = _eclipse_factor(R, sun_hat, radius_km)
-    env_mag_field_eci[world_id] = _dipole_field_eci(R, magnetic_b0, magnetic_axis, radius_km)
+    env_mag_field_eci[world_id] = _dipole_field_eci(R, magnetic_b0, m_hat_eci, radius_km)
     env_atmosphere_omega_eci[world_id] = wp.vec3(
         wp.float32(0.0),
         wp.float32(0.0),
@@ -70,9 +77,12 @@ def _refresh_core_kernel(
     radius_km: wp.float32,
     magnetic_b0: wp.float32,
     magnetic_axis: wp.vec3,
+    spin_axis: wp.vec3,
+    omega_mag: wp.float64,
     orbit_R_eci: wp.array(dtype=wp.vec3),
     orbit_V_eci: wp.array(dtype=wp.vec3),
     orbit_t: wp.array(dtype=wp.float32),
+    orbit_t0: wp.array(dtype=wp.float64),
     frame_C_LI: wp.array(dtype=wp.mat33),
     frame_C_IL: wp.array(dtype=wp.mat33),
     frame_omega_lvlh: wp.array(dtype=wp.vec3),
@@ -97,9 +107,12 @@ def _refresh_core_kernel(
         radius_km,
         magnetic_b0,
         magnetic_axis,
+        spin_axis,
+        omega_mag,
         orbit_R_eci,
         orbit_V_eci,
         orbit_t,
+        orbit_t0,
         frame_C_LI,
         frame_C_IL,
         frame_omega_lvlh,

@@ -14,6 +14,13 @@ double eclipse_factor(
     const double sun_hat[3],
     const CentralBodySpecNative& central_body);
 
+// Direction of the central body's magnetic dipole axis in ECI at time t
+// (seconds since J2000.0). The configured magnetic_axis is body-fixed (ECEF
+// components) and co-rotates about the spin axis omega with the Earth Rotation
+// Angle phase; with the default axis parallel to omega this is the identity.
+void magnetic_axis_eci(
+    double t, double out_m_hat[3], const CentralBodySpecNative& central_body);
+
 void dipole_field_eci(const double R_eci[3], double t, double out_B_eci[3]);
 void dipole_field_eci(
     const double R_eci[3],

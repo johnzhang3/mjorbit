@@ -58,7 +58,9 @@ class DeviceCoreModel:
     total_mass: float
     radius_km: float
     magnetic_b0: float
-    magnetic_axis: Any  # normalized dipole-moment direction (wp.vec3)
+    magnetic_axis: Any  # normalized dipole-axis direction, ECEF components (wp.vec3)
+    spin_axis: Any  # normalized central-body spin axis (wp.vec3)
+    omega_mag: float  # |omega| of the central body, rad/s
     atm_h0_km: float
     atm_rho0: float
     atm_h_scale_km: float
@@ -70,7 +72,11 @@ class DeviceCoreData:
 
     orbit_R_eci: Any
     orbit_V_eci: Any
+    # Device clock split: orbit_t is float32 time since the float64 per-world
+    # anchor orbit_t0 (s since J2000). Absolute time = orbit_t0 + orbit_t; the
+    # relative clock keeps float32 rounding small even for epoch-anchored runs.
     orbit_t: Any
+    orbit_t0: Any
     feedback_force_world: Any  # accumulated non-gravitational force on chief, in N
     orbit_segment_start_R_eci: Any
     orbit_segment_start_V_eci: Any

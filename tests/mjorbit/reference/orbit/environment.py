@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from mjorbit.constants import B0_EARTH, OMEGA_EARTH, R_EARTH
+from mjorbit.constants import B0_EARTH, ERA_J2000, OMEGA_EARTH, R_EARTH
 from tests.mjorbit.reference.orbit.state import EnvironmentCache, FrameCache, OrbitState
 
 # ---------------------------------------------------------------------------
@@ -68,26 +68,64 @@ def eclipse_factor(R_eci: np.ndarray, sun_hat: np.ndarray) -> float:
 # Centered-dipole magnetic field
 # ---------------------------------------------------------------------------
 
-def dipole_field_eci(R_eci: np.ndarray, t: float) -> np.ndarray:
+def magnetic_axis_eci(
+    t: float,
+    magnetic_axis: np.ndarray | None = None,
+    omega: np.ndarray | None = None,
+) -> np.ndarray:
+    """Unit dipole-axis direction in ECI at ``t`` (seconds since J2000.0).
+
+    ``magnetic_axis`` is body-fixed (ECEF components) and co-rotates about the
+    spin axis ``omega`` by ``theta(t) = ERA_J2000 + |omega| * t``; with the
+    default axis parallel to the spin axis this is the identity. Mirrors the
+    production ``magnetic_axis_eci`` (src/cpp/src/environment.cc).
+    """
+    m_hat = np.array([0.0, 0.0, -1.0]) if magnetic_axis is None else (
+        np.asarray(magnetic_axis, dtype=float)
+    )
+    m_hat = m_hat / np.linalg.norm(m_hat)
+    omega = (
+        np.array([0.0, 0.0, OMEGA_EARTH]) if omega is None else np.asarray(omega, float)
+    )
+    omega_mag = float(np.linalg.norm(omega))
+    if omega_mag == 0.0:
+        return m_hat
+    omega_hat = omega / omega_mag
+    theta = ERA_J2000 + omega_mag * t
+    c, s = np.cos(theta), np.sin(theta)
+    # Rodrigues rotation of m_hat about omega_hat by theta.
+    return (
+        m_hat * c
+        + np.cross(omega_hat, m_hat) * s
+        + omega_hat * np.dot(omega_hat, m_hat) * (1.0 - c)
+    )
+
+
+def dipole_field_eci(
+    R_eci: np.ndarray,
+    t: float,
+    magnetic_axis: np.ndarray | None = None,
+    omega: np.ndarray | None = None,
+) -> np.ndarray:
     """Centered-dipole magnetic field in ECI.
 
-    Tilted dipole approximation: dipole axis = geographic north pole (simple version).
-    For a more accurate model, tilt the dipole axis.  Here we use aligned dipole for
-    a first pass (same as OrbitX's centered-dipole model).
+    The dipole axis is body-fixed (ECEF) and co-rotates with the central body
+    (see :func:`magnetic_axis_eci`). The default axis is ``-z`` — geographic
+    south, matching the OrbitX convention — which is parallel to the spin axis,
+    so the default field is time-independent.
 
     Args:
         R_eci: spacecraft ECI position, km
-        t: seconds since J2000.0 (unused for aligned dipole)
+        t: seconds since J2000.0
+        magnetic_axis: dipole axis, ECEF components (default aligned ``-z``)
+        omega: central-body spin vector, rad/s (default Earth about ``+z``)
 
     Returns:
         magnetic field vector in ECI, T
     """
     r = np.linalg.norm(R_eci)
     r_hat = R_eci / r
-    # Dipole axis along -ECI z (geographic south, matching OrbitX convention)
-    # Earth's magnetic dipole moment points from geomagnetic north to south,
-    # so at the geographic north pole, B points radially inward.
-    m_hat = np.array([0.0, 0.0, -1.0])
+    m_hat = magnetic_axis_eci(t, magnetic_axis, omega)
     factor = B0_EARTH * (R_EARTH / r) ** 3
     B = factor * (3.0 * np.dot(m_hat, r_hat) * r_hat - m_hat)
     return B

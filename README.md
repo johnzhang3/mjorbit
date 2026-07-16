@@ -62,8 +62,10 @@ print(data.time, data.qpos[:3])
 For a runnable script with a Clohessy-Wiltshire reference check, see
 `examples/free_drift.py`.
 
-Orbit initial conditions can also be given in a named inertial frame with an
-absolute epoch (requires the `frames` environment):
+Orbit initial conditions can also be given in another named frame with an
+absolute epoch (requires the `frames` environment) — inertial realizations like
+`TEME` (the SGP4/TLE output frame) or Earth-fixed `ITRF`/`ECEF` states, whose
+ω×r velocity term is applied explicitly:
 
 ```python
 data = model.make_data(

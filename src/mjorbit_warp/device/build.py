@@ -94,6 +94,11 @@ def make_device_core_model(model: Any) -> DeviceCoreModel:
     if mag_axis_norm > 0.0:
         mag_axis = mag_axis / mag_axis_norm
 
+    # Central-body spin (for dipole co-rotation): unit axis + rate magnitude.
+    spin = np.asarray(central_body.omega, dtype=np.float64)
+    omega_mag = float(np.linalg.norm(spin))
+    spin_axis = spin / omega_mag if omega_mag > 0.0 else np.array([0.0, 0.0, 1.0])
+
     return DeviceCoreModel(
         body_mass=_array_f64(model.body_mass),
         body_ipos=_array_vec3d(model.body_ipos),
@@ -140,6 +145,10 @@ def make_device_core_model(model: Any) -> DeviceCoreModel:
         magnetic_axis=wp.vec3(
             float(mag_axis[0]), float(mag_axis[1]), float(mag_axis[2])
         ),
+        spin_axis=wp.vec3(
+            float(spin_axis[0]), float(spin_axis[1]), float(spin_axis[2])
+        ),
+        omega_mag=omega_mag,
         atm_h0_km=float(central_body.atmosphere_h0),
         atm_rho0=float(central_body.atmosphere_rho0),
         atm_h_scale_km=float(central_body.atmosphere_scale_height),
@@ -161,7 +170,11 @@ def make_device_core_data(
     return DeviceCoreData(
         orbit_R_eci=wp.array(orbit_R, dtype=wp.vec3, shape=(nworld,)),
         orbit_V_eci=wp.array(orbit_V, dtype=wp.vec3, shape=(nworld,)),
-        orbit_t=wp.array(orbit_t, dtype=wp.float32),
+        # Split clock: float64 absolute anchor + float32 device-relative time
+        # (starts at 0), so epoch-anchored t (~1e9 s since J2000) keeps full
+        # precision in the time-keyed environment models.
+        orbit_t=wp.zeros((nworld,), dtype=wp.float32),
+        orbit_t0=wp.array(orbit_t, dtype=wp.float64),
         # External (non-gravitational) net force on chief: sum of drag/SRP/thrust
         # forces on all bodies. Used to drive chief feedback acceleration AND
         # to apply origin-acceleration compensation -m·a_chief to each body.
