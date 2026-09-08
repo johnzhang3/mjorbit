@@ -87,7 +87,7 @@ class MjOrbitApp:
         names = available_tasks()
         if not names:
             raise RuntimeError("no viewer tasks are registered")
-        self._task_name = task if task is not None else names[0]
+        self._task_name = task if task is not None else "free_drift"
         if self._task_name not in names:
             raise KeyError(f"unknown task {self._task_name!r}; available: {', '.join(names)}")
 

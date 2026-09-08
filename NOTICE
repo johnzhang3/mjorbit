@@ -1,0 +1,13 @@
+mjorbit
+Copyright 2026 The mjorbit contributors
+
+Original project code and documentation are licensed under the Apache License,
+Version 2.0. Third-party assets retain their respective terms and attribution.
+
+The bundled Earth textures are NASA Blue Marble imagery, courtesy of NASA Earth
+Observatory. Sources and credits are recorded in viewer/assets/README.md in the
+installed package (src/viewer/assets/README.md in the source repository).
+
+The source-only docking meshes have separate provenance notes in
+examples/docking/assets/README.md. The project license does not replace the
+terms of those third-party assets.

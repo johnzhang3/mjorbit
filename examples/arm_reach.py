@@ -1,4 +1,4 @@
-"""Phase 9 example: articulated spacecraft with a 2-link arm.
+"""Articulated spacecraft with a 2-link arm.
 
 Demonstrates the coupled simulator with an articulated spacecraft-arm system:
 1. Free-floating drift: arm moves but COM orbit is preserved
@@ -11,30 +11,21 @@ Usage:
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-
 import numpy as np
 from _orbit_reference import circular_orbit_eci
 
-from mjorbit import MjoData, MjoModel, OrbitInit, mjo_step
+from mjorbit import MjoModel, MjoSpec, OrbitInit, mjo_step
 from mjorbit.constants import GM_EARTH, R_EARTH
 from mjorbit.testdata import SPACECRAFT_ARM_XML
 
 
 def _compile_model(xml_path: str, *, mj_timestep: float) -> MjoModel:
-    mjorbit = (
-        '<mjorbit use_j2="false" use_drag="false" use_srp="false" '
-        'use_magnetic="false">\n  </mjorbit>\n'
-    )
-    xml = Path(xml_path).read_text().replace("</mujoco>", f"  {mjorbit}</mujoco>")
-    with tempfile.NamedTemporaryFile(suffix=".xml", mode="w", delete=False) as file:
-        file.write(xml)
-        configured_path = Path(file.name)
-    try:
-        return MjoModel.from_xml_path(str(configured_path), mj_timestep=mj_timestep)
-    finally:
-        configured_path.unlink(missing_ok=True)
+    spec = MjoSpec.from_xml_path(xml_path)
+    spec.mjorbit.use_j2 = False
+    spec.mjorbit.use_drag = False
+    spec.mjorbit.use_srp = False
+    spec.mjorbit.use_magnetic = False
+    return spec.compile(mj_timestep=mj_timestep)
 
 
 def main() -> None:
@@ -44,7 +35,7 @@ def main() -> None:
     R_eci, V_eci = circular_orbit_eci(a_km, np.deg2rad(51.6))
 
     model = _compile_model(SPACECRAFT_ARM_XML, mj_timestep=0.002)
-    data = MjoData(model, orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
+    data = model.make_data(orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
     mjm, mjd = model, data
 
     print("=" * 60)

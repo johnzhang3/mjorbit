@@ -1,4 +1,4 @@
-"""Phase 9 example: free-body drift in circular LEO.
+"""Free-body drift in circular LEO.
 
 Chief in a 400 km circular orbit at 51.6 deg inclination.
 One free body offset 10 m radially with no drag, SRP, or magnetic effects.
@@ -10,30 +10,21 @@ Usage:
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-
 import numpy as np
 from _orbit_reference import circular_orbit_eci
 
-from mjorbit import MjoData, MjoModel, OrbitInit, mjo_forward, mjo_step
+from mjorbit import MjoModel, MjoSpec, OrbitInit, mjo_forward, mjo_step
 from mjorbit.constants import GM_EARTH, R_EARTH
 from mjorbit.testdata import FREE_BODY_XML
 
 
 def _compile_model(xml_path: str, *, mj_timestep: float) -> MjoModel:
-    mjorbit = (
-        '<mjorbit use_j2="false" use_drag="false" use_srp="false" '
-        'use_magnetic="false">\n  </mjorbit>\n'
-    )
-    xml = Path(xml_path).read_text().replace("</mujoco>", f"  {mjorbit}</mujoco>")
-    with tempfile.NamedTemporaryFile(suffix=".xml", mode="w", delete=False) as file:
-        file.write(xml)
-        configured_path = Path(file.name)
-    try:
-        return MjoModel.from_xml_path(str(configured_path), mj_timestep=mj_timestep)
-    finally:
-        configured_path.unlink(missing_ok=True)
+    spec = MjoSpec.from_xml_path(xml_path)
+    spec.mjorbit.use_j2 = False
+    spec.mjorbit.use_drag = False
+    spec.mjorbit.use_srp = False
+    spec.mjorbit.use_magnetic = False
+    return spec.compile(mj_timestep=mj_timestep)
 
 
 def cw_analytical(
@@ -66,7 +57,7 @@ def main() -> None:
     R_eci, V_eci = circular_orbit_eci(a_km, np.deg2rad(51.6))
 
     model = _compile_model(FREE_BODY_XML, mj_timestep=0.01)
-    data = MjoData(model, orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
+    data = model.make_data(orbit=OrbitInit(R_eci=R_eci, V_eci=V_eci))
 
     # Initial offset: 10 m radial, 0.05 m/s along-track velocity
     x0, y0, z0 = 10.0, 0.0, 5.0  # m

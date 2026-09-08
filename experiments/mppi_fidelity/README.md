@@ -25,7 +25,7 @@ for s in 0 1 2 3 4; do
 done
 
 # paper figure -> out/mppi_fidelity.tikz (x in hours, mean +/- 1sigma bands)
-python experiments/mppi_fidelity/make_paper_figure.py
+pixi run -e report python experiments/mppi_fidelity/make_paper_figure.py
 ```
 
 `out/mppi_fidelity.tikz` is synced into the paper as `figures/mppi_fidelity.tikz`
