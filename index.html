@@ -71,6 +71,7 @@
     <div class="quick-links">
       <a class="disabled" title="Preprint coming soon">[arXiv]</a>
       <a href="https://github.com/johnzhang3/mjorbit" target="_blank" rel="noopener noreferrer">[code]</a>
+      <a href="docs/">[documentation]</a>
       <a href="#examples" title="Example scenario videos">[video]</a>
     </div>
 
@@ -126,9 +127,9 @@
         <div class="code-head">coupled orbit + rigid-body dynamics &mdash; a circular 400&nbsp;km LEO orbit</div>
 <pre><code><span class="k">import</span> <span class="n">numpy</span> <span class="k">as</span> <span class="n">np</span>
 
-<span class="k">from</span> <span class="n">mujoco_orbit</span> <span class="k">import</span> MjoModel, OrbitInit, mjo_step
-<span class="k">from</span> <span class="n">mujoco_orbit.constants</span> <span class="k">import</span> GM_EARTH, R_EARTH
-<span class="k">from</span> <span class="n">mujoco_orbit.testdata</span> <span class="k">import</span> FREE_BODY_XML
+<span class="k">from</span> <span class="n">mjorbit</span> <span class="k">import</span> MjoModel, OrbitInit, mjo_step
+<span class="k">from</span> <span class="n">mjorbit.constants</span> <span class="k">import</span> GM_EARTH, R_EARTH
+<span class="k">from</span> <span class="n">mjorbit.testdata</span> <span class="k">import</span> FREE_BODY_XML
 
 <span class="c"># Circular LEO orbit at 400 km altitude.</span>
 radius_km  = R_EARTH + <span class="s">400.0</span>

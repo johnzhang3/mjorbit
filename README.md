@@ -1,9 +1,11 @@
 # mjorbit project page
 
 Source for the [mjorbit](https://github.com/johnzhang3/mjorbit) project website,
-served from this `gh-pages` branch via GitHub Pages.
+combined with the documentation by the `Pages` workflow on `main`.
 
-**Live URL (once Pages is enabled):** https://johnzhang3.github.io/mjorbit/
+**Project website:** https://johnzhang3.github.io/mjorbit/
+
+**Documentation:** https://johnzhang3.github.io/mjorbit/docs/
 
 Layout adapted from the [Sumo](https://sumo.rai-inst.com/) project page
 (Playfair Display + Roboto Mono, warm-paper background, black tagline pills),
@@ -22,15 +24,20 @@ assets/
   videos/                  # ← drop example .mp4 files here (see below)
 ```
 
-## Enabling GitHub Pages
+## Publishing updates
+
+Push project-page edits to this branch, then run the workflow on `main`:
 
 ```bash
-# push this branch
 git push -u origin gh-pages
+gh workflow run pages.yml --ref main
 ```
 
-Then in the GitHub repo: **Settings → Pages → Build and deployment → Source:
-"Deploy from a branch"**, branch `gh-pages`, folder `/ (root)`.
+GitHub Pages uses **GitHub Actions** as its publishing source. The workflow
+combines this branch's latest page and assets with Sphinx documentation under
+`docs/`. A push to `gh-pages` alone does not deploy; pushes to `main` deploy
+automatically. See the [publishing guide](https://johnzhang3.github.io/mjorbit/docs/publishing.html)
+for previews and recovery instructions.
 
 ## Adding the example videos
 
