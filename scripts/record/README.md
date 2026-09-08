@@ -10,6 +10,18 @@ A Chrome window opens during a render (it must use the real GPU; macOS headless
 falls back to SwiftShader, which drops the Earth). Leave it alone for the ~1 min
 it takes.
 
+## Setup
+
+Run from the repository root after `pixi install`. Install Google Chrome or
+Chromium in a standard application location or on `PATH`, and install `ffmpeg`
+with the `libx264` encoder available on `PATH`. These are external tools and
+are not runtime package dependencies. GPU/RL trajectory producers additionally
+need the `rl` environment and a trained checkpoint.
+
+Output videos belong in the ignored `videos/` directory. Check
+[docking mesh provenance](../../examples/docking/assets/README.md) before
+redistributing recordings that contain those third-party models.
+
 ## Two non-obvious requirements (see `scene.py`)
 
 1. **World scale.** viser's offscreen `get_render` drops geometry beyond a few
@@ -23,6 +35,10 @@ it takes.
 ## Produce the paper clips
 
 ```bash
+# Multibody attitude control (paper example a)
+pixi run example-reorient --save-traj /tmp/reorient_traj.npz
+pixi run python scripts/record/record_reorient.py --traj /tmp/reorient_traj.npz --out videos/reorient.mp4
+
 # Banner (paper Fig. 1) — fleet of bimanual robots flying around in LEO.
 # Each robot is a real coupled sim with 3 reaction wheels + 6 RCS thrusters,
 # driven by smooth random commands so the fleet tumbles and drifts. Framed
@@ -71,8 +87,3 @@ trajectory, then `render_traj.py` replays it.
 - `record_docking.py`, `produce_grasp.py` + `record_grasp.py`, `record_banner.py`,
   `produce_hug.py` + `record_truss.py`, `produce_astrobee.py` + `record_astrobee.py`
   — per-scene drivers.
-
-## Not yet covered (paper Fig. example a)
-
-- **(a) Multibody attitude control** — no implementation exists on `main` (paper
-  `\todo`); needs a small task built first.

@@ -1,13 +1,18 @@
 [build-system]
-requires = ["scikit-build-core>=0.9", "mujoco>=3.7,<3.8", "nanobind>=2.5"]
+requires = ["scikit-build-core>=0.12", "mujoco>=3.7,<3.8", "nanobind>=2.5"]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "mjorbit"
 version = "0.1.0"
+description = "Coupled orbital and multibody dynamics for space robotics with MuJoCo"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "The mjorbit contributors" }]
+keywords = ["mujoco", "space-robotics", "orbital-dynamics", "simulation"]
 requires-python = ">=3.11,<3.13"
 dependencies = [
-    "cvxpy>=1.7.5",
     "mujoco>=3.7,<3.8",
     "numpy>=1.26,<2",
     "pillow>=10.0",
@@ -15,6 +20,11 @@ dependencies = [
     "trimesh>=4.0",
     "viser>=0.2.0",
 ]
+
+[project.urls]
+Homepage = "https://johnzhang3.github.io/mjorbit/"
+Repository = "https://github.com/johnzhang3/mjorbit"
+Issues = "https://github.com/johnzhang3/mjorbit/issues"
 
 [project.scripts]
 mjo-viewer = "viewer.app:main"
@@ -40,13 +50,18 @@ cmake.version = ">=3.16"
 # Linux setups (compiler_compat libdl vs glibc mismatch).
 cmake.define = { MJORBIT_BUILD_TESTS = "OFF" }
 wheel.packages = ["src/mjorbit", "src/mjorbit_warp", "src/viewer"]
-# ship XML testdata with the wheel
-wheel.exclude = []
-sdist.include = [
-    "src/mjorbit/testdata/*.xml",
-    "src/mjorbit_warp/**/*.py",
-    "src/viewer/assets/*",
-    "src/cpp/**",
+# Tracked sources, examples, and assets follow .gitignore. Broad sdist.include
+# patterns override it and can accidentally ship local native build products.
+sdist.exclude = [
+    "**/__pycache__/**",
+    "**/*.pyc",
+    "**/*.so",
+    "**/*.dylib",
+    "**/*.dll",
+    "**/*.pyd",
+    "**/*.o",
+    "**/*.a",
+    "docs/_build/**",
 ]
 
 [tool.pytest.ini_options]

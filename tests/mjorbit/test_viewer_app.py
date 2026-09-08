@@ -244,9 +244,10 @@ def test_app_constructs_switches_tasks_and_tracks() -> None:
     _require_viewer_server()
     from viewer.app import MjOrbitApp
 
-    app = MjOrbitApp(task="free_drift", port=0)
+    app = MjOrbitApp(port=0)
     try:
         assert app.task is not None and app.mj_scene is not None
+        assert app.task.name == "free_drift"
         target_before = app._body_render_position(app.task.track_body_id)
 
         # ECI render frame is chief-centered (floating origin): the scene

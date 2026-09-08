@@ -1,7 +1,7 @@
 <mujoco model="free_body">
-  <!-- Minimal free rigid body for Phase 0 / Phase 3 smoke tests.
-       Gravity is disabled at runtime by compile (opt.gravity = 0).
-       The orbit layer provides ECI gravity and environment forces via xfrc_applied. -->
+  <!-- Minimal free rigid body. Positions are chief-relative offsets in meters.
+       Uniform MuJoCo gravity is zero; mjorbit supplies differential gravity
+       and the configured orbital environment. -->
   <option timestep="0.01" gravity="0 0 0"/>
 
   <worldbody>

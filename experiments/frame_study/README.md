@@ -96,7 +96,7 @@ paper figure reports translation only, so this does not affect it.
 ## Run
 
 ```bash
-pixi run python experiments/frame_study/run.py
+pixi run -e report python experiments/frame_study/run.py
 ```
 
 The table reports ECI position error against the substepped RK4 two-body
@@ -106,13 +106,13 @@ invariant drift.
 To run a smaller reproduction:
 
 ```bash
-pixi run python experiments/frame_study/run.py --scenario circular_equatorial
+pixi run -e report python experiments/frame_study/run.py --scenario circular_equatorial
 ```
 
 To generate the one-orbit ECI/local-chief integrator comparison:
 
 ```bash
-pixi run python experiments/frame_study/run.py --integrator-study
+pixi run -e report python experiments/frame_study/run.py --integrator-study
 ```
 
 This uses one shared timestep for the body, chief propagation, and the
@@ -131,14 +131,14 @@ single precision; the chief and truth-body references stay in float64.
 Use `--study-orbits` to extend the same comparison, for example:
 
 ```bash
-pixi run python experiments/frame_study/run.py --integrator-study --study-orbits 3
+pixi run -e report python experiments/frame_study/run.py --integrator-study --study-orbits 3
 ```
 
 Use `--study-rel-vel-lvlh VX VY VZ` to add a small initial LVLH relative
 velocity in m/s, for example a 1 cm/s radial perturbation:
 
 ```bash
-pixi run python experiments/frame_study/run.py \
+pixi run -e report python experiments/frame_study/run.py \
   --integrator-study \
   --study-orbits 3 \
   --study-rel-vel-lvlh 0.01 0 0

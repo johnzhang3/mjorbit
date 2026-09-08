@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use mjorbit, please cite this software. Paper metadata will be added when the public preprint is available."
+type: software
+title: "mjorbit: A Simulation Framework for Space Robotics"
+version: 0.1.0
+license: Apache-2.0
+repository-code: "https://github.com/johnzhang3/mjorbit"
+url: "https://johnzhang3.github.io/mjorbit/"
+authors:
+  - family-names: Zhang
+    given-names: John Z.
+  - family-names: Verhagen
+    given-names: Joris
+  - family-names: Vega
+    given-names: Fausto
+  - family-names: McKeen
+    given-names: Patrick
+  - family-names: Manchester
+    given-names: Zachary

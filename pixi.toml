@@ -20,6 +20,15 @@ pytest = ">=8.0"
 ruff = ">=0.8.0"
 pyright = ">=1.1.0"
 
+[feature.dev.pypi-dependencies]
+build = ">=1.2,<2"
+
+[feature.docs.pypi-dependencies]
+sphinx = ">=8,<9"
+myst-parser = ">=4,<5"
+sphinx-book-theme = ">=1.1,<2"
+sphinx-copybutton = ">=0.5,<1"
+
 [feature.report.pypi-dependencies]
 matplotlib = ">=3.10.8"
 scipy = ">=1.17.1"
@@ -60,6 +69,7 @@ default = ["dev", "py312"]
 py311 = ["dev", "py311"]
 py312 = ["dev", "py312"]
 report = ["dev", "py312", "report"]
+docs = ["dev", "py312", "docs"]
 # warp includes the frames feature (pure-Python astropy) so GPU users can feed
 # TLE/TEME or Earth-fixed states directly and the epoch/frame warp tests run.
 warp = ["dev", "py312", "warp", "frames"]
@@ -77,6 +87,10 @@ typecheck = "pyright --pythonpath $(python -c 'import sys; print(sys.executable)
 typecheck-warp = "pyright -p pyrightconfig-warp.json --pythonpath $(python -c 'import sys; print(sys.executable)')"
 check = { depends-on = ["lint", "typecheck", "test"] }
 viewer = { cmd = "python -m viewer", depends-on = ["sync-package"] }
+example-minimal = { cmd = "python examples/minimal.py", depends-on = ["sync-package"] }
+example-batched = { cmd = "python examples/batched.py", depends-on = ["sync-package"] }
+build-dist = "python -m build"
+package-check = "python scripts/check_release.py"
 # Run with the warp env: pixi run -e warp banner-viewer-gpu
 banner-viewer-gpu = { cmd = "python examples/banner_viewer_gpu.py", depends-on = ["sync-package"] }
 example-free-drift = { cmd = "python examples/free_drift.py", depends-on = ["sync-package"] }
@@ -90,3 +104,7 @@ basilisk-multibody-experiment = { cmd = "python experiments/basilisk_multibody/r
 cpp-configure = "cmake -S src/cpp -B build/cpp -DPython_EXECUTABLE=$(python -c 'import sys; print(sys.executable)') -DCMAKE_BUILD_TYPE=Release"
 cpp-build = { cmd = "cmake --build build/cpp -j", depends-on = ["cpp-configure"] }
 cpp-test = { cmd = "ctest --test-dir build/cpp --output-on-failure", depends-on = ["cpp-build"] }
+
+[feature.docs.tasks]
+docs-build = { cmd = "sphinx-build -W --keep-going -b html docs docs/_build/html", depends-on = ["sync-package"] }
+docs-serve = { cmd = "python -m http.server 8000 --bind 127.0.0.1 --directory docs/_build/html", depends-on = ["docs-build"] }
