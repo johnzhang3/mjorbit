@@ -23,6 +23,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://johnzhang3.github.io/mjorbit/"
+Documentation = "https://johnzhang3.github.io/mjorbit/docs/"
 Repository = "https://github.com/johnzhang3/mjorbit"
 Issues = "https://github.com/johnzhang3/mjorbit/issues"
 

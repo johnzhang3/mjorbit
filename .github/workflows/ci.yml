@@ -60,23 +60,6 @@ jobs:
           locked: true
       - run: pixi run -e frames test-frames
 
-  docs:
-    name: Documentation
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: prefix-dev/setup-pixi@v0.9.3
-        with:
-          pixi-version: v0.53.0
-          environments: docs
-          cache: true
-          locked: true
-      - run: pixi run -e docs docs-build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: documentation
-          path: docs/_build/html
-
   packaging:
     name: Release artifacts (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

@@ -8028,7 +8028,7 @@ packages:
 - pypi: ./
   name: mjorbit
   version: 0.1.0
-  sha256: 9c6e1e5cfca06c26f236871c79f531de597f13aa1dcdf9535e386d0958c3a61b
+  sha256: ae31f525ba780564a4cfd871393d6b33f60bc1b77c5bda01a769c17a9813786b
   requires_dist:
   - mujoco>=3.7,<3.8
   - numpy>=1.26,<2

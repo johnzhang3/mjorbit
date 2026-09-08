@@ -12,3 +12,5 @@
 - Remove the unused CVXPY runtime dependency and exclude local native build
   products from source distributions.
 - Add strict docs builds and isolated wheel/source-install checks to CI.
+- Publish documentation under `/mjorbit/docs/` alongside the existing project
+  page, with combined site previews for PRs and deployment from `main`.

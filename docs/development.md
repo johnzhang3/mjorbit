@@ -27,8 +27,10 @@ The Sphinx site is generated in `docs/_build/html` and served locally at
 the actual example files, and API signatures come from the installed CPU
 package. Update examples and their guides together.
 
-CI builds the documentation and saves it as a downloadable artifact. Publishing
-a hosted documentation site is a separate release step.
+The Pages workflow builds the documentation and combines it with the current
+`gh-pages` project page. PRs receive a downloadable `pages-preview` artifact;
+pushes to `main` publish the validated site. See [publishing](publishing.md)
+for the site layout, initial setup, and project-page updates.
 
 ## Distribution checks
 

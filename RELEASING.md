@@ -15,8 +15,9 @@ preparing these files does not publish a package or create a release tag.
 - Review `LICENSE`, `NOTICE`, and `CITATION.cff`, including third-party notices.
 - Verify the GPU example and tests on the supported Linux/NVIDIA environment;
   CPU and docs CI do not establish GPU readiness.
-- Choose the hosted documentation URL and publish the validated Sphinx build,
-  then update README/package links to it. Preserve the paper project page.
+- Verify the first combined Pages deployment: the project page stays at
+  `/mjorbit/` and documentation is served at `/mjorbit/docs/`. See
+  [publishing setup](docs/publishing.md) for the one-time Pages configuration.
 
 ## Validate a release candidate
 
@@ -69,5 +70,5 @@ and supported platform; a locally built native wheel is not universal.
 5. Publish matching documentation and verify all public README, paper, demo,
    citation, and download links.
 
-Tags, index uploads, and site publication are separate maintainer actions;
-the PR workflow only builds and validates artifacts.
+Tags and index uploads are separate maintainer actions. The Pages workflow
+builds a preview for PRs and publishes the combined site on pushes to `main`.

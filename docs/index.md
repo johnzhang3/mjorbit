@@ -37,6 +37,7 @@ gpu
 
 api
 development
+publishing
 ```
 
 The [project page](https://johnzhang3.github.io/mjorbit/) presents the paper and

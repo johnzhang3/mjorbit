@@ -8,7 +8,7 @@ magnetic fields. It supports articulated spacecraft, contact, spacecraft
 actuators, and parallel rollouts for control and learning.
 
 [Project page](https://johnzhang3.github.io/mjorbit/) ·
-[Documentation](docs/index.md) · [Examples](examples/README.md) ·
+[Documentation](https://johnzhang3.github.io/mjorbit/docs/) · [Examples](examples/README.md) ·
 [Paper reproduction](experiments/README.md)
 
 ## Get started
