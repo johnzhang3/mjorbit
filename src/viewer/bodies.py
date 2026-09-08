@@ -78,6 +78,16 @@ def _apply_color(mesh: trimesh.Trimesh, rgba: np.ndarray) -> None:
     )
 
 
+def _remove_node(handle: viser.SceneNodeHandle) -> None:
+    # Viser retains name-keyed poses after removal. A replacement handle starts
+    # at identity/zero and suppresses assignments equal to those defaults, so a
+    # reset can otherwise leave browsers using the previous body's orientation.
+    # Publish the defaults while the old handle still knows its previous pose.
+    handle.wxyz = (1.0, 0.0, 0.0, 0.0)
+    handle.position = (0.0, 0.0, 0.0)
+    handle.remove()
+
+
 class MuJoCoScene:
     """Renders MuJoCo model geometry in a viser scene.
 
@@ -278,21 +288,23 @@ class MuJoCoScene:
         return geometry
 
     def set_scale(self, scale: float) -> None:
-        self._scale = float(scale)
-        for handle in self._geom_handles:
-            handle.remove()
-        self._geom_handles.clear()
-        self._build_geom_meshes()
+        with self._server.atomic():
+            self._scale = float(scale)
+            for handle in self._geom_handles:
+                _remove_node(handle)
+            self._geom_handles.clear()
+            self._build_geom_meshes()
 
     def remove(self) -> None:
         """Remove every scene node owned by this scene."""
-        for handle in self._geom_handles:
-            handle.remove()
-        self._geom_handles.clear()
-        for frame in self._body_frames:
-            frame.remove()
-        self._body_frames.clear()
-        self._root_frame.remove()
+        with self._server.atomic():
+            for handle in self._geom_handles:
+                _remove_node(handle)
+            self._geom_handles.clear()
+            for frame in self._body_frames:
+                _remove_node(frame)
+            self._body_frames.clear()
+            _remove_node(self._root_frame)
 
     def update(
         self,

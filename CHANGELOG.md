@@ -8,6 +8,8 @@
   Sphinx documentation for installation, modeling, frames, actuators, sensors,
   planning, and backend synchronization.
 - Start the task viewer in free drift by default.
+- Clear retained browser transforms when rebuilding viewer scenes so Reset
+  keeps articulated arms and solar arrays attached.
 - Modernize introductory examples to use editable specs and `model.make_data`.
 - Remove the unused CVXPY runtime dependency and exclude local native build
   products from source distributions.

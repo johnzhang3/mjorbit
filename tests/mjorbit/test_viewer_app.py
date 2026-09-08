@@ -3,9 +3,11 @@ from __future__ import annotations
 import functools
 import socket
 
+import mujoco
 import numpy as np
 import pytest
 import trimesh.visual
+import viser.transforms as vtf
 
 from mjorbit import mjo_forward
 from mjorbit.constants import R_EARTH
@@ -304,3 +306,72 @@ def test_app_cli_list_tasks(capsys) -> None:
     main(["--list-tasks"])
     out = capsys.readouterr().out
     assert "free_drift" in out
+
+
+@pytest.mark.parametrize("render_frame", ["eci", "lvlh"])
+def test_reset_republishes_browser_geometry_poses(render_frame: str) -> None:
+    """A rebuilt scene must not inherit name-keyed poses from before Reset.
+
+    Checking Python handles alone misses this: Viser can retain an old pose in
+    its browser message buffer while a replacement handle reports identity.
+    """
+    _require_viewer_server()
+    from viewer.app import MjOrbitApp
+
+    app = MjOrbitApp(port=0, render_frame=render_frame, textured_earth=False, stars=False)
+    try:
+        task = app.task
+        assert task is not None
+        task.data.qpos[:3] = [0.2, -0.3, 0.1]
+        task.data.qpos[3:7] = vtf.SO3.from_rpy_radians(0.2, -0.3, 0.4).wxyz
+        task.data.qpos[7:] = np.linspace(0.1, 0.6, task.model.nq - 7)
+        mjo_forward(task.model, task.data)
+        app._render()
+
+        # Follow the app's Reset path, including rebuilding nodes at the same
+        # paths and a subsequent mesh rebuild when the display scale changes.
+        task.reset()
+        app._attach_scene()
+        assert app.mj_scene is not None
+        app._scale = 3.0
+        app.mj_scene.set_scale(app._scale)
+        app._render()
+
+        # Read the actual retained messages replayed to a connecting browser.
+        # Keep this Viser-internal access here, out of production code.
+        buffer = app.server._websock_server._broadcast_buffer
+        with buffer.buffer_lock:
+            messages = list(buffer.message_from_id.values())
+        positions, rotations = {}, {}
+        for message in messages:
+            if type(message).__name__ == "SetPositionMessage":
+                positions[message.name] = np.asarray(message.position)
+            elif type(message).__name__ == "SetOrientationMessage":
+                rotations[message.name] = vtf.SO3(np.asarray(message.wxyz)).as_matrix()
+
+        # Independent reference: plain MuJoCo forward kinematics, including
+        # the static capsule rotations and the solar panels' local offsets.
+        reference = mujoco.MjModel.from_xml_string(task.model._raw_xml)
+        state = mujoco.MjData(reference)
+        state.qpos[:] = task.data.qpos
+        mujoco.mj_forward(reference, state)
+        rotation = task.data.frame.C_LI if render_frame == "lvlh" else np.eye(3)
+        for geom_id in range(reference.ngeom):
+            body_name = task.model.body_name(int(reference.geom_bodyid[geom_id]))
+            body_path = f"/task/spacecraft/{body_name}"
+            geom_path = f"{body_path}/{task.model.geom_name(geom_id)}"
+            body_rotation = rotations.get(body_path, np.eye(3))
+            position = positions.get(body_path, np.zeros(3)) + body_rotation @ positions.get(
+                geom_path, np.zeros(3)
+            )
+            orientation = body_rotation @ rotations.get(geom_path, np.eye(3))
+            np.testing.assert_allclose(
+                position, app._scale * (rotation @ state.geom_xpos[geom_id]),
+                atol=1e-8, err_msg=geom_path,
+            )
+            np.testing.assert_allclose(
+                orientation, rotation @ state.geom_xmat[geom_id].reshape(3, 3),
+                atol=1e-8, err_msg=geom_path,
+            )
+    finally:
+        app.close()
