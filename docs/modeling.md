@@ -18,10 +18,14 @@ spec.mjorbit.use_magnetic = False
 model = spec.compile(mj_timestep=0.01)
 ```
 
-This configuration retains the two-body reference orbit and differential
-gravity. The environment flags select additional models; they do not disable
+This configuration retains the two-body reference orbit, differential gravity,
+and gravity-gradient torque (whose separate `use_gravity_gradient` flag defaults
+to `True`). The environment flags select additional models; they do not disable
 the orbital dynamics as a whole. The free-body analytical comparison uses this
 configuration to match its Clohessy–Wiltshire reference.
+
+See [forces and disturbances](forces-disturbances.md) for the equations,
+surface configuration, default environment parameters, and model limitations.
 
 `MjoSpec.from_xml_string(xml, assets=...)` accepts in-memory XML and an optional
 asset map. Prefer `from_xml_path` for files that include meshes or other XML,

@@ -40,10 +40,19 @@ pulls the full supported state each step, at an additional transfer cost.
 
 ## Precision and current scope
 
-MuJoCo Warp's multibody state is single precision; reference orbit propagation
-uses double precision. The chief-centered formulation keeps robot coordinates
-near the origin. CPU/GPU results should be compared with precision-appropriate
-tolerances, especially around contacts.
+MuJoCo Warp's multibody state, device chief position/velocity, and reference
+orbit propagation use single precision. The absolute epoch anchor, solar and
+magnetic angle accumulation, and the cancellation-sensitive J2 difference use
+double precision. The chief-centered formulation keeps robot coordinates near
+the origin. CPU/GPU results should be compared with precision-appropriate
+tolerances, especially around contacts and eclipse boundaries.
+
+The gravity kernels currently use fixed Earth constants. Use the CPU backend
+for custom central-body gravity; supplying different `gm`, `j2`, or gravity
+radius values does not change the GPU gravity kernels. The environment kernels
+do consume the configured atmosphere, magnetic, and eclipse parameters. See
+[forces and disturbances](forces-disturbances.md#inspecting-loads-and-backend-scope)
+for model equations and the shared articulated-body drag limitation.
 
 Reaction wheels, thrusters, and magnetorquers are supported. CMGs raise
 `NotImplementedError` during GPU model construction. Native sensor data is

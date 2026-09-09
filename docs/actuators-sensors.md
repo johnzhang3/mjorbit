@@ -1,5 +1,8 @@
 # Actuators and sensors
 
+For gravity-gradient, atmospheric drag, solar pressure, and residual magnetic
+loads, see [forces and disturbances](forces-disturbances.md).
+
 Standard MuJoCo actuator controls live in `data.ctrl`. Spacecraft devices use
 separate buffers in `data.actuators`, populated in the order the devices were
 added to the model specification.
