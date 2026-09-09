@@ -8,6 +8,7 @@ magnetic fields. It supports articulated spacecraft, contact, spacecraft
 actuators, and parallel rollouts for control and learning.
 
 [Project page](https://johnzhang3.github.io/mjorbit/) ·
+[Paper](https://arxiv.org/abs/2609.08010) ·
 [Documentation](https://johnzhang3.github.io/mjorbit/docs/) · [Examples](examples/README.md) ·
 [Paper reproduction](experiments/README.md)
 
@@ -139,9 +140,23 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidance and
 
 ## Citation and license
 
-The paper, *mjorbit: A Simulation Framework for Space Robotics*, has been
-submitted to arXiv. Its permanent preprint link will be added when available.
-Software citation metadata is in [CITATION.cff](CITATION.cff).
+If you use mjorbit in your research, please cite
+[*mjorbit: A Simulation Framework for Space Robotics*](https://arxiv.org/abs/2609.08010).
+Software and preferred paper citation metadata are in [CITATION.cff](CITATION.cff).
+
+```bibtex
+@article{zhang2026mjorbit,
+  title   = {mjorbit: A Simulation Framework for Space Robotics},
+  author  = {Zhang, John Z. and Verhagen, Joris and Vega, Fausto
+             and McKeen, Patrick and Manchester, Zachary},
+  journal = {arXiv preprint arXiv:2609.08010},
+  year    = {2026},
+  eprint  = {2609.08010},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.RO},
+  url     = {https://arxiv.org/abs/2609.08010}
+}
+```
 
 Original project code and documentation are licensed under
 [Apache 2.0](LICENSE). Third-party assets retain their own terms; see

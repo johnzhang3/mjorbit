@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Link the arXiv paper and add its preferred citation and BibTeX metadata.
 - Prepare the first public release with Apache 2.0 licensing, software citation
   metadata, contribution guidance, and asset provenance notes.
 - Add complete CPU and batched GPU starter examples, a demo catalog, and

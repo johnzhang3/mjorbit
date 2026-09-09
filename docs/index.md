@@ -4,6 +4,10 @@ mjorbit combines orbital dynamics with MuJoCo multibody simulation for space
 robotics. Begin with a free body, then explore articulated spacecraft, contact,
 control, and batched GPU simulation.
 
+Read the paper, [*mjorbit: A Simulation Framework for Space Robotics*](https://arxiv.org/abs/2609.08010),
+for the methods and evaluation. Citation metadata and BibTeX are available in the
+[repository README](https://github.com/johnzhang3/mjorbit#citation-and-license).
+
 - [Install and run the viewer](installation.md).
 - [Write your first simulation](quickstart.md).
 - [Understand frames and units](frames.md).
