@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use mjorbit, please cite this software. Paper metadata will be added when the public preprint is available."
+message: "If you use mjorbit in your research, please cite the paper in preferred-citation."
 type: software
 title: "mjorbit: A Simulation Framework for Space Robotics"
 version: 0.1.0
@@ -17,3 +17,21 @@ authors:
     given-names: Patrick
   - family-names: Manchester
     given-names: Zachary
+preferred-citation:
+  type: article
+  title: "mjorbit: A Simulation Framework for Space Robotics"
+  authors:
+    - family-names: Zhang
+      given-names: John Z.
+    - family-names: Verhagen
+      given-names: Joris
+    - family-names: Vega
+      given-names: Fausto
+    - family-names: McKeen
+      given-names: Patrick
+    - family-names: Manchester
+      given-names: Zachary
+  journal: "arXiv preprint arXiv:2609.08010"
+  year: 2026
+  month: 9
+  url: "https://arxiv.org/abs/2609.08010"

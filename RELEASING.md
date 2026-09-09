@@ -5,9 +5,8 @@ preparing these files does not publish a package or create a release tag.
 
 ## Before the first public release
 
-- Replace the pending paper notice in the README and citation metadata with
-  the permanent arXiv identifier, verified title, authors, and publication date.
-  A submission identifier is not a public preprint identifier.
+- Keep the README, citation metadata, and project page consistent with the
+  [arXiv paper](https://arxiv.org/abs/2609.08010).
 - Resolve the remaining ISS/Soyuz source and redistribution details in
   [the asset provenance notes](examples/docking/assets/README.md). Record the
   evidence and required attribution, or replace/remove assets whose terms
