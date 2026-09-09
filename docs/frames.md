@@ -75,6 +75,10 @@ See [actuators and sensors](actuators-sensors.md).
 
 Central-body orbital parameters use km: `gm` is km³/s² and `radius` is km.
 Surface positions and areas use m and m²; mass and inertia use kg and kg·m².
+`SurfaceSpec.center_of_pressure_body` is measured from the body COM in body
+axes; `ThrusterSpec.position_body` is measured from the body origin. See
+[forces and disturbances](forces-disturbances.md) for the force laws and
+application-point conventions.
 
 ## Epoch-aware orbit inputs
 

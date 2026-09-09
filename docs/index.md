@@ -11,6 +11,7 @@ for the methods and evaluation. Citation metadata and BibTeX are available in th
 - [Install and run the viewer](installation.md).
 - [Write your first simulation](quickstart.md).
 - [Understand frames and units](frames.md).
+- [Configure forces and disturbances](forces-disturbances.md).
 - [Run the paper examples](examples.md).
 
 ```{toctree}
@@ -30,6 +31,7 @@ examples
 architecture
 frames
 modeling
+forces-disturbances
 actuators-sensors
 planning
 gpu
