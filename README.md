@@ -1,3 +1,5 @@
+[![Articulated space robots orbiting Earth in mjorbit](https://johnzhang3.github.io/mjorbit/assets/images/banner.png)](https://johnzhang3.github.io/mjorbit/)
+
 # mjorbit
 
 **Coupled orbital and multibody dynamics for space robotics.**
