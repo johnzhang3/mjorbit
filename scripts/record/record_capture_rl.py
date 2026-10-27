@@ -5,10 +5,10 @@
 The bi-manual free-flyer captures a free-floating client satellite by its
 grapple bar and slews the stack until the client's antenna points at nadir.
 Produce the trajectory with the evaluator (it picks a successful held-out
-rollout and keeps a few seconds of hold after the success), then render here:
+rollout), then render here; the clip ends on the success step:
 
     pixi run -e rl python examples/ppo/capture_eval.py --run examples/ppo/logs/cap-sgs \
-        --checkpoint model_2999.pt --save-traj videos/capture_traj.npz
+        --checkpoint model_<it>.pt --save-traj videos/capture_traj.npz
     pixi run python scripts/record/record_capture_rl.py \
         --traj videos/capture_traj.npz --out videos/capture_reorient_rl.mp4
 
@@ -36,6 +36,14 @@ from scene import SingleScene, forward_to  # noqa: E402
 from mjorbit import MjoModel  # noqa: E402
 
 
+def _state(t: float, t_success: float, held: bool, grip: bool, err_deg: float) -> str:
+    if t >= t_success:
+        return "SUCCESS: held within 10° of nadir for 3 s"
+    if held:
+        return "captured, holding on nadir" if err_deg < 10.0 else "captured, slewing to nadir"
+    return "grip closed, securing the bar" if grip else "approaching"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -43,9 +51,16 @@ def main() -> None:
     ap.add_argument("--traj", default="videos/capture_traj.npz")
     ap.add_argument("--out", default="videos/capture_reorient_rl.mp4")
     ap.add_argument("--seconds", type=float, default=16.0, help="video length")
-    ap.add_argument("--fps", type=int, default=30)
+    ap.add_argument("--fps", type=int, default=20)
+    ap.add_argument(
+        "--freeze-s",
+        type=float,
+        default=1.5,
+        help="hold the success frame this long. The clip ends on the success step: episodes "
+        "terminate on success, so the policy is not trained to keep holding after it",
+    )
     ap.add_argument("--mag", type=float, default=45000.0)
-    ap.add_argument("--distance", type=float, default=80.0)
+    ap.add_argument("--distance", type=float, default=38.0)
     ap.add_argument(
         "--offset",
         type=float,
@@ -68,8 +83,13 @@ def main() -> None:
     dt = float(d["dt"])
     point_err, held, grip = d["point_err_deg"], d["held"], d["grip_closed"]
     t_success = float(d["t_success_s"])
+    keep = min(len(qpos), int(round(t_success / dt)))
+    qpos, R_eci, V_eci = qpos[:keep], R_eci[:keep], V_eci[:keep]
 
-    model = MjoModel.from_xml_path(str(d["xml_path"]))
+    xml = Path(str(d["xml_path"]))
+    if not xml.exists():  # trajectory produced on another machine (e.g. the GPU host)
+        xml = _ROOT / "examples" / "ppo" / xml.name
+    model = MjoModel.from_xml_path(str(xml))
     data = model.make_data()
     track = [model.body_id("bus"), model.body_id("client")]
 
@@ -92,21 +112,16 @@ def main() -> None:
                 )
                 frame = rec.render(position=pos, look_at=look, fov_deg=args.fov)
                 t = (step + 1) * dt
-                state = (
-                    "holding on nadir: success"
-                    if t >= t_success
-                    else (
-                        "captured, slewing"
-                        if held[step]
-                        else ("closing grip" if grip[step] else "approach")
-                    )
-                )
+                state = _state(t, t_success, held[step], grip[step], point_err[step])
                 frame = annotate(
                     frame,
                     f"t = {t:4.1f} s   {state}   antenna-nadir {point_err[step]:5.1f}°",
                     corner="tl",
                 )
-                vid.add(annotate(frame, speed))
+                frame = annotate(frame, speed)
+                vid.add(frame)
+            for _ in range(int(round(args.freeze_s * args.fps))):
+                vid.add(frame)
         print(f"wrote {args.out}  ({len(idx)} frames, {len(idx) / args.fps:.1f}s @ {args.fps}fps)")
     finally:
         rec.close()
