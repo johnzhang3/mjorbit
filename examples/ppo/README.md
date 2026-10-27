@@ -1,7 +1,7 @@
 # PPO free-flyer manipulation examples
 
-Two PPO examples (via [rsl-rl](https://github.com/leggedrobotics/rsl_rl)) on the
-`mjorbit_warp` GPU backend, both manipulating a **free-floating object by
+Three PPO examples (via [rsl-rl](https://github.com/leggedrobotics/rsl_rl)) on the
+`mjorbit_warp` GPU backend, all manipulating a **free-floating object by
 contact** (no weld, no equality — capsule-jaw-vs-box primitive contact the MJWarp
 collision pipeline supports directly):
 
@@ -11,9 +11,14 @@ collision pipeline supports directly):
 2. **Astrobee detumble & grasp** (`astrobee_env.py`, `astrobee_grasp.xml`) — an
    Astrobee-style cube free-flyer detumbles from an initial disturbance, flies to
    a free-floating cargo module, and grasps its grapple bar.
+3. **Capture & reorient with SGS** (`capture_env.py`, `capture_reorient.xml`) — the
+   teaser bi-manual free-flyer captures a drifting, tumbling client satellite by
+   its grapple bar and slews the stack until the client's antenna points at
+   nadir. Sparse binary success reward; resets chosen by Success Guided Sampling
+   (arXiv 2610.12465) with a uniform-sampling baseline.
 
-Both share `train.py`'s rsl-rl/PPO config and the `rl` pixi env. Sections below
-cover each.
+All share `train.py`'s rsl-rl/PPO config (example 3 changes a few settings, see
+below) and the `rl` pixi env. Sections below cover each.
 
 ---
 
@@ -216,3 +221,99 @@ start 1.4 m apart → grasp at ~6 s → held to the end.
 - Gravity gradient, drag, and J2 are enabled for orbital context, but at this
   body scale / horizon they are minor next to the control authority — the
   challenge is the coupled detumble + precision approach + grasp.
+
+---
+
+# Example 3: capture & reorient a free-floating client with SGS
+
+The teaser/banner bi-manual free-flyer **captures a free-floating client
+satellite** by its grapple bar with both hands, then **slews the captured stack
+with its reaction wheels until the client's antenna points at nadir** and holds
+it there. It is trained with **sparse binary success rewards** and the small
+control costs of Zhang et al., *A Balanced Data Diet* (arXiv 2610.12465), with
+resets chosen by their **Success Guided Sampling (SGS)**; a uniform-sampling run
+is the baseline.
+
+## Algorithm (from the paper)
+
+- **SGS** (Sec. 3.2, App. B.2; `sgs.py`). A fixed set of N task configurations is
+  drawn before training. Each keeps its last H = 100 Boolean episode outcomes, and
+  p_i is their mean. Configurations are scored with the Beta-shaped kernel
+  w_i = (p_i+ε)^{κt} (1−p_i+ε)^{κ(1−t)}, floored at ε, and l_i = log(w_i+ε). Each
+  reset draws i.i.d. from softmax(l/T) with T_eff = max(T, 1). We use the paper's
+  manipulation values t = 0.5, κ = 1, ε = 1e-4, T = 2, H = 100, with N = 8192
+  (paper: 32,768). The paper does not say how a configuration with no recorded
+  outcomes is scored; here it gets p = 0, so sampling starts uniform (as their
+  Fig. 7 notes). `--sampler uniform` draws uniformly from the same set.
+- **Reward** (Eq. 3/5, App. A.3.2, the shared manipulation reward, with the
+  paper's weights): r = 100·1[success] − 1·1[failure] − 1e-5·C(‖a‖²) −
+  1e-4·C(‖a_t − a_{t−1}‖²) − 1e-4·C(‖q̇_arm‖²), where C(x) = min(x, 1e4).
+  Success and failure both end the episode. There are no distance, alignment, or
+  progress terms.
+- **RL**: PPO (rsl-rl). The paper gives no PPO hyperparameter table, only that
+  mini-batch count and all other PPO settings stay fixed across runs. Both
+  samplers here share one config: the truss example's (γ = 0.997, λ = 0.95,
+  5 epochs × 4 mini-batches, adaptive LR) with a [512, 256, 128] MLP, entropy
+  bonus 0.005 (not 0.02), std clamped to [0.02, 1], and no value clipping. With
+  0.02, every action std inflated to ~2.5 within 150 iterations, because actions
+  are clipped. The value clip (0.2) would stall the critic against a reward of 100.
+
+## Task definition
+
+| | |
+|---|---|
+| Robot | banner bus (380 kg incl. arms/wings) with two 2-link arms; each hand is the truss example's two-jaw clamp (mirrored to point inboard), wrists auto-leveled; **3 reaction wheels** (5 N·m, 15 N·m·s) and **6 RCS thrusters** (±x/±y/±z, 25 N) through mjorbit's native actuator models |
+| Client | free 50 kg satellite: 0.8 m box on a 0.84 m grapple bar, antenna boresight = client +Z; held by contact + friction only |
+| Orbit | 500 km circular, random plane/phase per world; J2, drag, gravity gradient, differential gravity on |
+| Observation (61) | arm q / q̇ / targets, grip slides, bus rate + velocity, wheel speeds, jaw→bar vectors, bar pose / axis / antenna axis / relative velocity and rate, nadir (all in bus frame), grip + on-bar flags, hold progress, previous action |
+| Action (11) | 4 arm joint-target increments (≤ 0.5 rad/s), 1 latched grip (close on a > 0.8, release after 3 consecutive a < −0.8), 3 wheel torques, 3 body-frame thrust requests |
+| Success | both hands clamped on the bar (grip closed, jaw center within 4.5 cm of the bar axis, upper jaw down) **and** antenna within **10°** of nadir, continuously for **3 s** |
+| Failure | client > 4 m away, client box through the bus, arm joint > 6 rad/s, bus > 0.5 rad/s, client > 1 rad/s, or non-finite state |
+| Episode | 60 s at 10 Hz control (10 × 0.01 s physics, one captured CUDA graph) |
+
+**Reset distribution** (`sample_task_configs`): a fixed, collision-checked set of
+configurations, split evenly across three families (cf. OmniReset's
+Near-Goal / Stable-Grasp / Reaching). The servicer's initial attitude puts its +Z,
+and so the antenna of a captured client, at a pointing error drawn from U[0°, 180°]
+from nadir, defined in the LVLH frame at reset time.
+
+- **held**: the client is already clamped in both hands.
+- **pregrasp**: the client floats with its bar inside the open jaws (±3 cm, up to
+  8 cm high), ±4° misalignment, ≤ 1 cm/s drift, ≤ 0.5°/s tumble.
+- **approach**: the client floats 0.05–1.0 m away on the upper hemisphere, with
+  up to ±30° yaw / ±15° tilt, 2 cm/s drift and 1.5°/s tumble. A per-configuration
+  difficulty u ~ U[0, 1] scales all of these together from pregrasp levels to
+  those maxima.
+
+## Files
+
+- `capture_reorient.xml` — the model (bus, arms, hands, wings, client; RW/RCS in
+  the `<mjorbit>` element).
+- `sgs.py` — the sampler (SGS and uniform modes).
+- `capture_env.py` — batched `VecEnv`: configuration set, resets, success/failure,
+  reward, per-iteration CSV log, sampler snapshots.
+- `capture_train.py` / `capture_eval.py` / `capture_plot.py` — training, held-out
+  evaluation (fresh configurations from the training distribution, one
+  deterministic episode each), and curves.
+- `../../scripts/record/record_capture_rl.py` — renders a saved rollout.
+
+## Running
+
+```bash
+pixi run -e rl python examples/ppo/capture_train.py --sampler sgs --run-name cap-sgs
+pixi run -e rl python examples/ppo/capture_train.py --sampler uniform --run-name cap-uni
+# held-out success vs environment steps (appends to <run>/eval.csv, resumable)
+pixi run -e rl python examples/ppo/capture_eval.py --run examples/ppo/logs/cap-sgs --every 200
+pixi run -e report python examples/ppo/capture_plot.py \
+    --runs examples/ppo/logs/cap-sgs examples/ppo/logs/cap-uni --labels SGS uniform \
+    --out examples/ppo/logs/capture_curves.png \
+    --focus-run examples/ppo/logs/cap-sgs --focus-out examples/ppo/logs/capture_sgs_focus.png
+# video: dump a successful held-out approach rollout, then render (CPU, Chrome)
+pixi run -e rl python examples/ppo/capture_eval.py --run examples/ppo/logs/cap-sgs \
+    --checkpoint model_<it>.pt --save-traj videos/capture_traj.npz
+pixi run python scripts/record/record_capture_rl.py \
+    --traj videos/capture_traj.npz --out videos/capture_reorient_rl.mp4
+```
+
+Two concurrent runs at 4096 worlds each take ~2.4 s per PPO iteration on an RTX
+3080 (one alone: ~1.5 s, ~100k env-steps/s with contacts).
