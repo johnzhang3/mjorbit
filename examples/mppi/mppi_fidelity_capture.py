@@ -27,6 +27,9 @@ planner's dynamics model doesn't matter here, it won't matter for RL either.
     pixi run python examples/mppi/mppi_fidelity_capture.py --backends mjorbit zerog
     # show horizon matters: a short rollout can't see the libration
     pixi run python examples/mppi/mppi_fidelity_capture.py --backends mjorbit zerog --horizon-b 300
+    # also dump the grasp + mjorbit-planner trajectory for scripts/record/record_capture.py
+    pixi run python examples/mppi/mppi_fidelity_capture.py --backends mjorbit \
+        --save-traj /tmp/capture_traj.npz
 """
 
 from __future__ import annotations
@@ -54,6 +57,7 @@ CAPTURE_XML = Path(SPACECRAFT_CAPTURE_XML)
 BUS_POS = slice(1, 4)
 PAYLOAD_POS = slice(10, 13)
 BUS_WZ = 22
+ARM_QPOS = slice(8, 10)
 ARM_QVEL = slice(23, 25)
 R_ECI = slice(31, 34)
 
@@ -136,7 +140,11 @@ def make_capture_cost(num_timesteps: int):
     return cost_fn
 
 
-def make_stabilize_cost(num_timesteps: int, omega_orbit: float):
+def make_stabilize_cost(num_timesteps: int, omega_orbit: float, posture_weight: float = 0.0,
+                        arm_ref: np.ndarray | None = None):
+    """Stabilization cost. ``posture_weight`` > 0 adds a penalty on the arm joints leaving
+    ``arm_ref`` (their angles at the grasp): without it the planner is free to wind the
+    shoulder, and the bus counter-rotates through ~150 deg while the stack settles."""
     term = slice(int(0.6 * num_timesteps), None)
 
     def cost_fn(states, sensors, controls):
@@ -145,8 +153,12 @@ def make_stabilize_cost(num_timesteps: int, omega_orbit: float):
         align = np.sin(pitch) ** 2
         libr = ((states[:, :, BUS_WZ] - omega_orbit) / omega_orbit) ** 2
         arm_rate_sq = np.sum((states[:, :, ARM_QVEL] / 0.01) ** 2, axis=-1)
-        return (2.0 * np.mean(align[:, term], axis=1) + 0.5 * np.mean(libr[:, term], axis=1)
+        cost = (2.0 * np.mean(align[:, term], axis=1) + 0.5 * np.mean(libr[:, term], axis=1)
                 + 0.3 * np.mean(align, axis=1) + 0.005 * np.mean(arm_rate_sq, axis=1))
+        if posture_weight > 0.0:
+            posture = np.sum((states[:, :, ARM_QPOS] - arm_ref) ** 2, axis=-1)
+            cost = cost + posture_weight * np.mean(posture, axis=1)
+        return cost
 
     return cost_fn
 
@@ -160,13 +172,27 @@ def plant_pitch(data: MjoData) -> float:
     return float(np.arctan2(rhat[0] * axis[1] - rhat[1] * axis[0], rhat @ axis))
 
 
+class Trajectory:
+    """Per-step plant ``(t, qpos, R_eci, V_eci)``, for offline rendering."""
+
+    def __init__(self) -> None:
+        self.t, self.qpos, self.R_eci, self.V_eci = [], [], [], []
+
+    def add(self, data: MjoData) -> None:
+        self.t.append(float(data.time))
+        self.qpos.append(np.asarray(data.qpos).copy())
+        self.R_eci.append(np.asarray(data.orbit.R_eci).copy())
+        self.V_eci.append(np.asarray(data.orbit.V_eci).copy())
+
+
 def capture(model_cap, R0, V0, omega, dt, args):
     """Phase A: grasp with the full-fidelity planner.
 
-    Returns ``(latched_state, t_hist, pitch_hist)`` -- the latched state plus the
+    Returns ``(latched_state, t_hist, pitch_hist, traj)`` -- the latched state plus the
     grasp-phase trajectory (so the figure can show the full grasp+stabilize
-    timeline). This phase is shared by all conditions: the grasp is identical;
-    only the subsequent stabilization differs by planner model.
+    timeline) and its per-step ``(qpos, R_eci, V_eci)`` for rendering. This phase is
+    shared by all conditions: the grasp is identical; only the subsequent
+    stabilization differs by planner model.
     """
     data = model_cap.make_data(orbit=OrbitInit(R_eci=R0, V_eci=V0))
     data.qpos[3:7] = [np.cos(np.pi / 4), 0.0, 0.0, np.sin(np.pi / 4)]
@@ -188,6 +214,7 @@ def capture(model_cap, R0, V0, omega, dt, args):
 
     replan_every = max(1, int(round(args.replan_a / dt)))
     t_hist, pitch_hist = [], []
+    traj = Trajectory()
     for step in range(int(round(args.max_capture_time / dt))):
         if step % replan_every == 0:
             planner.update_action(data)
@@ -195,16 +222,20 @@ def capture(model_cap, R0, V0, omega, dt, args):
         mjo_step(model_cap, data)
         t_hist.append(float(data.time))
         pitch_hist.append(plant_pitch(data))
+        traj.add(data)
         dist, relspeed = grasp_error(np.asarray(data.sensordata))
         if dist < 0.30 and relspeed < 0.04:
             print(f"  grasped at t={data.time:.0f}s (dist={float(dist):.3f} m, "
                   f"rel speed={float(relspeed)*100:.2f} cm/s)")
-            return mjo_get_state(model_cap, data), np.asarray(t_hist), np.asarray(pitch_hist)
+            return mjo_get_state(model_cap, data), np.asarray(t_hist), np.asarray(pitch_hist), traj
     raise RuntimeError("capture failed within max-capture-time")
 
 
-def stabilize(backend: str, latched_state, model_plant, R0, V0, omega, dt, args) -> dict:
-    """Phase B from the latched state. Plant = full mjorbit; planner = `backend`."""
+def stabilize(backend: str, latched_state, model_plant, R0, V0, omega, dt, args, traj=None) -> dict:
+    """Phase B from the latched state. Plant = full mjorbit; planner = `backend`.
+
+    If ``traj`` is given, every plant step is appended to it.
+    """
     model_plan = model_plant if backend == "mjorbit" else stack_model(backend)
 
     data = model_plant.make_data(orbit=OrbitInit(R_eci=R0, V_eci=V0))
@@ -220,7 +251,9 @@ def stabilize(backend: str, latched_state, model_plant, R0, V0, omega, dt, args)
     cfg = MppiConfig(horizon=args.horizon_b, num_rollouts=args.rollouts, num_nodes=6,
                      spline_order="linear", sigma=0.25, temperature=0.02,
                      use_noise_ramp=True, noise_ramp=2.5, nthread=args.nthread, seed=args.seed + 1)
-    planner = MppiPlanner(model_plan, cfg, make_stabilize_cost(n_steps_b, omega),
+    arm_ref = np.asarray(latched_state)[ARM_QPOS]
+    cost = make_stabilize_cost(n_steps_b, omega, args.posture_weight, arm_ref)
+    planner = MppiPlanner(model_plan, cfg, cost,
                           ctrl_low=np.full(2, -2.8), ctrl_high=np.full(2, 2.8))
     planner.reset(data, nominal_knots=np.tile(np.asarray(data.qpos[7:9]), (6, 1)))
 
@@ -240,6 +273,8 @@ def stabilize(backend: str, latched_state, model_plant, R0, V0, omega, dt, args)
         mjo_step(model_plant, data)
         pitches[step] = plant_pitch(data)
         times[step] = float(data.time)
+        if traj is not None:
+            traj.add(data)
         if step % log_every == 0:
             pitch_deg = np.rad2deg(pitches[step])
             print(f"    [{backend:11s}] t={data.time:7.0f}s  pitch={pitch_deg:+7.1f} deg")
@@ -284,6 +319,13 @@ def main() -> None:
                         "the orbit-coupled controller to settle")
     p.add_argument("--nthread", type=int, default=max(1, os.cpu_count() or 1))
     p.add_argument("--out", default="/tmp/mppi_fidelity.json")
+    p.add_argument("--save-traj", default=None, metavar="NPZ",
+                   help="also save the grasp + stabilize trajectory (for "
+                        "scripts/record/record_capture.py); with several backends, one file "
+                        "each, suffixed with the backend name")
+    p.add_argument("--posture-weight", type=float, default=0.0,
+                   help="phase-B penalty on the arm joints leaving their grasp angles "
+                        "(0 = the paper's cost)")
     args = p.parse_args()
 
     alt_km = 400.0
@@ -305,7 +347,7 @@ def main() -> None:
           f"({args.horizon_b/lib:.2f} libration periods), duration {args.duration_b:g}s")
     print("--- phase A: grasp (full-fidelity planner, shared by all conditions) ---")
     t0 = wall_time.perf_counter()
-    latched, cap_t, cap_pitch = capture(model_cap, R0, V0, omega, dt, args)
+    latched, cap_t, cap_pitch, cap_traj = capture(model_cap, R0, V0, omega, dt, args)
     # transfer to the weld-on plant model
     data_b = model_stk.make_data(orbit=OrbitInit(R_eci=R0, V_eci=V0))
     mjo_set_state(model_stk, data_b, latched)
@@ -321,8 +363,22 @@ def main() -> None:
     results = {}
     for backend in args.backends:
         print(f"--- phase B: stabilize with planner='{backend}' (executed on mjorbit) ---")
+        traj = Trajectory() if args.save_traj else None
         summary, stab_t, stab_pitch = stabilize(backend, latched_stk, model_stk,
-                                                 R0, V0, omega, dt, args)
+                                                 R0, V0, omega, dt, args, traj=traj)
+        if traj is not None:
+            path = Path(args.save_traj)
+            if len(args.backends) > 1:
+                path = path.with_name(f"{path.stem}_{backend}{path.suffix}")
+            np.savez(path, backend=backend, seed=args.seed, dt=dt,
+                     posture_weight=args.posture_weight,
+                     n_capture=len(cap_traj.t),
+                     t=np.asarray(cap_traj.t + traj.t),
+                     qpos=np.asarray(cap_traj.qpos + traj.qpos),
+                     R_eci=np.asarray(cap_traj.R_eci + traj.R_eci),
+                     V_eci=np.asarray(cap_traj.V_eci + traj.V_eci),
+                     final_pitch_deg=summary["final_pitch_deg"])
+            print(f"  saved the grasp + {backend} trajectory to {path}")
         stab_abs_deg = np.rad2deg(np.abs(stab_pitch))
         stab_err = np.minimum(stab_abs_deg, 180.0 - stab_abs_deg)
         # full grasp+stabilize timeline (the grasp prefix is the same for all conditions)
@@ -335,6 +391,7 @@ def main() -> None:
               f"{'STABILIZED' if summary['stabilized'] else 'FAILED'}\n")
 
     out = {"meta": {"alt_km": alt_km, "dt": dt, "horizon_b": args.horizon_b,
+                    "posture_weight": args.posture_weight,
                     "duration_b": args.duration_b, "libration_period_s": lib,
                     "rollouts": args.rollouts, "seed": args.seed},
            "results": results}

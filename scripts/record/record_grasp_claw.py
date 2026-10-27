@@ -35,6 +35,11 @@ def main() -> None:
     ap.add_argument("--mag", type=float, default=10000.0)
     ap.add_argument("--distance", type=float, default=10.0,
                     help="camera distance (render units); smaller frames the claw tighter")
+    ap.add_argument("--offset", type=float, nargs=3, default=(0.75, -0.45, 0.48),
+                    metavar=("RADIAL", "ALONG", "CROSS"), help="camera direction in LVLH")
+    ap.add_argument("--up-radial", action="store_true",
+                    help="camera up = local radial, so Earth stays at the bottom of the frame "
+                    "(use with a mostly cross-track --offset)")
     ap.add_argument("--fov", type=float, default=48.0)
     ap.add_argument("--width", type=int, default=1280)
     ap.add_argument("--height", type=int, default=720)
@@ -57,9 +62,10 @@ def main() -> None:
     payload = model.body_id("payload")
     camera = CameraConfig(
         track_body_ids=[bus, payload],
-        offset_rsw=np.array([0.75, -0.45, 0.48]),
+        offset_rsw=np.asarray(args.offset, dtype=float),
         distance=args.distance,
         fov_deg=args.fov,
+        up_radial=args.up_radial,
     )
 
     if args.plot:
