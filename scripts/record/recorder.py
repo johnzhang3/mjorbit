@@ -203,16 +203,17 @@ class HeadlessRecorder:
         position: np.ndarray,
         look_at: np.ndarray,
         fov_deg: float = 45.0,
+        up: np.ndarray | None = None,
     ) -> np.ndarray:
         """Render one frame from an explicit camera pose; returns (H, W, 3) uint8.
 
         The camera ``wxyz`` is computed server-side from ``position`` + ``up`` +
         ``look_at`` (viser's ``look_at`` setter is synchronous), then passed
         explicitly to ``get_render`` so the result never depends on the live
-        browser camera state.
+        browser camera state. ``up`` overrides the recorder's world up for this frame.
         """
         cam = self.client.camera
-        cam.up_direction = self.up
+        cam.up_direction = self.up if up is None else tuple(np.asarray(up, dtype=float))
         cam.position = tuple(np.asarray(position, dtype=float))
         cam.look_at = tuple(np.asarray(look_at, dtype=float))  # updates cam.wxyz
         img = self.client.get_render(

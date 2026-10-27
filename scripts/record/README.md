@@ -57,6 +57,21 @@ pixi run python scripts/record/record_grasp.py --traj /tmp/grasp_traj.npz --out 
 pixi run python scripts/record/produce_grasp_claw.py --out /tmp/grasp_claw_traj.npz
 pixi run python scripts/record/record_grasp_claw.py --traj /tmp/grasp_claw_traj.npz --out videos/grasping_claw.mp4
 
+# MPPI fidelity study: capture a 400 kg payload, then hold nadir (mjorbit planner).
+# Seed 2 settles with the payload toward Earth (seeds 0, 3, 4 settle payload-up).
+pixi run python examples/mppi/mppi_fidelity_capture.py --backends mjorbit \
+    --horizon-b 2400 --duration-b 10000 --seed 2 --save-traj /tmp/capture_traj.npz
+pixi run python scripts/record/record_capture.py --traj /tmp/capture_traj.npz --out videos/capture_nadir.mp4
+
+# Same episode, mjorbit vs zero-g planner side by side, rendered in Blender (Cycles).
+# --posture-weight 0.3 keeps the bus from counter-rotating ~150 deg (0 = the paper's cost).
+pixi run python examples/mppi/mppi_fidelity_capture.py --backends mjorbit zerog \
+    --horizon-b 2400 --duration-b 10000 --seed 2 --posture-weight 0.3 --save-traj /tmp/pair.npz
+pixi run python scripts/record/blender_export.py --traj /tmp/pair_mjorbit.npz /tmp/pair_zerog.npz \
+    --labels mjorbit zero-g --out /tmp/frames.npz
+blender -b -P scripts/record/blender_capture.py -- /tmp/frames.npz /tmp/frames_out \
+    --earth src/viewer/assets/earth_day_5400.jpg      # JPEG frames; label and encode with ffmpeg
+
 # RL truss servicing (paper example d) — needs the warp/GPU `rl` env + a trained
 # checkpoint (examples/ppo). produce_hug composes scripted fly-in + trained
 # hug/stabilize; the spacecraft hugs a large free truss and slews it to Earth.

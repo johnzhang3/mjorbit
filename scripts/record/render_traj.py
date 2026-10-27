@@ -30,6 +30,9 @@ class CameraConfig:
     fov_deg: float = 48.0
     distance_end: float | None = None  # optional linear zoom over the clip
     offset_end: np.ndarray | None = None  # optional offset slew over the clip
+    # Camera up = local radial (Earth stays at the bottom of the frame). Needed when the
+    # camera looks along the orbit normal, which is the world up axis.
+    up_radial: bool = False
 
 
 def _frame_labels(idx: np.ndarray, fps: float, sim_dt) -> list[str] | None:
@@ -96,7 +99,10 @@ def render_trajectory(
         with VideoWriter(out_path, fps=fps, width=width, height=height) as vid:
             for f, step in enumerate(idx):
                 u = f / (len(idx) - 1)
-                forward_to(model, data, qpos[step], R_eci=R_eci[step], V_eci=V_eci)
+                # V_eci may be one vector or one per frame. The camera's LVLH basis needs the
+                # current velocity: a fixed one degenerates a quarter orbit later.
+                v = V_eci[step] if np.ndim(V_eci) == 2 else V_eci
+                forward_to(model, data, qpos[step], R_eci=R_eci[step], V_eci=v)
                 scene.update()
                 target = scene.cluster_center_render(camera.track_body_ids)
                 dist = camera.distance if camera.distance_end is None else (
@@ -106,7 +112,8 @@ def render_trajectory(
                     (1 - u) * camera.offset_rsw + u * camera.offset_end
                 )
                 pos, look = scene.camera_pose(distance=dist, target=target, offset_rsw=off)
-                frame = rec.render(position=pos, look_at=look, fov_deg=camera.fov_deg)
+                up = np.asarray(data.orbit.R_eci, dtype=float) if camera.up_radial else None
+                frame = rec.render(position=pos, look_at=look, fov_deg=camera.fov_deg, up=up)
                 if labels is not None:
                     frame = annotate(frame, labels[f])
                 vid.add(frame)

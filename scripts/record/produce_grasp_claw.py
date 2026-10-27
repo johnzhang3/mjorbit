@@ -25,6 +25,11 @@ grip holds the cube through the swing.
     pixi run python scripts/record/produce_grasp_claw.py --out /tmp/grasp_claw_traj.npz
     pixi run python scripts/record/record_grasp_claw.py \
         --traj /tmp/grasp_claw_traj.npz --out videos/grasping_claw.mp4
+
+``--payload-side nadir`` puts the payload on Earth's side of the bus, so the claw reaches
+toward Earth and the captured stack librates about nadir instead of zenith.
+``--payload-mass`` overrides the cube's 4 kg; the edited model is saved next to ``--out``
+(same name, ``.xml``) so record_grasp_claw.py replays it.
 """
 
 from __future__ import annotations
@@ -273,6 +278,11 @@ def main() -> None:
                     "the captured stack (~5560 s is one 400 km orbit)")
     ap.add_argument("--hold-frames", type=int, default=2500,
                     help="how many post-grasp samples to keep (sub-sampled over the hold)")
+    ap.add_argument("--payload-side", choices=("zenith", "nadir"), default="zenith",
+                    help="which side of the bus the payload starts on (radially outward or "
+                    "toward Earth)")
+    ap.add_argument("--payload-mass", type=float, default=None,
+                    help="payload cube mass in kg (default: the XML's 4 kg)")
     ap.add_argument("--nthread", type=int, default=max(1, os.cpu_count() or 1))
     args = ap.parse_args()
 
@@ -280,16 +290,27 @@ def main() -> None:
     r_orbit = R_EARTH + alt_km
     omega = float(np.sqrt(GM_EARTH / r_orbit**3))
     v_orbit = float(np.sqrt(GM_EARTH / r_orbit))
-    R0 = np.array([r_orbit, 0.0, 0.0])
-    V0 = np.array([0.0, v_orbit, 0.0])  # equatorial: orbit plane = world XY
+    # The XML puts the payload at +x 7.1 m from the bus. Starting the chief on the +x side of
+    # Earth makes +x radially outward (zenith); on the -x side it points at Earth (nadir).
+    side = 1.0 if args.payload_side == "zenith" else -1.0
+    R0 = side * np.array([r_orbit, 0.0, 0.0])
+    V0 = side * np.array([0.0, v_orbit, 0.0])  # equatorial: orbit plane = world XY, same normal
 
-    model = MjoModel.from_xml_path(SPACECRAFT_CAPTURE_CLAW_XML)
+    xml_path = Path(SPACECRAFT_CAPTURE_CLAW_XML)
+    if args.payload_mass is not None:
+        payload_geom = 'size="0.25 0.25 0.25" mass="4"'
+        xml = xml_path.read_text()
+        assert xml.count(payload_geom) == 1, "payload geom changed in the claw XML"
+        xml_path = Path(args.out).with_suffix(".xml")
+        heavier = f'size="0.25 0.25 0.25" mass="{args.payload_mass:g}"'
+        xml_path.write_text(xml.replace(payload_geom, heavier))
+    model = MjoModel.from_xml_path(str(xml_path))
     dt = float(model.opt.timestep)
 
     # Keep the XML's initial layout: bus at the origin, payload at +x 7.1 m
-    # (radially outward). Both start at rest in the chief-centered world frame so
+    # (radial, per --payload-side). Both start at rest in the chief-centered world frame so
     # the boom (fixed along +x) stays pointed at the payload; over this short
-    # grasp the payload only drifts ~0.1 m outward under the gravity gradient,
+    # grasp the payload only drifts ~0.1 m away from the bus under the gravity gradient,
     # which the planner tracks by extending the boom.
     data = model.make_data(orbit=OrbitInit(R_eci=R0, V_eci=V0))
     np.copyto(data.ctrl, [0.0, 0.0, 0.0])          # boom retracted, claw open
@@ -313,6 +334,7 @@ def main() -> None:
 
     qpos_hist: list[np.ndarray] = []
     R_hist: list[np.ndarray] = []
+    V_hist: list[np.ndarray] = []
     t_hist: list[float] = []
     replan_every = max(1, int(round(args.replan / dt)))
     log_every = int(round(20.0 / dt))
@@ -332,6 +354,7 @@ def main() -> None:
 
         qpos_hist.append(np.asarray(data.qpos).copy())
         R_hist.append(np.asarray(data.orbit.R_eci).copy())
+        V_hist.append(np.asarray(data.orbit.V_eci).copy())
         t_hist.append(float(data.time))
 
         if step % log_every == 0:
@@ -380,6 +403,7 @@ def main() -> None:
             if k % stride == 0 or k == n_hold - 1:
                 qpos_hist.append(np.asarray(data.qpos).copy())
                 R_hist.append(np.asarray(data.orbit.R_eci).copy())
+                V_hist.append(np.asarray(data.orbit.V_eci).copy())
                 t_hist.append(float(data.time))
         held = plant_distance(data)
         print(f"  coasted {args.hold_seconds:.0f} s with grip closed; "
@@ -399,11 +423,11 @@ def main() -> None:
         qpos=np.asarray(qpos_hist),
         R_eci=np.asarray(R_hist),
         t=np.asarray(t_hist),
-        V_eci=V0,
+        V_eci=np.asarray(V_hist),   # per frame: a fixed V0 breaks the camera's LVLH basis
         t_latch=t_latch,
         dt=dt,
         sim_dt=sim_dt,
-        xml_path=str(SPACECRAFT_CAPTURE_CLAW_XML),
+        xml_path=str(xml_path),
         n_capture=n_capture,
     )
     print(f"saved {len(qpos_hist)}-step trajectory to {args.out} (approach={n_capture})")
