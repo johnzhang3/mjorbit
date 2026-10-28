@@ -35,6 +35,7 @@ Open the printed local URL. Use Pause, Reset, and the task dropdown to explore.
 | Docking | `pixi run example-docking` | Uses the source-tree ISS and Soyuz meshes; [provenance](docking/assets/README.md) |
 | Capture and stabilization | `pixi run example-mppi-capture` | Long-horizon MPPI; allow substantially more time than arm reach |
 | PPO truss pointing | `pixi run -e rl ppo-truss-train` | Linux/NVIDIA GPU; [training and playback](ppo/README.md) |
+| PPO capture & reorient (SGS) | `pixi run -e rl python examples/ppo/capture_train.py` | Linux/NVIDIA GPU; sparse reward + Success Guided Sampling; [guide](ppo/README.md#example-3-capture--reorient-a-free-floating-client-with-sgs) |
 | Batched banner viewer | `pixi run -e warp banner-viewer-gpu` | GPU fleet simulation with a browser view |
 
 Each controller script accepts `--help` for duration, seed, sampling, and output
