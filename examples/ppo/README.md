@@ -317,3 +317,65 @@ pixi run python scripts/record/record_capture_rl.py \
 
 Two concurrent runs at 4096 worlds each take ~2.4 s per PPO iteration on an RTX
 3080 (one alone: ~1.5 s, ~100k env-steps/s with contacts).
+
+## Results
+
+4096 worlds per run, N = 8192 training configurations, RTX 3080; same PPO
+settings and seed for both samplers. Held-out success uses 3072 fresh
+configurations (1024 per family) with the deterministic policy. Curves:
+`figures/capture_sgs_vs_uniform.png` (held-out data in
+`figures/capture_eval_{sgs,uniform}.csv`) and `figures/capture_sgs_focus.png`.
+
+![SGS vs uniform](figures/capture_sgs_vs_uniform.png)
+
+| PPO iteration (env steps) | SGS | uniform |
+|---|---|---|
+| 100 (13M) | 65% (approach 2%) | 0% |
+| 200 (26M) | 67% (approach 3%) | 67% (approach 2%) |
+| 700 (92M) | 68% (approach 5%) | 67% (approach 2%) |
+| 900 (118M) | 87% (approach 60%) | — |
+| 1000 (131M) | 95% (approach 85%) | 67% (approach 2%) |
+| 1450 (190M) | **99.4%** (held 100, pregrasp 100, approach 98) | 67% (approach 2%) at 1400 |
+| 3000 (393M) | — (stopped at 1461, converged) | 67.2% (approach 2.1%) |
+
+- **SGS solves the whole task.** The final policy succeeds on 99.4% of held-out
+  configurations. Approach success is 94% / 99% / 100% across the easiest /
+  middle / hardest difficulty thirds, ≥ 99% in every initial-pointing-error bin
+  (0–180°), with 0.4% failures and a mean time to success of 8.5 s.
+- **Uniform sampling never learns the approach.** It solves held and pregrasp
+  about 100 iterations later than SGS and then plateaus at the 67% they
+  contribute, with ~2% approach success, through all 3000 iterations (393M env
+  steps, twice what SGS used).
+- **Where SGS spends experience** (`figures/capture_sgs_focus.png`): first on held and
+  pregrasp configurations with large pointing errors; then, from ~600 iterations,
+  on approach configurations. The approach share of episodes peaks at ~74%
+  (uniform: a fixed 33%) and falls back as those configurations become solved.
+- **Learned behavior** (`videos/capture_reorient_rl.mp4`): the servicer thrusts
+  toward the client and closes the jaws on the bar with both hands, then slews
+  the stack. It swings the client with the arms as well as using the wheels:
+  in the 180° example the slew goes from 154° to 6° in ~6 s and succeeds at 14 s. Earlier policies (iteration 900) first caged the client
+  loosely, slewed it, and then re-gripped to clamp it properly.
+
+## Notes
+
+- **Reset coverage matters, as in the paper (App. B.3).** In a first version, the
+  approach family started 0.15–1.2 m away with misalignment, drift, and tumble
+  drawn independently at full range. Combined with the collision check, that left
+  almost no intermediate configurations between "bar in the jaws" and "far and
+  tumbling". Both samplers stalled at 66.5% with ~0% approach success through
+  640 iterations. SGS still reached the plateau faster. Grading the approach
+  family by a per-configuration difficulty gave SGS a frontier to climb.
+- **The grip release is debounced.** With a plain ±0.8 latch, growing exploration
+  noise kept opening the grip on clamped clients. A success needs 30 consecutive
+  clamped steps, so a run could lock into "never succeeds" (it happened to both
+  samplers once). Release now needs 3 consecutive open commands; closing is
+  immediate.
+- Episodes end on success, so behavior after the 3 s hold is untrained: the
+  policy drifts off nadir afterwards. The recorder ends clips on the success step.
+- SGS's H = 100 history is long relative to the ~50–200 visits each
+  configuration gets at this scale, so stale early failures keep already-solved
+  configurations looking like frontier for a while.
+- The client is held by contact + friction only. Thrust feeds back into the
+  chief orbit (mjorbit treats the scene's external forces as moving the
+  reference), so bus-vs-client relative motion is physical even though the
+  bus's local-frame velocity is small.

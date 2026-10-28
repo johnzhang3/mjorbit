@@ -116,12 +116,14 @@ def main() -> None:
     for ax, (_, title) in zip(axes[0], eval_panels):
         _style(ax, title, "success rate (%)" if ax is axes[0, 0] else None)
         ax.set_ylim(-3, 103)
-    # End-of-curve value labels, nudged apart so converged curves stay legible.
+    # End-of-curve value labels: under the curve end near the 100% ceiling, and
+    # stacked downward so converged curves stay legible.
     for ax, pts in ends.values():
-        pts = sorted(pts)
         placed: list[float] = []
-        for y, x, label in pts:
-            yy = max(y, placed[-1] + 7.0) if placed else y
+        for y, x, label in sorted(pts, reverse=True):
+            yy = y - 7.0 if y > 90.0 else y
+            if placed:
+                yy = min(yy, placed[-1] - 7.0)
             placed.append(yy)
             ax.text(
                 x,
@@ -169,10 +171,8 @@ def plot_focus(run: Path, out: Path, n_lines: int = len(_RAMP)) -> None:
             if key == "point_err0":
                 x, edges = np.degrees(z["cfg_point_err0"][sel]), np.linspace(0, 180, 13)
             else:
-                x, edges = (
-                    np.linalg.norm(z["cfg_client_dp"][sel], axis=1),
-                    np.linspace(0.15, 1.2, 8),
-                )
+                x = np.linalg.norm(z["cfg_client_dp"][sel], axis=1)
+                edges = np.linspace(x.min(), x.max(), 8)
             bins = np.clip(np.digitize(x, edges) - 1, 0, len(edges) - 2)
             mean = np.array([weight[sel][bins == b].mean() for b in range(len(edges) - 1)])
             centers = 0.5 * (edges[1:] + edges[:-1])
